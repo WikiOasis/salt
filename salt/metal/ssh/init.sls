@@ -6,5 +6,3 @@ sshd_config:
       - user: root
       - group: root
       - mode: '0600'
-      - require:
-        - pkg: openssh-server
