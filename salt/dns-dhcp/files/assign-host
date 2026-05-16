@@ -62,7 +62,7 @@ cmd_add() {
         || die "reverse zone validation failed"
 
     rndc reload > /dev/null
-    systemctl reload dnsmasq
+    systemctl restart dnsmasq
 
     echo "Added $hostname ($ip, $mac)"
 }
@@ -93,7 +93,7 @@ cmd_remove() {
         || die "reverse zone validation failed"
 
     rndc reload > /dev/null
-    systemctl reload dnsmasq
+    systemctl restart dnsmasq
 
     echo "Removed $hostname ($ip)"
 }
