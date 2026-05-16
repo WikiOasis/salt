@@ -21,7 +21,7 @@ apt_update:
     - onchanges:
       - file: /etc/apt/sources.list
 
-/etc/apt/apt.conf
+/etc/apt/apt.conf:
   file.managed:
     - user: root
     - group: root
