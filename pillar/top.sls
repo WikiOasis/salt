@@ -1,4 +1,4 @@
-main:
+base:
    '*':
       - users
       - users.groups
