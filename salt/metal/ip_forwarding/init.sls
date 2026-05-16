@@ -4,6 +4,13 @@ iptables-persistent:
 bind9-dnsutils:
   pkg.installed: []
 
+netfilter-persistent:
+  service.enabled: []
+
+net.ipv4.ip_forward:
+  sysctl.present:
+    - value: 1
+
 ip_forwarding_script:
   file.managed:
     - name: /usr/local/sbin/apply-forwarding.sh
@@ -23,3 +30,4 @@ apply_ip_forwarding:
       - file: ip_forwarding_script
     - require:
       - file: ip_forwarding_script
+      - sysctl: net.ipv4.ip_forward

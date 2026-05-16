@@ -5,6 +5,9 @@ set -euo pipefail
 NAT_CHAIN="SALT-DNAT"
 FWD_CHAIN="SALT-FWD"
 
+# Ensure kernel forwarding is enabled
+sysctl -w net.ipv4.ip_forward=1
+
 # Create or flush the dedicated NAT chain
 iptables -t nat -N "$NAT_CHAIN" 2>/dev/null || iptables -t nat -F "$NAT_CHAIN"
 # Wire it into PREROUTING once
@@ -17,20 +20,23 @@ iptables -N "$FWD_CHAIN" 2>/dev/null || iptables -F "$FWD_CHAIN"
 iptables -C FORWARD -j "$FWD_CHAIN" 2>/dev/null \
   || iptables -I FORWARD -j "$FWD_CHAIN"
 
+# Allow return traffic for all established/related connections
+iptables -A "$FWD_CHAIN" -m state --state ESTABLISHED,RELATED -j ACCEPT
+
 {%- for rule in pillar.get('ip_forwarding', []) %}
 {%- set proto = rule.get('proto', 'tcp') %}
 {%- set ns = rule.get('nameserver', '127.0.0.1') %}
-VM_IP_{{ loop.index }}=$(host -W 3 "{{ rule['vm_dns'] }}" {{ ns }} | awk '/has address/{print $NF; exit}')
+VM_IP_{{ loop.index }}=$(host -W 3 "{{ rule['vm_dns'] }}" {{ ns }} | awk '/has address/{print $NF; exit}') || true
 if [[ -z "$VM_IP_{{ loop.index }}" ]]; then
   echo "Could not resolve {{ rule['vm_dns'] }}" >&2
   exit 1
 fi
 iptables -t nat -A "$NAT_CHAIN" \
-  -i vmbr0 -p {{ proto }} --dport {{ rule['host_port'] }} \
+  -p {{ proto }} --dport {{ rule['host_port'] }} \
   -j DNAT --to-destination "${VM_IP_{{ loop.index }}}:{{ rule['vm_port'] }}"
 iptables -A "$FWD_CHAIN" \
   -p {{ proto }} -d "${VM_IP_{{ loop.index }}}" --dport {{ rule['vm_port'] }} \
-  -m state --state NEW,ESTABLISHED,RELATED \
+  -m state --state NEW \
   -j ACCEPT
 echo "{{ proto | upper }} host:{{ rule['host_port'] }} -> {{ rule['vm_dns'] }} ($VM_IP_{{ loop.index }}):{{ rule['vm_port'] }}"
 {%- endfor %}
