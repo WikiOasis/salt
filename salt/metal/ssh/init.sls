@@ -6,3 +6,9 @@ sshd_config:
       - user: root
       - group: root
       - mode: '0600'
+   cmd.run:
+      - name: systemctl reload sshd
+      - onchanges:
+         - file: sshd_config
+      - require:
+         - file: sshd_config
