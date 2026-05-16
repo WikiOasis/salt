@@ -1,8 +1,8 @@
-ip_forwarding_pkgs:
-  pkg.installed:
-    - pkgs:
-      - iptables-persistent
-      - dnsutils
+iptables-persistent:
+  pkg.installed: []
+
+dnsutils:
+  pkg.installed: []
 
 ip_forwarding_script:
   file.managed:
