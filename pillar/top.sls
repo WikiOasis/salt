@@ -2,7 +2,7 @@ base:
    '*':
       - users
       - users.groups
-   'metal* or *-us-east-0[0-9][0-9]':
+   'metal* or *-us-east-0[0-9][0-9]*':
       - match: compound
       - metal
    'metal-us-east-01*':
