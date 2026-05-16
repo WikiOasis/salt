@@ -9,17 +9,11 @@ haproxy:
     timeout_client: 50s
     timeout_server: 50s
 
-  # Path to the HAProxy stats/runtime socket — required for depool/repool/route/status
   stats_socket: /run/haproxy/admin.sock
 
-  # Hostname → backend routing map (managed by haproxy.route)
-  # Entries with active: false are removed from the map
   routes:
-    - hostname: app.example.com
-      backend: app_servers
-      active: true
-    - hostname: api.example.com
-      backend: api_servers
+    - hostname: icinga.wikioasis.org
+      backend: icinga
       active: true
 
   frontends:
