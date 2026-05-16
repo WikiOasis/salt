@@ -6,6 +6,11 @@ ip_forwarding:
     vm_ip: 10.0.2.49
     vm_port: 22
     proto: tcp
+  - host_port: 80
+    vm_dns: proxy-us-east-021.ovvin.wonet
+    vm_ip: 10.0.2.2
+    vm_port: 80
+    proto: tcp
 
 dns_hosts:
   bastion-us-east-021:
