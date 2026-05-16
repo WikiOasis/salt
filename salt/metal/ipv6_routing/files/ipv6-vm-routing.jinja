@@ -25,13 +25,15 @@ for vm in json.load(sys.stdin):
 for VMID in $VMIDS; do
   IPV6="${PREFIX}::${VMID}"
 
-  if ! ip -6 neigh show proxy dev "${PUB_BR}" | grep -q "${IPV6}"; then
+  # `ip -6 neigh show proxy dev` doesn't filter proxy entries by device on all kernels
+  if ! ip -6 neigh show proxy | grep -q "^${IPV6} "; then
     ip -6 neigh add proxy "${IPV6}" dev "${PUB_BR}"
     echo "ndp proxy: added ${IPV6} dev ${PUB_BR}"
     CHANGED=1
   fi
 
-  if ! ip -6 route show | grep -q "${IPV6}/128"; then
+  # iproute2 omits the /128 suffix in output for host routes; use exact match instead
+  if ! ip -6 route show exact "${IPV6}/128" | grep -q .; then
     ip -6 route add "${IPV6}/128" dev "${PRIV_BR}"
     echo "route: added ${IPV6}/128 dev ${PRIV_BR}"
     CHANGED=1
