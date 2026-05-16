@@ -20,3 +20,12 @@ apt_update:
     - name: apt-get update -qq
     - onchanges:
       - file: /etc/apt/sources.list
+
+/etc/apt/apt.conf
+  file.managed:
+    - user: root
+    - group: root
+    - mode: '0644'
+    - contents: |
+        APT::Install-Recommends "0";
+        APT::Install-Suggests "0";

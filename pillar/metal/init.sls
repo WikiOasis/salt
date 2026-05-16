@@ -5,7 +5,7 @@ server_groups:
 # Set Acquire::http::Proxy to this value in /etc/apt/apt.conf.d/99proxy on the VM.
 # Salt enforces that file absent once it manages the host.
 apt_bootstrap:
-  http_cache: http://127.0.0.1:3128
+  http_cache: http://127.0.0.1:3129
 
 metal_public_ips:
   - 40.160.53.92
