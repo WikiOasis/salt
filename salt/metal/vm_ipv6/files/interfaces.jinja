@@ -1,4 +1,4 @@
-{%- set vm = salt['pillar.get']('proxmox:vms:' ~ grains['id'], {}) %}
+{%- set vm = salt['pillar.get']('proxmox:vms:' ~ grains['host'], {}) %}
 {%- set vmid = vm.get('vmid') %}
 {%- set host_cfg = salt['pillar.get']('proxmox:hosts:' ~ vm.get('metal_host', ''), {}) %}
 {%- set prefix = salt['pillar.get']('proxmox:ipv6_prefix', '2604:2dc0:100:295c') %}
