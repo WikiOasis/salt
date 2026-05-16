@@ -13,7 +13,8 @@ ip_forwarding_script:
     - user: root
     - group: root
     - require:
-      - pkg: ip_forwarding_pkgs
+      - pkg: iptables-persistent
+      - pkg: dnsutils
 
 apply_ip_forwarding:
   cmd.run:
