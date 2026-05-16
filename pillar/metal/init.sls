@@ -12,6 +12,9 @@ dns_hosts:
   proxy-us-east-011:
     ip: 10.0.1.2
     mac: bc:24:11:7f:59:ff
+  db-other-us-east-011:
+    ip: 10.0.1.20
+    mac: bc:24:11:24:40:36
   bastion-us-east-021:
     ip: 10.0.2.49
     mac: bc:24:11:ab:a4:70
@@ -44,6 +47,9 @@ proxmox:
       metal_host: metal-us-east-01
       vmid: 102
       interface: ens18
+    db-other-us-east-011.ovvin.wonet:
+      metal_host: metal-us-east-01
+      vmid: 120
     # metal-us-east-02
     bastion-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
