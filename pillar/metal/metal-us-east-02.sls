@@ -1,3 +1,5 @@
+public_ip: 40.160.53.94
+
 ip_forwarding:
   - host_port: 2322
     vm_dns: bastion-us-east-021.ovvin.wonet
