@@ -12,3 +12,6 @@ dns_hosts:
   salt-us-east-021:
     ip: 10.0.2.124
     mac: bc:24:11:e4:0b:97
+  proxy-us-east-021:
+    ip: 10.0.2.2
+    mac: bc:24:11:90:a6:bd
