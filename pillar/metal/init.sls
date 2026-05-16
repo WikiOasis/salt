@@ -1,6 +1,11 @@
 server_groups:
   - ops
 
+# Used during initial provisioning (before Salt takes over) to work around
+# IPv6 failures. Bootstrap scripts should read this value via the pillar API.
+apt_proxy:
+  url: http://apt-proxy.wikioasis.org:3142
+
 metal_public_ips:
   - 40.160.53.92
   - 40.160.53.94
