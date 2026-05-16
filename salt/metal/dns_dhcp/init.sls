@@ -2,7 +2,7 @@
 
 /usr/local/sbin/assign-host:
   file.managed:
-    - source: salt://dns-dhcp/files/assign-host
+    - source: salt://metal/dns_dhcp/files/assign-host
     - user: root
     - group: root
     - mode: "0750"

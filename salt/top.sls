@@ -2,8 +2,8 @@ base:
   '*':
     - users
   'metal*':
-    - metal.ip_forwarding
-    - metal.ssh
-    - dns-dhcp
+    - metal
   'proxy*':
     - haproxy
+  '*-us-east-0[0-9][0-9]':
+    - metal.vm_ipv6

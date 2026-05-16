@@ -1,0 +1,45 @@
+#!/bin/bash
+# Managed by Salt (metal.ipv6_routing) — do not edit manually
+set -euo pipefail
+
+PREFIX="{{ salt['pillar.get']('proxmox:ipv6_prefix', '2604:2dc0:100:295c') }}"
+PUB_BR="{{ salt['pillar.get']('proxmox:public_bridge', 'vmbr0') }}"
+PRIV_BR="{{ salt['pillar.get']('proxmox:private_bridge', 'vmbr-vrack') }}"
+
+# When triggered by ifupdown, only process on the public bridge coming up
+if [[ -n "${IFACE:-}" && "${IFACE}" != "${PUB_BR}" ]]; then
+  exit 0
+fi
+
+NODE=$(hostname)
+CHANGED=0
+
+VMIDS=$(pvesh get "/nodes/${NODE}/qemu" --output-format=json \
+  | python3 -c "
+import sys, json
+for vm in json.load(sys.stdin):
+    if vm.get('status') == 'running':
+        print(vm['vmid'])
+")
+
+for VMID in $VMIDS; do
+  IPV6="${PREFIX}::${VMID}"
+
+  if ! ip -6 neigh show proxy dev "${PUB_BR}" | grep -q "${IPV6}"; then
+    ip -6 neigh add proxy "${IPV6}" dev "${PUB_BR}"
+    echo "ndp proxy: added ${IPV6} dev ${PUB_BR}"
+    CHANGED=1
+  fi
+
+  if ! ip -6 route show | grep -q "${IPV6}/128"; then
+    ip -6 route add "${IPV6}/128" dev "${PRIV_BR}"
+    echo "route: added ${IPV6}/128 dev ${PRIV_BR}"
+    CHANGED=1
+  fi
+done
+
+if [[ "$CHANGED" -eq 1 ]]; then
+  echo "changed=yes"
+else
+  echo "changed=no"
+fi
