@@ -1,7 +1,7 @@
 iptables-persistent:
   pkg.installed: []
 
-dnsutils:
+bind9-dnsutils:
   pkg.installed: []
 
 ip_forwarding_script:
