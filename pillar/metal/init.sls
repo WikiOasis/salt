@@ -72,3 +72,7 @@ proxmox:
       metal_host: metal-us-east-02
       vmid: 210
       interface: ens18
+    salt-us-east-021.ovvin.wonet:
+      metal_host: metal-us-east-02
+      vmid: 203
+      interface: ens18
