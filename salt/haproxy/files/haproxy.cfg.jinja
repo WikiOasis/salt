@@ -26,8 +26,26 @@ frontend {{ name }}
     option {{ option }}
 {%- endfor %}
 {%- if frontend.get('use_routes') and haproxy.get('routes') %}
-    use_backend %[req.hdr(host),lower,map(/etc/haproxy/routes.map{{ ',{}'.format(frontend.default_backend) if frontend.get('default_backend') else '' }})]
+    acl has_route req.hdr(host),lower,map(/etc/haproxy/routes.map) -m found
+    use_backend %[req.hdr(host),lower,map(/etc/haproxy/routes.map)] if has_route
 {%- endif %}
+{%- set exact_hosts = [] %}
+{%- set wildcard_hosts = [] %}
+{%- for ph in frontend.get('persistent_hosts', []) %}
+{%- if ph.hostname.startswith('*.') %}
+{%- do wildcard_hosts.append(ph) %}
+{%- else %}
+{%- do exact_hosts.append(ph) %}
+{%- endif %}
+{%- endfor %}
+{%- for ph in exact_hosts %}
+    acl fe_{{ name }}_h{{ loop.index }} hdr(host) -i {{ ph.hostname }}
+    use_backend {{ ph.backend }} if fe_{{ name }}_h{{ loop.index }}
+{%- endfor %}
+{%- for ph in wildcard_hosts %}
+    acl fe_{{ name }}_w{{ loop.index }} hdr_end(host) -i {{ ph.hostname[1:] }}
+    use_backend {{ ph.backend }} if fe_{{ name }}_w{{ loop.index }}
+{%- endfor %}
 {%- if frontend.get('default_backend') %}
     default_backend {{ frontend.default_backend }}
 {%- endif %}

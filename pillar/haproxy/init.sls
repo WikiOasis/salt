@@ -26,50 +26,24 @@ haproxy:
     http:
       bind: '*:80'
       mode: http
-      # use_routes: true wires this frontend to the routes map above.
-      # Requests whose Host header matches a route entry are sent to that backend.
-      # All other requests fall through to default_backend.
       use_routes: true
-      default_backend: app_servers
+      persistent_hosts:
+        - hostname: icinga.wikioasis.org
+          backend: icinga
+      default_backend: icinga
       options:
         - forwardfor
         - http-server-close
 
   backends:
-    app_servers:
+    icinga:
       balance: roundrobin
       options:
         - forwardfor
-        - httpchk GET /health
       servers:
-        - name: app01
-          host: 192.168.1.10
-          port: 8080
-          check: true
-          weight: 1
-          depooled: false
-        - name: app02
-          host: 192.168.1.11
-          port: 8080
-          check: true
-          weight: 1
-          depooled: false
-
-    api_servers:
-      balance: roundrobin
-      options:
-        - forwardfor
-        - httpchk GET /api/health
-      servers:
-        - name: api01
-          host: 192.168.1.20
-          port: 9090
-          check: true
-          weight: 1
-          depooled: false
-        - name: api02
-          host: 192.168.1.21
-          port: 9090
+        - name: monitoring-us-east-021
+          host: monitoring-us-east-021.ovvin.wonet
+          port: 80
           check: true
           weight: 1
           depooled: false
