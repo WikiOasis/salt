@@ -1,3 +1,5 @@
+# Adapted from https://gitlab.com/telepedia/saltstack/-/blob/main/salt/users/init.sls
+
 # Revoke any users with a role of revoked
 {%- for user, args in pillar.get('revokedusers', {}).items() %}
 {{ user }}:
