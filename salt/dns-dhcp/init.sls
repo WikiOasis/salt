@@ -11,7 +11,11 @@
 assign_host_{{ hostname }}:
   cmd.run:
     - name: assign-host add {{ hostname }} {{ h.mac if h.mac else '~' }} {{ h.ip }}
-    - unless: assign-host list | grep -qw '{{ hostname }}'
+{%- if h.mac %}
+    - unless: grep -q ',{{ hostname }},' /etc/dnsmasq.d/static-hosts.conf
+{%- else %}
+    - unless: grep -q '^{{ hostname }}[[:space:]]' /etc/bind/zones/ovvin.wonet.zone
+{%- endif %}
     - require:
       - file: /usr/local/sbin/assign-host
 {%- endfor %}
