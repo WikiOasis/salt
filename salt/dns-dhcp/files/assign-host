@@ -1,0 +1,129 @@
+#!/bin/bash
+# assign-host(8) — manage static DNS and DHCP assignments for ovvin.wonet
+# Usage:
+#   assign-host add <hostname> <mac> <ip>
+#   assign-host remove <hostname>
+#   assign-host list
+
+set -euo pipefail
+
+DOMAIN="ovvin.wonet"
+FORWARD_ZONE="/etc/bind/zones/ovvin.wonet.zone"
+REVERSE_ZONE="/etc/bind/zones/10.0.in-addr.arpa.zone"
+STATIC_HOSTS="/etc/dnsmasq.d/static-hosts.conf"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+bump_serial() {
+    local file="$1"
+    local today
+    today=$(date +%Y%m%d)
+
+    local current_serial
+    current_serial=$(grep -oP '\d{10}(?=\s*;\s*serial)' "$file" | head -1)
+    [[ -z "$current_serial" ]] && die "could not find SOA serial in $file"
+
+    local date_part="${current_serial:0:8}"
+    local seq_part="${current_serial:8:2}"
+
+    local new_serial
+    if [[ "$date_part" == "$today" ]]; then
+        new_serial="${today}$(printf '%02d' $(( 10#$seq_part + 1 )))"
+    else
+        new_serial="${today}01"
+    fi
+
+    sed -i "s/${current_serial}/${new_serial}/" "$file"
+}
+
+cmd_add() {
+    local hostname="${1:-}" mac="${2:-}" ip="${3:-}"
+    [[ -z "$hostname" || -z "$mac" || -z "$ip" ]] && die "add requires <hostname> <mac> <ip>"
+
+    grep -qP "^${hostname}\s" "$FORWARD_ZONE" && die "hostname $hostname already exists in forward zone"
+
+    printf '%-24s IN  A   %s\n' "$hostname" "$ip" >> "$FORWARD_ZONE"
+
+    local octets
+    IFS='.' read -ra octets <<< "$ip"
+    local ptr="${octets[3]}.${octets[2]}"
+    printf '%-8s IN  PTR %s.%s.\n' "$ptr" "$hostname" "$DOMAIN" >> "$REVERSE_ZONE"
+
+    if [[ "$mac" != "~" && -n "$mac" ]]; then
+        echo "dhcp-host=${mac},${hostname},${ip},infinite" >> "$STATIC_HOSTS"
+    fi
+
+    bump_serial "$FORWARD_ZONE"
+    bump_serial "$REVERSE_ZONE"
+
+    named-checkzone "$DOMAIN" "$FORWARD_ZONE" > /dev/null \
+        || die "forward zone validation failed"
+    named-checkzone "0.10.in-addr.arpa" "$REVERSE_ZONE" > /dev/null \
+        || die "reverse zone validation failed"
+
+    rndc reload > /dev/null
+    systemctl reload dnsmasq
+
+    echo "Added $hostname ($ip, $mac)"
+}
+
+cmd_remove() {
+    local hostname="${1:-}"
+    [[ -z "$hostname" ]] && die "remove requires <hostname>"
+
+    local ip
+    ip=$(grep -P "^${hostname}\s" "$FORWARD_ZONE" | grep -oP '\d+\.\d+\.\d+\.\d+' | head -1)
+    [[ -z "$ip" ]] && die "hostname $hostname not found in forward zone"
+
+    sed -i "/^${hostname}[[:space:]]/d" "$FORWARD_ZONE"
+
+    local octets
+    IFS='.' read -ra octets <<< "$ip"
+    local ptr="${octets[3]}.${octets[2]}"
+    sed -i "/^${ptr}[[:space:]]/d" "$REVERSE_ZONE"
+
+    sed -i "/,${hostname},/d" "$STATIC_HOSTS"
+
+    bump_serial "$FORWARD_ZONE"
+    bump_serial "$REVERSE_ZONE"
+
+    named-checkzone "$DOMAIN" "$FORWARD_ZONE" > /dev/null \
+        || die "forward zone validation failed"
+    named-checkzone "0.10.in-addr.arpa" "$REVERSE_ZONE" > /dev/null \
+        || die "reverse zone validation failed"
+
+    rndc reload > /dev/null
+    systemctl reload dnsmasq
+
+    echo "Removed $hostname ($ip)"
+}
+
+cmd_list() {
+    printf '%-28s %-16s %s\n' "HOSTNAME" "IP" "MAC"
+    printf '%-28s %-16s %s\n' "--------" "--" "---"
+
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[#\$@] ]] && continue
+        [[ "$line" =~ IN[[:space:]]+(SOA|NS|PTR) ]] && continue
+
+        if [[ "$line" =~ ^([^[:space:]]+)[[:space:]]+IN[[:space:]]+A[[:space:]]+([0-9.]+) ]]; then
+            local name="${BASH_REMATCH[1]}"
+            local ip="${BASH_REMATCH[2]}"
+            local mac
+            mac=$(grep -oP "(?<=dhcp-host=)[^,]+(?=,${name},)" "$STATIC_HOSTS" 2>/dev/null || echo "(no DHCP)")
+            printf '%-28s %-16s %s\n' "$name" "$ip" "$mac"
+        fi
+    done < "$FORWARD_ZONE"
+}
+
+case "${1:-}" in
+    add)    shift; cmd_add "$@" ;;
+    remove) shift; cmd_remove "$@" ;;
+    list)   cmd_list ;;
+    *)
+        echo "Usage: assign-host add <hostname> <mac> <ip>" >&2
+        echo "       assign-host remove <hostname>" >&2
+        echo "       assign-host list" >&2
+        exit 1
+        ;;
+esac
