@@ -10,6 +10,7 @@ users:
         fullname: Unai
         ssh-keys:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICvwM20uHONQHh289mWK8VnvAod4FbuwML2gtyy8uBwj
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBENCQ1Vgjdl8ux9snbGF4s1SRbcU0EvaYlj7I51LWG zippybonzo@wikioasis.org
         uid: 3001
         gid: 3001
 groups:
