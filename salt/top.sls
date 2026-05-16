@@ -2,6 +2,8 @@ base:
   '*':
     - base
     - users
+  'db*':
+    - mariadb
   'metal*':
     - metal
   'proxy*':
