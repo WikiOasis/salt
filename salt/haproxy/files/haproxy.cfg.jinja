@@ -1,0 +1,46 @@
+{%- set haproxy = salt['pillar.get']('haproxy', {}) %}
+{%- set global_cfg = haproxy.get('global', {}) %}
+{%- set defaults_cfg = haproxy.get('defaults', {}) %}
+{%- set stats_socket = haproxy.get('stats_socket', '/run/haproxy/admin.sock') %}
+
+global
+    log {{ global_cfg.get('log', '/dev/log local0 info') }}
+    maxconn {{ global_cfg.get('maxconn', 4096) }}
+    stats socket {{ stats_socket }} mode 660 level admin expose-fd listeners
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    mode {{ defaults_cfg.get('mode', 'http') }}
+    log global
+    option dontlognull
+    timeout connect {{ defaults_cfg.get('timeout_connect', '5s') }}
+    timeout client {{ defaults_cfg.get('timeout_client', '50s') }}
+    timeout server {{ defaults_cfg.get('timeout_server', '50s') }}
+{% for name, frontend in haproxy.get('frontends', {}).items() %}
+frontend {{ name }}
+    bind {{ frontend.bind }}
+    mode {{ frontend.get('mode', defaults_cfg.get('mode', 'http')) }}
+{%- for option in frontend.get('options', []) %}
+    option {{ option }}
+{%- endfor %}
+{%- if frontend.get('use_routes') and haproxy.get('routes') %}
+    use_backend %[req.hdr(host),lower,map(/etc/haproxy/routes.map{{ ',{}'.format(frontend.default_backend) if frontend.get('default_backend') else '' }})]
+{%- endif %}
+{%- if frontend.get('default_backend') %}
+    default_backend {{ frontend.default_backend }}
+{%- endif %}
+{% endfor %}
+{%- for name, backend in haproxy.get('backends', {}).items() %}
+backend {{ name }}
+    balance {{ backend.get('balance', 'roundrobin') }}
+    mode {{ backend.get('mode', defaults_cfg.get('mode', 'http')) }}
+{%- for option in backend.get('options', []) %}
+    option {{ option }}
+{%- endfor %}
+{%- for server in backend.get('servers', []) %}
+    server {{ server.name }} {{ server.host }}:{{ server.port }}{% if server.get('check', false) %} check{% endif %}{% if server.get('weight') %} weight {{ server.weight }}{% endif %}{% if server.get('maxconn') %} maxconn {{ server.maxconn }}{% endif %}
+
+{%- endfor %}
+{% endfor %}

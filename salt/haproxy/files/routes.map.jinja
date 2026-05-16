@@ -1,0 +1,6 @@
+{%- set routes = salt['pillar.get']('haproxy:routes', []) %}
+{%- for route in routes %}
+{%- if route.get('active', true) %}
+{{ route.hostname }} {{ route.backend }}
+{%- endif %}
+{%- endfor %}
