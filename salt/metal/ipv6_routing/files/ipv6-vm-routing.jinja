@@ -2,7 +2,9 @@
 # Managed by Salt (metal.ipv6_routing) — do not edit manually
 set -euo pipefail
 
-PREFIX="{{ salt['pillar.get']('proxmox:ipv6_prefix', '2604:2dc0:100:295c') }}"
+{%- set host_name = grains['id'].split('.')[0] %}
+{%- set host_cfg = salt['pillar.get']('proxmox:hosts:' ~ host_name, {}) %}
+PREFIX="{{ host_cfg.get('ipv6_prefix', '') }}"
 PUB_BR="{{ salt['pillar.get']('proxmox:public_bridge', 'vmbr0') }}"
 PRIV_BR="{{ salt['pillar.get']('proxmox:private_bridge', 'vmbr-vrack') }}"
 

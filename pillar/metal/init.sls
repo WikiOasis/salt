@@ -23,14 +23,16 @@ dns_hosts:
     mac: bc:24:11:90:a6:bd
 
 proxmox:
-  ipv6_prefix: "2604:2dc0:100:295c"
-  ipv6_gateway: "2604:2dc0:100:29ff:ff:ff:ff:ff"
   public_bridge: "vmbr0"
   private_bridge: "vmbr-vrack"
   hosts:
     metal-us-east-01:
+      ipv6_prefix: "2604:2dc0:100:295c"
+      ipv6_gateway: "2604:2dc0:100:29ff:ff:ff:ff:ff"
       vm_gateway_ll: "fe80::d250:99ff:feda:8f81"
     metal-us-east-02:
+      ipv6_prefix: "2604:2dc0:100:295e"
+      ipv6_gateway: "2604:2dc0:100:29ff:ff:ff:ff:ff"
       vm_gateway_ll: "fe80::d250:99ff:feda:9205"
   vms:
     # metal-us-east-01

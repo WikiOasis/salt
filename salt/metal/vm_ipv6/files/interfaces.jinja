@@ -1,7 +1,7 @@
 {%- set vm = salt['pillar.get']('proxmox:vms:' ~ grains['id'], {}) %}
 {%- set vmid = vm.get('vmid') %}
 {%- set host_cfg = salt['pillar.get']('proxmox:hosts:' ~ vm.get('metal_host', ''), {}) %}
-{%- set prefix = salt['pillar.get']('proxmox:ipv6_prefix', '2604:2dc0:100:295c') %}
+{%- set prefix = host_cfg.get('ipv6_prefix', '') %}
 {%- set gw_ll = host_cfg.get('vm_gateway_ll', '') %}
 {%- set iface = vm.get('interface', 'ens18') %}
 # Managed by Salt (metal.vm_ipv6) — do not edit manually
