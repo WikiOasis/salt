@@ -1,5 +1,6 @@
 base:
   '*':
+    - base
     - users
   'metal*':
     - metal

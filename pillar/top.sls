@@ -1,5 +1,6 @@
 base:
    '*':
+      - base
       - users
       - users.groups
    'metal* or *-us-east-0[0-9][0-9]*':
