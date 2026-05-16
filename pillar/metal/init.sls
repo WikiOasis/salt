@@ -1,10 +1,11 @@
 server_groups:
   - ops
 
-# Used during initial provisioning (before Salt takes over) to work around
-# IPv6 failures. Bootstrap scripts should read this value via the pillar API.
-apt_proxy:
-  url: http://apt-proxy.wikioasis.org:3142
+# HTTP proxy for use during initial VM provisioning when IPv6 may be unavailable.
+# Set Acquire::http::Proxy to this value in /etc/apt/apt.conf.d/99proxy on the VM.
+# Salt enforces that file absent once it manages the host.
+apt_bootstrap:
+  http_cache: http://127.0.0.1:3128
 
 metal_public_ips:
   - 40.160.53.92
