@@ -10,7 +10,7 @@ server {
 
     location ~ /\. { deny all; }
 
-    location = /icingaweb2 {
+    location ~ ^/icingaweb2/?$ {
         return 301 /authentication/login;
     }
 
