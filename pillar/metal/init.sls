@@ -14,8 +14,10 @@ metal_public_ips:
 dns_hosts:
   metal-us-east-01:
     ip: 10.0.1.1
+    mac: ~
   metal-us-east-02:
     ip: 10.0.2.1
+    mac: ~
   bastion-us-east-011:
     ip: 10.0.1.49
     mac: bc:24:11:5e:84:0e
