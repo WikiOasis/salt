@@ -7,7 +7,7 @@ ip_forwarding:
     vm_port: 22
     proto: tcp
   - host_port: 80
-    vm_dns: proxy-us-east-021.ovvin.wonet
+    vm_dns: proxy-us-east-011.ovvin.wonet
     vm_ip: 10.0.1.2
     vm_port: 80
     proto: tcp
