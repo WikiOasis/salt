@@ -39,6 +39,7 @@ if [[ -z "$VM_IP_{{ loop.index }}" ]]; then
 fi
 {%- endif %}
 iptables -t nat -A "$NAT_CHAIN" \
+  -i "{{ salt['pillar.get']('proxmox:public_bridge', 'vmbr0') }}" \
   -p {{ proto }} --dport {{ rule['host_port'] }} \
   -j DNAT --to-destination "${VM_IP_{{ loop.index }}}:{{ rule['vm_port'] }}"
 iptables -A "$FWD_CHAIN" \
