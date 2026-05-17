@@ -124,6 +124,22 @@ icinga2_feature_notification:
     - require:
       - pkg: monitoring_packages
 
+icinga2_remove_default_conf_hosts:
+  file.absent:
+    - name: /etc/icinga2/conf.d/hosts.conf
+
+icinga2_remove_default_conf_services:
+  file.absent:
+    - name: /etc/icinga2/conf.d/services.conf
+
+icinga2_remove_default_conf_users:
+  file.absent:
+    - name: /etc/icinga2/conf.d/users.conf
+
+icinga2_remove_default_conf_notifications:
+  file.absent:
+    - name: /etc/icinga2/conf.d/notifications.conf
+
 /etc/icinga2/conf.d/notification-commands.conf:
   file.managed:
     - source: salt://monitoring/files/icinga2/notification-commands.conf
