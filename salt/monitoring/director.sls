@@ -3,7 +3,7 @@
 {%- set dir_user = salt['pillar.get']('monitoring:director_db_user', 'icinga_director') %}
 {%- set dir_pass = salt['pillar.get']('monitoring:director_db_password') %}
 
-{%- macro svc_exists(svcname, host) -%}mysql -h db-other-us-east-011 -u {{ dir_user }} -p'{{ dir_pass }}' {{ dir_db }} -sNe "SELECT COUNT(*) FROM icinga_service s JOIN icinga_host h ON s.host_id=h.id WHERE s.object_name='{{ svcname }}' AND h.object_name='{{ host }}'" 2>/dev/null | grep -q "^[1-9]"{%- endmacro %}
+{%- macro svc_exists(svcname, host) -%}mysql -h db-other-us-east-011 -u {{ dir_user }} -p'{{ dir_pass        }}' {{ dir_db }} -sNe "SELECT COUNT(*) FROM icinga_service s JOIN icinga_host h ON s.host_id=h.id WHERE s.object_name='{{ svcname        }}' AND h.object_name='{{ host        }}'" 2>/dev/null | grep -q "^[1-9]"{%- endmacro %}
 
 # All cmd.run states use `unless` to check existence first — fully idempotent.
 # Run director.sls independently with: salt 'monitoring*' state.apply monitoring.director
@@ -36,7 +36,7 @@ director_cmd_discord_host:
             "HOSTSTATE":"$host.state$",
             "HOSTOUTPUT":"$host.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
- }}'
+        }}'
     - unless: icingacli director command exists "notify-host-by-discord" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -56,7 +56,7 @@ director_cmd_discord_service:
             "SERVICESTATE":"$service.state$",
             "SERVICEOUTPUT":"$service.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
- }}'
+        }}'
     - unless: icingacli director command exists "notify-service-by-discord" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -75,7 +75,7 @@ director_cmd_slack_host:
             "HOSTSTATE":"$host.state$",
             "HOSTOUTPUT":"$host.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
- }}'
+        }}'
     - unless: icingacli director command exists "notify-host-by-slack" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -95,7 +95,7 @@ director_cmd_slack_service:
             "SERVICESTATE":"$service.state$",
             "SERVICEOUTPUT":"$service.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
- }}'
+        }}'
     - unless: icingacli director command exists "notify-service-by-slack" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -139,7 +139,7 @@ director_host_{{ sid }}:
         icingacli director host create --json
         '{"object_name":"{{ hostname }}","object_type":"object",
           "address":"{{ host_data.ip }}","imports":["generic-salt-host"],
-          "vars":{"os":"Linux" }}'
+          "vars":{"os":"Linux"        }}'
     - unless: icingacli director host exists "{{ hostname }}" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -196,7 +196,7 @@ director_svc_load_{{ sid }}:
         '{"object_name":"load","object_type":"object",
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":60,"retry_interval":30,
-          "vars":{"nrpe_command":"check_load","nrpe_no_ssl":true }}'
+          "vars":{"nrpe_command":"check_load","nrpe_no_ssl":true        }}'
     - unless: {{ svc_exists('load', hostname) }}
     - runas: www-data
     - require:
@@ -209,7 +209,7 @@ director_svc_disk_root_{{ sid }}:
         '{"object_name":"disk_root","object_type":"object",
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
-          "vars":{"nrpe_command":"check_disk_root","nrpe_no_ssl":true }}'
+          "vars":{"nrpe_command":"check_disk_root","nrpe_no_ssl":true        }}'
     - unless: {{ svc_exists('disk_root', hostname) }}
     - runas: www-data
     - require:
@@ -222,7 +222,7 @@ director_svc_procs_{{ sid }}:
         '{"object_name":"procs","object_type":"object",
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
-          "vars":{"nrpe_command":"check_procs","nrpe_no_ssl":true }}'
+          "vars":{"nrpe_command":"check_procs","nrpe_no_ssl":true        }}'
     - unless: {{ svc_exists('procs', hostname) }}
     - runas: www-data
     - require:
@@ -235,7 +235,7 @@ director_svc_swap_{{ sid }}:
         '{"object_name":"swap","object_type":"object",
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
-          "vars":{"nrpe_command":"check_swap","nrpe_no_ssl":true }}'
+          "vars":{"nrpe_command":"check_swap","nrpe_no_ssl":true        }}'
     - unless: {{ svc_exists('swap', hostname) }}
     - runas: www-data
     - require:
@@ -248,7 +248,7 @@ director_svc_mem_{{ sid }}:
         '{"object_name":"mem","object_type":"object",
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":60,"retry_interval":30,
-          "vars":{"nrpe_command":"check_mem","nrpe_no_ssl":true }}'
+          "vars":{"nrpe_command":"check_mem","nrpe_no_ssl":true        }}'
     - unless: {{ svc_exists('mem', hostname) }}
     - runas: www-data
     - require:
@@ -262,7 +262,7 @@ director_svc_disk_srv_{{ sid }}:
         '{"object_name":"disk_srv","object_type":"object",
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
-          "vars":{"nrpe_command":"check_disk_srv","nrpe_no_ssl":true }}'
+          "vars":{"nrpe_command":"check_disk_srv","nrpe_no_ssl":true        }}'
     - unless: {{ svc_exists('disk_srv', hostname) }}
     - runas: www-data
     - require:
