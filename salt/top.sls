@@ -8,6 +8,7 @@ base:
     - mariadb
   'metal*':
     - metal
+    - monitoring.nrpe_metal
   'proxy*':
     - haproxy
     - monitoring.nrpe_haproxy

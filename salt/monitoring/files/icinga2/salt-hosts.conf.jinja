@@ -24,8 +24,11 @@ object User "webhook-notify" {
 {%- set is_proxy      = hostname.startswith('proxy') %}
 {%- set is_db         = hostname.startswith('db') %}
 {%- set is_monitoring = hostname.startswith('monitoring') %}
+{%- set is_metal      = hostname.startswith('metal') %}
 {%- set has_nginx     = host_data.get('nginx', is_monitoring) %}
-{%- set nrpe_svcs     = ['load', 'disk_root', 'procs', 'swap', 'mem'] + (['disk_srv'] if is_db else []) %}
+{%- set nrpe_svcs     = ['load', 'disk_root', 'procs', 'swap', 'mem', 'apt']
+                        + (['disk_srv'] if is_db else [])
+                        + (['smart', 'raid'] if is_metal else []) %}
 {%- set notif_svcs    = nrpe_svcs
                         + (['haproxy', 'haproxy_backends'] if is_proxy else [])
                         + (['nginx_errors'] if has_nginx else []) %}
@@ -130,6 +133,32 @@ object Service "mem" {
   check_interval    = 1m
   retry_interval    = 30s
 }
+
+object Service "apt" {
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_apt"
+  check_interval    = 30m
+  retry_interval    = 5m
+}
+
+{%- if is_metal %}
+object Service "smart" {
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_smart"
+  check_interval    = 15m
+  retry_interval    = 5m
+}
+
+object Service "raid" {
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_raid"
+  check_interval    = 5m
+  retry_interval    = 1m
+}
+{%- endif %}
 
 {%- if is_db %}
 object Service "disk_srv" {

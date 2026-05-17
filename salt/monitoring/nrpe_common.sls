@@ -16,3 +16,10 @@
       - file: /usr/lib/nagios/plugins/check_mem.sh
     - watch_in:
       - service: nagios-nrpe-server
+
+/etc/nagios/nrpe.d/apt.cfg:
+  file.managed:
+    - source: salt://monitoring/files/nrpe/apt.cfg
+    - mode: '0644'
+    - watch_in:
+      - service: nagios-nrpe-server
