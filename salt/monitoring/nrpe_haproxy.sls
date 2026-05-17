@@ -9,9 +9,6 @@ nagios_in_haproxy_group:
       - haproxy
     - remove_groups: False
 
-socat:
-  pkg.installed: []
-
 /usr/lib/nagios/plugins/check_haproxy.sh:
   file.managed:
     - source: salt://monitoring/files/nrpe/check_haproxy.sh
