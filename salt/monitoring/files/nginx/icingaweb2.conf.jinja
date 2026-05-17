@@ -10,6 +10,10 @@ server {
 
     location ~ /\. { deny all; }
 
+    location = /icingaweb2 {
+        return 301 /authentication/login;
+    }
+
     location / {
         try_files $uri $uri/ /index.php$is_args$args;
     }
