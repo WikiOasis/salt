@@ -12,6 +12,11 @@ template Host "generic-salt-host" {
   enable_active_checks = true
 }
 
+template Service "generic-salt-service" {
+  max_check_attempts   = 3
+  enable_notifications = true
+}
+
 # ── Notification user ─────────────────────────────────────────────────────────
 
 object User "webhook-notify" {
@@ -29,8 +34,10 @@ object User "webhook-notify" {
 {%- set nrpe_svcs     = ['load', 'disk_root', 'procs', 'swap', 'mem', 'apt']
                         + (['disk_srv'] if is_db else [])
                         + (['smart', 'raid'] if is_metal else []) %}
-{%- set notif_svcs    = nrpe_svcs
+{%- set notif_svcs    = ['ssh'] + nrpe_svcs
                         + (['haproxy', 'haproxy_backends'] if is_proxy else [])
+                        + (['http'] if is_monitoring else [])
+                        + (['mysql_port'] if is_db else [])
                         + (['nginx_errors'] if has_nginx else []) %}
 
 # -- {{ hostname }} ({{ host_data.ip }}) ----------------------------------------
@@ -42,6 +49,7 @@ object Host "{{ hostname }}" {
 }
 
 object Service "ssh" {
+  import         "generic-salt-service"
   host_name      = "{{ hostname }}"
   check_command  = "ssh"
   check_interval = 5m
@@ -50,6 +58,7 @@ object Service "ssh" {
 
 {%- if is_proxy %}
 object Service "haproxy" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_haproxy"
@@ -58,6 +67,7 @@ object Service "haproxy" {
 }
 
 object Service "haproxy_backends" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_haproxy_backends"
@@ -66,6 +76,7 @@ object Service "haproxy_backends" {
 }
 {%- elif is_monitoring %}
 object Service "http" {
+  import         "generic-salt-service"
   host_name      = "{{ hostname }}"
   check_command  = "http"
   vars.http_uri  = "/"
@@ -76,6 +87,7 @@ object Service "http" {
 
 {%- if has_nginx %}
 object Service "nginx_errors" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_nginx_errors"
@@ -86,6 +98,7 @@ object Service "nginx_errors" {
 
 {%- if is_db %}
 object Service "mysql_port" {
+  import         "generic-salt-service"
   host_name      = "{{ hostname }}"
   check_command  = "tcp"
   vars.tcp_port  = 3306
@@ -95,6 +108,7 @@ object Service "mysql_port" {
 {%- endif %}
 
 object Service "load" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_load"
@@ -103,6 +117,7 @@ object Service "load" {
 }
 
 object Service "disk_root" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_disk_root"
@@ -111,6 +126,7 @@ object Service "disk_root" {
 }
 
 object Service "procs" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_procs"
@@ -119,6 +135,7 @@ object Service "procs" {
 }
 
 object Service "swap" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_swap"
@@ -127,6 +144,7 @@ object Service "swap" {
 }
 
 object Service "mem" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_mem"
@@ -135,6 +153,7 @@ object Service "mem" {
 }
 
 object Service "apt" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_apt"
@@ -144,6 +163,7 @@ object Service "apt" {
 
 {%- if is_metal %}
 object Service "smart" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_smart"
@@ -152,6 +172,7 @@ object Service "smart" {
 }
 
 object Service "raid" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_raid"
@@ -162,6 +183,7 @@ object Service "raid" {
 
 {%- if is_db %}
 object Service "disk_srv" {
+  import            "generic-salt-service"
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_disk_srv"

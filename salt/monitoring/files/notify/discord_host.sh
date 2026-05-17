@@ -14,4 +14,4 @@ jq -n \
     username: "Icinga2",
     content: "**[\($type)]** Host **\($host)** is **\($state)**\n\($output)\n\($dt)"
   }' \
-| curl -fsSL -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL"
+| curl -sSL --max-time 30 -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL"

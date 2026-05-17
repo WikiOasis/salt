@@ -16,4 +16,4 @@ jq -n \
     icon_emoji: ":rotating_light:",
     text: "*[\($type)]* Service *\($svc)* on *\($host)* is *\($state)*\n\($output)\n\($dt)"
   }' \
-| curl -fsSL -X POST -H "Content-Type: application/json" -d @- "$SLACK_WEBHOOK_URL"
+| curl -sSL --max-time 30 -X POST -H "Content-Type: application/json" -d @- "$SLACK_WEBHOOK_URL"
