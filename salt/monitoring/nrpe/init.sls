@@ -1,3 +1,8 @@
+nrpe_apt_fix_broken:
+  cmd.run:
+    - name: DEBIAN_FRONTEND=noninteractive apt-get install -f -y
+    - onlyif: dpkg --audit | grep -q .
+
 nrpe_packages:
   pkg.installed:
     - pkgs:
@@ -5,6 +10,8 @@ nrpe_packages:
       - monitoring-plugins-basic
       - monitoring-plugins-standard
       - monitoring-plugins-contrib
+    - require:
+      - cmd: nrpe_apt_fix_broken
 
 /etc/nagios/nrpe.cfg:
   file.managed:

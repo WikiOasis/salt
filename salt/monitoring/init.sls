@@ -1,3 +1,6 @@
+# Icinga doesn't publish an icinga-trixie repo yet; bookworm packages work fine on Debian 13.
+{%- set icinga_dist = 'icinga-bookworm' if grains['oscodename'] == 'trixie' else 'icinga-' + grains['oscodename'] %}
+
 {%- set ido_db      = salt['pillar.get']('monitoring:ido_db_name',      'icinga2') %}
 {%- set ido_user    = salt['pillar.get']('monitoring:ido_db_user',      'icinga2') %}
 {%- set ido_pass    = salt['pillar.get']('monitoring:ido_db_password') %}
@@ -17,17 +20,25 @@ icinga_apt_key:
 /etc/apt/sources.list.d/icinga.list:
   file.managed:
     - contents: |
-        deb [signed-by=/usr/share/keyrings/icinga-archive-keyring.gpg] https://packages.icinga.com/debian icinga-{{ grains['oscodename'] }} main
+        deb [signed-by=/usr/share/keyrings/icinga-archive-keyring.gpg] https://packages.icinga.com/debian {{ icinga_dist }} main
     - require:
       - cmd: icinga_apt_key
 
 icinga_apt_update:
   cmd.run:
     - name: apt-get update -qq
-    - onchanges:
+    - require:
       - file: /etc/apt/sources.list.d/icinga.list
+      - cmd: icinga_apt_key
 
 # ── Packages ──────────────────────────────────────────────────────────────────
+
+monitoring_apt_fix_broken:
+  cmd.run:
+    - name: DEBIAN_FRONTEND=noninteractive apt-get install -f -y
+    - onlyif: dpkg --audit | grep -q .
+    - require:
+      - cmd: icinga_apt_update
 
 monitoring_packages:
   pkg.installed:
@@ -51,7 +62,7 @@ monitoring_packages:
       - jq
       - curl
     - require:
-      - cmd: icinga_apt_update
+      - cmd: monitoring_apt_fix_broken
 
 # ── Local MariaDB databases ────────────────────────────────────────────────────
 
