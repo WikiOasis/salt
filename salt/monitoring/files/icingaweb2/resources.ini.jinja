@@ -3,11 +3,29 @@
 {%- set web_db    = salt['pillar.get']('monitoring:web_db_name',      'icingaweb') %}
 {%- set ido_pass    = salt['pillar.get']('monitoring:ido_db_password') %}
 
+[icinga2]
+type      = "db"
+db        = "mysql"
+host      = "db-other-us-east-011"
+dbname    = "{{ ido_db }}"
+username  = "{{ ido_user }}"
+password  = "{{ ido_pass }}"
+charset   = "utf8mb4"
+
 [icingadb]
 type      = "db"
 db        = "mysql"
 host      = "db-other-us-east-011"
 dbname    = "{{ ido_db }}"
+username  = "{{ ido_user }}"
+password  = "{{ ido_pass }}"
+charset   = "utf8mb4"
+
+[icinga_director]
+type      = "db"
+db        = "mysql"
+host      = "db-other-us-east-011"
+dbname    = "{{ web_db }}"
 username  = "{{ ido_user }}"
 password  = "{{ ido_pass }}"
 charset   = "utf8mb4"
