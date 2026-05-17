@@ -73,35 +73,6 @@ mariadb_running:
     - require:
       - pkg: monitoring_packages
 
-monitoring_db_ido:
-  cmd.run:
-    - name: |
-        mysql -e "
-          CREATE DATABASE IF NOT EXISTS {{ ido_db }} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-          CREATE USER IF NOT EXISTS '{{ ido_user }}'@'localhost' IDENTIFIED BY '{{ ido_pass }}';
-          GRANT ALL ON {{ ido_db }}.* TO '{{ ido_user }}'@'localhost';"
-    - require:
-      - service: mariadb_running
-
-monitoring_db_director:
-  cmd.run:
-    - name: |
-        mysql -e "
-          CREATE DATABASE IF NOT EXISTS {{ dir_db }} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-          CREATE USER IF NOT EXISTS '{{ dir_user }}'@'localhost' IDENTIFIED BY '{{ dir_pass }}';
-          GRANT ALL ON {{ dir_db }}.* TO '{{ dir_user }}'@'localhost';"
-    - require:
-      - service: mariadb_running
-
-import_ido_schema:
-  cmd.run:
-    - name: >-
-        mysql {{ ido_db }} < /usr/share/icinga2-ido-mysql/schema/mysql.sql &&
-        touch /etc/icinga2/.ido_schema_imported
-    - creates: /etc/icinga2/.ido_schema_imported
-    - require:
-      - cmd: monitoring_db_ido
-
 # ── Icinga2 configuration ──────────────────────────────────────────────────────
 
 /etc/icinga2/zones.conf:
@@ -252,30 +223,6 @@ icingaweb2_enable_director:
     - runas: www-data
     - require:
       - file: /etc/icingaweb2/modules/director/config.ini
-
-# ── Director DB schema + kickstart ────────────────────────────────────────────
-
-director_migration:
-  cmd.run:
-    - name: >-
-        icingacli director migration run --verbose &&
-        touch /etc/icinga2/.director_migration_done
-    - creates: /etc/icinga2/.director_migration_done
-    - runas: www-data
-    - require:
-      - cmd: icingaweb2_enable_director
-      - cmd: monitoring_db_director
-      - service: icinga2
-
-director_kickstart:
-  cmd.run:
-    - name: >-
-        icingacli director kickstart run &&
-        touch /etc/icinga2/.director_kickstart_done
-    - creates: /etc/icinga2/.director_kickstart_done
-    - runas: www-data
-    - require:
-      - cmd: director_migration
 
 # ── Nginx ──────────────────────────────────────────────────────────────────────
 
