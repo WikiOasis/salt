@@ -39,6 +39,9 @@ dns_hosts:
   proxy-us-east-021:
     ip: 10.0.2.2
     mac: bc:24:11:90:a6:bd
+  db-c1-us-east-021:
+    ip: 10.0.2.20
+    mac: bc:24:11:89:75:da
 
 proxmox:
   public_bridge: "vmbr0"
