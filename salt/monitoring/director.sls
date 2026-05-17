@@ -1,4 +1,9 @@
-{%- set hosts = salt['pillar.get']('dns_hosts', {}) %}
+{%- set hosts    = salt['pillar.get']('dns_hosts', {}) %}
+{%- set dir_db   = salt['pillar.get']('monitoring:director_db_name', 'icinga_director') %}
+{%- set dir_user = salt['pillar.get']('monitoring:director_db_user', 'icinga_director') %}
+{%- set dir_pass = salt['pillar.get']('monitoring:director_db_password') %}
+
+{%- macro svc_exists(svcname, host) -%}mysql -h db-other-us-east-011 -u {{ dir_user }} -p'{{ dir_pass }}' {{ dir_db }} -sNe "SELECT COUNT(*) FROM icinga_service s JOIN icinga_host h ON s.host_id=h.id WHERE s.object_name='{{ svcname }}' AND h.object_name='{{ host }}'" 2>/dev/null | grep -q "^[1-9]"{%- endmacro %}
 
 # All cmd.run states use `unless` to check existence first — fully idempotent.
 # Run director.sls independently with: salt 'monitoring*' state.apply monitoring.director
@@ -31,7 +36,7 @@ director_cmd_discord_host:
             "HOSTSTATE":"$host.state$",
             "HOSTOUTPUT":"$host.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
-        }}'
+ }}'
     - unless: icingacli director command exists "notify-host-by-discord" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -51,7 +56,7 @@ director_cmd_discord_service:
             "SERVICESTATE":"$service.state$",
             "SERVICEOUTPUT":"$service.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
-        }}'
+ }}'
     - unless: icingacli director command exists "notify-service-by-discord" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -70,7 +75,7 @@ director_cmd_slack_host:
             "HOSTSTATE":"$host.state$",
             "HOSTOUTPUT":"$host.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
-        }}'
+ }}'
     - unless: icingacli director command exists "notify-host-by-slack" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -90,7 +95,7 @@ director_cmd_slack_service:
             "SERVICESTATE":"$service.state$",
             "SERVICEOUTPUT":"$service.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
-        }}'
+ }}'
     - unless: icingacli director command exists "notify-service-by-slack" | grep -vq "does not"
     - runas: www-data
     - require:
@@ -149,7 +154,7 @@ director_svc_ssh_{{ sid }}:
         '{"object_name":"ssh","object_type":"object",
           "check_command":"ssh","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60}'
-    - unless: icingacli director service exists "ssh" | grep -vq "does not"
+    - unless: {{ svc_exists('ssh', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -162,7 +167,7 @@ director_svc_http_{{ sid }}:
         '{"object_name":"http","object_type":"object",
           "check_command":"http","host_id":"{{ hostname }}",
           "vars":{"http_uri":"/"},"check_interval":300,"retry_interval":60}'
-    - unless: icingacli director service exists "http" | grep -vq "does not"
+    - unless: {{ svc_exists('http', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -176,7 +181,7 @@ director_svc_mysql_{{ sid }}:
         '{"object_name":"mysql_port","object_type":"object",
           "check_command":"tcp","host_id":"{{ hostname }}",
           "vars":{"tcp_port":3306},"check_interval":300,"retry_interval":60}'
-    - unless: icingacli director service exists "mysql_port" | grep -vq "does not"
+    - unless: {{ svc_exists('mysql_port', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -192,7 +197,7 @@ director_svc_load_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":60,"retry_interval":30,
           "vars":{"nrpe_command":"check_load","nrpe_no_ssl":true }}'
-    - unless: icingacli director service exists "load" | grep -vq "does not"
+    - unless: {{ svc_exists('load', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -205,7 +210,7 @@ director_svc_disk_root_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
           "vars":{"nrpe_command":"check_disk_root","nrpe_no_ssl":true }}'
-    - unless: icingacli director service exists "disk_root" | grep -vq "does not"
+    - unless: {{ svc_exists('disk_root', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -218,7 +223,7 @@ director_svc_procs_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
           "vars":{"nrpe_command":"check_procs","nrpe_no_ssl":true }}'
-    - unless: icingacli director service exists "procs" | grep -vq "does not"
+    - unless: {{ svc_exists('procs', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -231,7 +236,7 @@ director_svc_swap_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
           "vars":{"nrpe_command":"check_swap","nrpe_no_ssl":true }}'
-    - unless: icingacli director service exists "swap" | grep -vq "does not"
+    - unless: {{ svc_exists('swap', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -244,7 +249,7 @@ director_svc_mem_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":60,"retry_interval":30,
           "vars":{"nrpe_command":"check_mem","nrpe_no_ssl":true }}'
-    - unless: icingacli director service exists "mem" | grep -vq "does not"
+    - unless: {{ svc_exists('mem', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -258,7 +263,7 @@ director_svc_disk_srv_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
           "vars":{"nrpe_command":"check_disk_srv","nrpe_no_ssl":true }}'
-    - unless: icingacli director service exists "disk_srv" | grep -vq "does not"
+    - unless: {{ svc_exists('disk_srv', hostname) }}
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
