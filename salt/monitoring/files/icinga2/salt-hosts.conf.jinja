@@ -65,7 +65,7 @@ object Service "load" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_load"
-  vars.nrpe_no_ssl  = true
+
   check_interval    = 1m
   retry_interval    = 30s
 }
@@ -74,7 +74,7 @@ object Service "disk_root" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_disk_root"
-  vars.nrpe_no_ssl  = true
+
   check_interval    = 5m
   retry_interval    = 1m
 }
@@ -83,7 +83,7 @@ object Service "procs" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_procs"
-  vars.nrpe_no_ssl  = true
+
   check_interval    = 5m
   retry_interval    = 1m
 }
@@ -92,7 +92,7 @@ object Service "swap" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_swap"
-  vars.nrpe_no_ssl  = true
+
   check_interval    = 5m
   retry_interval    = 1m
 }
@@ -101,7 +101,7 @@ object Service "mem" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_mem"
-  vars.nrpe_no_ssl  = true
+
   check_interval    = 1m
   retry_interval    = 30s
 }
@@ -111,7 +111,7 @@ object Service "disk_srv" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_disk_srv"
-  vars.nrpe_no_ssl  = true
+
   check_interval    = 5m
   retry_interval    = 1m
 }
