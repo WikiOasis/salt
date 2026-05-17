@@ -1,6 +1,6 @@
 mariadb:
   datadir: /var/lib/mysql
-  bind_address: 127.0.0.1
+  bind_address: 0.0.0.0
   key_buffer_size: 128M
   max_allowed_packet: 1G
   thread_stack: 192K
