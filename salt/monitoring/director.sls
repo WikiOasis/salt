@@ -13,7 +13,7 @@ director_template_generic_salt_host:
           "check_command":"hostalive","max_check_attempts":3,
           "check_interval":60,"retry_interval":30,
           "enable_notifications":true,"enable_active_checks":true}'
-    - unless: icingacli director host show --name "generic-salt-host" >/dev/null 2>&1
+    - unless: icingacli director host exists "generic-salt-host" | grep -vq "does not"
     - runas: www-data
 
 # ── Notification commands ──────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ director_cmd_discord_host:
             "HOSTOUTPUT":"$host.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
         }}'
-    - unless: icingacli director command show --name "notify-host-by-discord" >/dev/null 2>&1
+    - unless: icingacli director command exists "notify-host-by-discord" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_template_generic_salt_host
@@ -52,7 +52,7 @@ director_cmd_discord_service:
             "SERVICEOUTPUT":"$service.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
         }}'
-    - unless: icingacli director command show --name "notify-service-by-discord" >/dev/null 2>&1
+    - unless: icingacli director command exists "notify-service-by-discord" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_cmd_discord_host
@@ -71,7 +71,7 @@ director_cmd_slack_host:
             "HOSTOUTPUT":"$host.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
         }}'
-    - unless: icingacli director command show --name "notify-host-by-slack" >/dev/null 2>&1
+    - unless: icingacli director command exists "notify-host-by-slack" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_cmd_discord_service
@@ -91,7 +91,7 @@ director_cmd_slack_service:
             "SERVICEOUTPUT":"$service.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
         }}'
-    - unless: icingacli director command show --name "notify-service-by-slack" >/dev/null 2>&1
+    - unless: icingacli director command exists "notify-service-by-slack" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_cmd_slack_host
@@ -104,7 +104,7 @@ director_user_webhook:
         icingacli director user create --json
         '{"object_name":"webhook-notify","object_type":"object",
           "enable_notifications":true}'
-    - unless: icingacli director user show --name "webhook-notify" >/dev/null 2>&1
+    - unless: icingacli director user exists "webhook-notify" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_cmd_slack_service
@@ -135,7 +135,7 @@ director_host_{{ sid }}:
         '{"object_name":"{{ hostname }}","object_type":"object",
           "address":"{{ host_data.ip }}","imports":["generic-salt-host"],
           "vars":{"os":"Linux" }}'
-    - unless: icingacli director host show --name "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director host exists "{{ hostname }}" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_user_webhook
@@ -149,7 +149,7 @@ director_svc_ssh_{{ sid }}:
         '{"object_name":"ssh","object_type":"object",
           "check_command":"ssh","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60}'
-    - unless: icingacli director service show --name "ssh" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "ssh" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -162,7 +162,7 @@ director_svc_http_{{ sid }}:
         '{"object_name":"http","object_type":"object",
           "check_command":"http","host_id":"{{ hostname }}",
           "vars":{"http_uri":"/"},"check_interval":300,"retry_interval":60}'
-    - unless: icingacli director service show --name "http" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "http" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -176,7 +176,7 @@ director_svc_mysql_{{ sid }}:
         '{"object_name":"mysql_port","object_type":"object",
           "check_command":"tcp","host_id":"{{ hostname }}",
           "vars":{"tcp_port":3306},"check_interval":300,"retry_interval":60}'
-    - unless: icingacli director service show --name "mysql_port" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "mysql_port" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -192,7 +192,7 @@ director_svc_load_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":60,"retry_interval":30,
           "vars":{"nrpe_command":"check_load","nrpe_no_ssl":true }}'
-    - unless: icingacli director service show --name "load" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "load" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -205,7 +205,7 @@ director_svc_disk_root_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
           "vars":{"nrpe_command":"check_disk_root","nrpe_no_ssl":true }}'
-    - unless: icingacli director service show --name "disk_root" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "disk_root" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -218,7 +218,7 @@ director_svc_procs_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
           "vars":{"nrpe_command":"check_procs","nrpe_no_ssl":true }}'
-    - unless: icingacli director service show --name "procs" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "procs" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -231,7 +231,7 @@ director_svc_swap_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
           "vars":{"nrpe_command":"check_swap","nrpe_no_ssl":true }}'
-    - unless: icingacli director service show --name "swap" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "swap" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -244,7 +244,7 @@ director_svc_mem_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":60,"retry_interval":30,
           "vars":{"nrpe_command":"check_mem","nrpe_no_ssl":true }}'
-    - unless: icingacli director service show --name "mem" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "mem" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -258,7 +258,7 @@ director_svc_disk_srv_{{ sid }}:
           "check_command":"nrpe","host_id":"{{ hostname }}",
           "check_interval":300,"retry_interval":60,
           "vars":{"nrpe_command":"check_disk_srv","nrpe_no_ssl":true }}'
-    - unless: icingacli director service show --name "disk_srv" --host "{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director service exists "disk_srv" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -276,7 +276,7 @@ director_notif_discord_svc_{{ sid }}_{{ svc }}:
           "command_id":"notify-service-by-discord","users":["webhook-notify"],
           "states":["OK","Warning","Critical","Unknown"],
           "types":["Problem","Recovery","Acknowledgement","FlappingStart","FlappingEnd"]}'
-    - unless: icingacli director notification show --name "discord-svc-{{ hostname }}-{{ svc }}" >/dev/null 2>&1
+    - unless: icingacli director notification exists "discord-svc-{{ hostname }}-{{ svc }}" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_svc_{{ svc }}_{{ sid }}
@@ -292,7 +292,7 @@ director_notif_slack_svc_{{ sid }}_{{ svc }}:
           "command_id":"notify-service-by-slack","users":["webhook-notify"],
           "states":["OK","Warning","Critical","Unknown"],
           "types":["Problem","Recovery","Acknowledgement","FlappingStart","FlappingEnd"]}'
-    - unless: icingacli director notification show --name "slack-svc-{{ hostname }}-{{ svc }}" >/dev/null 2>&1
+    - unless: icingacli director notification exists "slack-svc-{{ hostname }}-{{ svc }}" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_svc_{{ svc }}_{{ sid }}
@@ -311,7 +311,7 @@ director_notif_discord_{{ sid }}:
           "users":["webhook-notify"],
           "states":["Up","Down"],
           "types":["Problem","Recovery","Acknowledgement","FlappingStart","FlappingEnd"]}'
-    - unless: icingacli director notification show --name "discord-host-{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director notification exists "discord-host-{{ hostname }}" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
@@ -327,7 +327,7 @@ director_notif_slack_{{ sid }}:
           "users":["webhook-notify"],
           "states":["Up","Down"],
           "types":["Problem","Recovery","Acknowledgement","FlappingStart","FlappingEnd"]}'
-    - unless: icingacli director notification show --name "slack-host-{{ hostname }}" >/dev/null 2>&1
+    - unless: icingacli director notification exists "slack-host-{{ hostname }}" | grep -vq "does not"
     - runas: www-data
     - require:
       - cmd: director_host_{{ sid }}
