@@ -1,0 +1,11 @@
+{%- set api_user = salt['pillar.get']('monitoring:icinga_api_user',     'director') %}
+{%- set api_pass = salt['pillar.get']('monitoring:icinga_api_password') %}
+
+[db]
+resource = "icinga_director"
+
+[icinga2]
+api_host     = "127.0.0.1"
+api_port     = 5665
+api_username = "{{ api_user }}"
+api_password = "{{ api_pass }}"

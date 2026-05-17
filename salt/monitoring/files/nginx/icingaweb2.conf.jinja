@@ -1,0 +1,23 @@
+{%- set hostname = grains['id'] %}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ hostname }};
+
+    root  /usr/share/icingaweb2/public;
+    index index.php;
+
+    location ~ /\. { deny all; }
+
+    location / {
+        try_files $uri $uri/ /index.php$is_args$args;
+    }
+
+    location ~ \.php$ {
+        include        fastcgi_params;
+        fastcgi_pass   unix:/run/php/php-fpm.sock;
+        fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param  HTTP_PROXY "";
+    }
+}

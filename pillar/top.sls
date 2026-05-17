@@ -16,3 +16,6 @@ base:
       - metal.metal-us-east-02
    'proxy*':
       - haproxy
+   'monitoring*':
+      - monitoring
+      - private

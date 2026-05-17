@@ -1,0 +1,17 @@
+#!/bin/bash
+# Icinga2 host notification — Discord webhook.
+# Env vars set by the NotificationCommand: NOTIFICATIONTYPE HOSTNAME HOSTSTATE HOSTOUTPUT LONGDATETIME
+set -euo pipefail
+source /etc/icinga2/scripts/webhook_config.sh
+
+jq -n \
+  --arg type    "$NOTIFICATIONTYPE" \
+  --arg host    "$HOSTNAME" \
+  --arg state   "$HOSTSTATE" \
+  --arg output  "$HOSTOUTPUT" \
+  --arg dt      "$LONGDATETIME" \
+  '{
+    username: "Icinga2",
+    content: "**[\($type)]** Host **\($host)** is **\($state)**\n\($output)\n\($dt)"
+  }' \
+| curl -fsSL -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL"

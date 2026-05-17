@@ -1,0 +1,39 @@
+# Managed by Salt — do not edit manually.
+{%- set monitoring_ips = [] %}
+{%- for name, data in salt['pillar.get']('metal:dns_hosts', {}).items() %}
+{%- if name.startswith('monitoring') %}
+{%- do monitoring_ips.append(data.ip) %}
+{%- endif %}
+{%- endfor %}
+
+log_facility=daemon
+pid_file=/run/nagios/nrpe.pid
+server_port=5666
+nrpe_user=nagios
+nrpe_group=nagios
+allowed_hosts=127.0.0.1,::1{{ (',' + monitoring_ips | join(',')) if monitoring_ips else '' }}
+dont_blame_nrpe=0
+allow_bash_command_substitution=0
+debug=0
+command_timeout=60
+connection_timeout=300
+
+# Check commands
+# load: warn at 1-min/5-min/15-min averages of 2/1.5/1, crit at 4/3/2
+command[check_load]=/usr/lib/nagios/plugins/check_load -w 2.0,1.5,1.0 -c 4.0,3.0,2.0
+
+# disk: warn at 80% used (20% free), crit at 90% used (10% free)
+command[check_disk_root]=/usr/lib/nagios/plugins/check_disk -w 20% -c 10% -p /
+command[check_disk_srv]=/usr/lib/nagios/plugins/check_disk -w 20% -c 10% -p /srv
+
+# procs: warn at 250, crit at 400
+command[check_procs]=/usr/lib/nagios/plugins/check_procs -w 250 -c 400
+
+# users logged in
+command[check_users]=/usr/lib/nagios/plugins/check_users -w 5 -c 10
+
+# swap: warn below 40% free, crit below 20% free
+command[check_swap]=/usr/lib/nagios/plugins/check_swap -w 40% -c 20%
+
+# memory: warn at 85% used, crit at 95% used
+command[check_mem]=/usr/lib/nagios/plugins/check_mem -u -w 85 -c 95

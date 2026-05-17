@@ -1,0 +1,13 @@
+{%- set db_name = salt['pillar.get']('monitoring:ido_db_name', 'icinga2') %}
+{%- set db_user = salt['pillar.get']('monitoring:ido_db_user', 'icinga2') %}
+{%- set db_password = salt['pillar.get']('monitoring:ido_db_password') %}
+
+library "db_ido_mysql"
+
+object IdoMysqlConnection "ido-mysql" {
+  user     = "{{ db_user }}"
+  password = "{{ db_password }}"
+  host     = "localhost"
+  database = "{{ db_name }}"
+  enable_ha = false
+}

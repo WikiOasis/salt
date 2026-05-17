@@ -1,0 +1,7 @@
+{%- set hostname = grains['id'] %}
+
+object Endpoint "{{ hostname }}" { }
+
+object Zone "master" {
+  endpoints = [ "{{ hostname }}" ]
+}

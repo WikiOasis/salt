@@ -1,0 +1,13 @@
+{%- set api_user = salt['pillar.get']('monitoring:icinga_api_user', 'director') %}
+{%- set api_password = salt['pillar.get']('monitoring:icinga_api_password') %}
+
+object ApiUser "{{ api_user }}" {
+  password = "{{ api_password }}"
+  permissions = [ "*" ]
+}
+
+object ApiListener "api" {
+  accept_commands = true
+  accept_config = true
+  bind_host = "127.0.0.1"
+}

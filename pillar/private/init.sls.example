@@ -1,0 +1,11 @@
+# Copy this file to pillar/private/init.sls on the Salt master with values filled in.
+# It is gitignored (pillar/private/*.sls) and must never be committed.
+
+monitoring:
+  icinga_api_password: CHANGE_ME
+  ido_db_password: CHANGE_ME
+  director_db_password: CHANGE_ME
+
+notifications:
+  discord_webhook_url: https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
+  slack_webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
