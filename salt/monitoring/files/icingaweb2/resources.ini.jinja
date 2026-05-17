@@ -1,11 +1,9 @@
 {%- set ido_db      = salt['pillar.get']('monitoring:ido_db_name',      'icinga2') %}
 {%- set ido_user    = salt['pillar.get']('monitoring:ido_db_user',      'icinga2') %}
+{%- set web_db    = salt['pillar.get']('monitoring:web_db_name',      'icingaweb') %}
 {%- set ido_pass    = salt['pillar.get']('monitoring:ido_db_password') %}
-{%- set dir_db      = salt['pillar.get']('monitoring:director_db_name', 'icinga_director') %}
-{%- set dir_user    = salt['pillar.get']('monitoring:director_db_user', 'icinga_director') %}
-{%- set dir_pass    = salt['pillar.get']('monitoring:director_db_password') %}
 
-[icinga2]
+[icingadb]
 type      = "db"
 db        = "mysql"
 host      = "db-other-us-east-011"
@@ -18,7 +16,7 @@ charset   = "utf8mb4"
 type      = "db"
 db        = "mysql"
 host      = "db-other-us-east-011"
-dbname    = "{{ dir_db }}"
-username  = "{{ dir_user }}"
-password  = "{{ dir_pass }}"
+dbname    = "{{ web_db }}"
+username  = "{{ ido_user }}"
+password  = "{{ ido_pass }}"
 charset   = "utf8mb4"
