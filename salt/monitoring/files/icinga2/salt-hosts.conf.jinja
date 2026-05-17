@@ -24,14 +24,18 @@ object User "webhook-notify" {
 {%- set is_proxy      = hostname.startswith('proxy') %}
 {%- set is_db         = hostname.startswith('db') %}
 {%- set is_monitoring = hostname.startswith('monitoring') %}
+{%- set has_nginx     = host_data.get('nginx', is_proxy or is_monitoring) %}
 {%- set nrpe_svcs     = ['load', 'disk_root', 'procs', 'swap', 'mem'] + (['disk_srv'] if is_db else []) %}
+{%- set notif_svcs    = nrpe_svcs
+                        + (['haproxy', 'haproxy_backends'] if is_proxy else [])
+                        + (['nginx_errors'] if has_nginx else []) %}
 
 # -- {{ hostname }} ({{ host_data.ip }}) ----------------------------------------
 
 object Host "{{ hostname }}" {
   import "generic-salt-host"
-  address  = "{{ host_data.ip }}"
-  vars.os  = "Linux"
+  address = "{{ host_data.ip }}"
+  vars.os = "Linux"
 }
 
 object Service "ssh" {
@@ -41,13 +45,39 @@ object Service "ssh" {
   retry_interval = 1m
 }
 
-{%- if is_proxy or is_monitoring %}
+{%- if is_proxy %}
+object Service "haproxy" {
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_haproxy"
+  check_interval    = 1m
+  retry_interval    = 30s
+}
+
+object Service "haproxy_backends" {
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_haproxy_backends"
+  check_interval    = 1m
+  retry_interval    = 30s
+}
+{%- elif is_monitoring %}
 object Service "http" {
   host_name      = "{{ hostname }}"
   check_command  = "http"
   vars.http_uri  = "/"
   check_interval = 5m
   retry_interval = 1m
+}
+{%- endif %}
+
+{%- if has_nginx %}
+object Service "nginx_errors" {
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_nginx_errors"
+  check_interval    = 5m
+  retry_interval    = 1m
 }
 {%- endif %}
 
@@ -65,7 +95,6 @@ object Service "load" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_load"
-
   check_interval    = 1m
   retry_interval    = 30s
 }
@@ -74,7 +103,6 @@ object Service "disk_root" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_disk_root"
-
   check_interval    = 5m
   retry_interval    = 1m
 }
@@ -83,7 +111,6 @@ object Service "procs" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_procs"
-
   check_interval    = 5m
   retry_interval    = 1m
 }
@@ -92,7 +119,6 @@ object Service "swap" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_swap"
-
   check_interval    = 5m
   retry_interval    = 1m
 }
@@ -101,7 +127,6 @@ object Service "mem" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_mem"
-
   check_interval    = 1m
   retry_interval    = 30s
 }
@@ -111,13 +136,12 @@ object Service "disk_srv" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_disk_srv"
-
   check_interval    = 5m
   retry_interval    = 1m
 }
 {%- endif %}
 
-{%- for svc in nrpe_svcs %}
+{%- for svc in notif_svcs %}
 object Notification "discord-svc-{{ hostname }}-{{ svc }}" {
   host_name    = "{{ hostname }}"
   service_name = "{{ svc }}"
