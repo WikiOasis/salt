@@ -23,6 +23,9 @@ iptables -C FORWARD -j "$FWD_CHAIN" 2>/dev/null \
 # Allow return traffic for all established/related connections
 iptables -A "$FWD_CHAIN" -m state --state ESTABLISHED,RELATED -j ACCEPT
 
+# Allow all traffic originating from the private VM network (inter-VM routing)
+iptables -A "$FWD_CHAIN" -i "{{ salt['pillar.get']('proxmox:private_bridge', 'vmbr-vrack') }}" -j ACCEPT
+
 {%- for rule in pillar.get('ip_forwarding', []) %}
 {%- set proto = rule.get('proto', 'tcp') %}
 {%- if rule.get('vm_ip') %}
