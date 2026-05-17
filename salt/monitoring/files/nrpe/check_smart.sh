@@ -1,5 +1,9 @@
 #!/bin/bash
 # Check SMART health for all detected block devices.
+# Uses smartctl exit codes (reliable across HDD/SSD/NVMe) rather than text parsing.
+#   bit 1 (2):  device open failed
+#   bit 3 (8):  SMART not supported / read failed
+#   bit 5 (32): SMART status BAD (pre-fail or failed)
 # Requires: smartmontools, sudoers entry for nagios to run smartctl.
 
 SMARTCTL=/usr/sbin/smartctl
@@ -15,13 +19,14 @@ UNKNOWN=()
 OK=()
 
 for drive in $DRIVES; do
-  result=$(sudo "$SMARTCTL" -H "/dev/$drive" 2>&1)
-  if echo "$result" | grep -qE "PASSED|OK"; then
-    OK+=("$drive")
-  elif echo "$result" | grep -q "FAILED"; then
+  sudo "$SMARTCTL" -H "/dev/$drive" > /dev/null 2>&1
+  rc=$?
+  if (( rc & 32 )); then
     FAILED+=("$drive")
-  else
+  elif (( rc & 10 )); then
     UNKNOWN+=("$drive")
+  else
+    OK+=("$drive")
   fi
 done
 
@@ -29,7 +34,7 @@ if [ ${#FAILED[@]} -gt 0 ]; then
   echo "CRITICAL: SMART failure on: ${FAILED[*]}"
   exit 2
 elif [ ${#UNKNOWN[@]} -gt 0 ]; then
-  echo "UNKNOWN: cannot determine SMART status for: ${UNKNOWN[*]}"
+  echo "UNKNOWN: cannot read SMART data for: ${UNKNOWN[*]}"
   exit 3
 else
   echo "OK: all drives healthy (${OK[*]})"
