@@ -2,7 +2,7 @@
 {%- set api_pass = salt['pillar.get']('monitoring:icinga_api_password') %}
 
 [db]
-resource = "icinga_director"
+resource = "icingaweb2"
 
 [icinga2]
 api_host     = "127.0.0.1"
