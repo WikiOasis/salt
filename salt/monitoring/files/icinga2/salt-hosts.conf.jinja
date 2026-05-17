@@ -24,7 +24,7 @@ object User "webhook-notify" {
 {%- set is_proxy      = hostname.startswith('proxy') %}
 {%- set is_db         = hostname.startswith('db') %}
 {%- set is_monitoring = hostname.startswith('monitoring') %}
-{%- set has_nginx     = host_data.get('nginx', is_proxy or is_monitoring) %}
+{%- set has_nginx     = host_data.get('nginx', is_monitoring) %}
 {%- set nrpe_svcs     = ['load', 'disk_root', 'procs', 'swap', 'mem'] + (['disk_srv'] if is_db else []) %}
 {%- set notif_svcs    = nrpe_svcs
                         + (['haproxy', 'haproxy_backends'] if is_proxy else [])
