@@ -1,1 +1,4 @@
 pillar/private/*.sls
+
+.idea/
+.claude/
