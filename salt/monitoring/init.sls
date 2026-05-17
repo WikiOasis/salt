@@ -187,7 +187,7 @@ icinga2:
     - require:
       - file: /etc/icinga2/scripts
 
-{% for script in ['discord_host', 'discord_service', 'slack_host', 'slack_service'] %}
+{%- for script in ['discord_host', 'discord_service', 'slack_host', 'slack_service'] %}
 /etc/icinga2/scripts/{{ script }}_notification.sh:
   file.managed:
     - source: salt://monitoring/files/notify/{{ script }}.sh
@@ -197,7 +197,7 @@ icinga2:
     - require:
       - file: /etc/icinga2/scripts
       - file: /etc/icinga2/scripts/webhook_config.sh
-{% endfor %}
+{%- endfor %}
 
 # ── Icingaweb2 configuration ───────────────────────────────────────────────────
 
@@ -218,7 +218,7 @@ icinga2:
     - require:
       - file: /etc/icingaweb2
 
-{% for conf, src in [
+{%- for conf, src in [
     ('config.ini',         'config.ini.jinja'),
     ('resources.ini',      'resources.ini.jinja'),
     ('authentication.ini', 'authentication.ini.jinja'),
@@ -233,7 +233,7 @@ icinga2:
     - mode: '0660'
     - require:
       - file: /etc/icingaweb2
-{% endfor %}
+{%- endfor %}
 
 /etc/icingaweb2/modules/director/config.ini:
   file.managed:
@@ -244,14 +244,6 @@ icinga2:
     - mode: '0660'
     - require:
       - file: /etc/icingaweb2/modules/director
-
-icingaweb2_enable_monitoring:
-  cmd.run:
-    - name: icingacli module enable monitoring
-    - unless: icingacli module list | grep -q '^monitoring.*enabled'
-    - runas: www-data
-    - require:
-      - file: /etc/icingaweb2/config.ini
 
 icingaweb2_enable_director:
   cmd.run:
