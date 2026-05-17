@@ -51,7 +51,7 @@ director_cmd_discord_service:
             "SERVICESTATE":"$service.state$",
             "SERVICEOUTPUT":"$service.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
- }}'
+        }}'
     - unless: icingacli director command show --name "notify-service-by-discord" >/dev/null 2>&1
     - runas: www-data
     - require:
@@ -70,7 +70,7 @@ director_cmd_slack_host:
             "HOSTSTATE":"$host.state$",
             "HOSTOUTPUT":"$host.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
- }}'
+        }}'
     - unless: icingacli director command show --name "notify-host-by-slack" >/dev/null 2>&1
     - runas: www-data
     - require:
@@ -90,7 +90,7 @@ director_cmd_slack_service:
             "SERVICESTATE":"$service.state$",
             "SERVICEOUTPUT":"$service.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
- }}'
+        }}'
     - unless: icingacli director command show --name "notify-service-by-slack" >/dev/null 2>&1
     - runas: www-data
     - require:
