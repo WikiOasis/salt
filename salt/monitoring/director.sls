@@ -31,7 +31,7 @@ director_cmd_discord_host:
             "HOSTSTATE":"$host.state$",
             "HOSTOUTPUT":"$host.output$",
             "LONGDATETIME":"$icinga.long_date_time$"
- }}'
+        }}'
     - unless: icingacli director command show --name "notify-host-by-discord" >/dev/null 2>&1
     - runas: www-data
     - require:
