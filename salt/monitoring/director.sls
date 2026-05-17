@@ -25,7 +25,7 @@ director_cmd_discord_host:
         '{"object_name":"notify-host-by-discord","object_type":"object",
           "command":"/etc/icinga2/scripts/discord_host_notification.sh",
           "methods_execute":"PluginNotification","timeout":30,
-          "env":{
+          "command_env":{
             "NOTIFICATIONTYPE":"$notification.type$",
             "HOSTNAME":"$host.name$",
             "HOSTSTATE":"$host.state$",
@@ -44,7 +44,7 @@ director_cmd_discord_service:
         '{"object_name":"notify-service-by-discord","object_type":"object",
           "command":"/etc/icinga2/scripts/discord_service_notification.sh",
           "methods_execute":"PluginNotification","timeout":30,
-          "env":{
+          "command_env":{
             "NOTIFICATIONTYPE":"$notification.type$",
             "HOSTNAME":"$host.name$",
             "SERVICENAME":"$service.name$",
@@ -64,7 +64,7 @@ director_cmd_slack_host:
         '{"object_name":"notify-host-by-slack","object_type":"object",
           "command":"/etc/icinga2/scripts/slack_host_notification.sh",
           "methods_execute":"PluginNotification","timeout":30,
-          "env":{
+          "command_env":{
             "NOTIFICATIONTYPE":"$notification.type$",
             "HOSTNAME":"$host.name$",
             "HOSTSTATE":"$host.state$",
@@ -83,7 +83,7 @@ director_cmd_slack_service:
         '{"object_name":"notify-service-by-slack","object_type":"object",
           "command":"/etc/icinga2/scripts/slack_service_notification.sh",
           "methods_execute":"PluginNotification","timeout":30,
-          "env":{
+          "command_env":{
             "NOTIFICATIONTYPE":"$notification.type$",
             "HOSTNAME":"$host.name$",
             "SERVICENAME":"$service.name$",

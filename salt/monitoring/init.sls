@@ -253,9 +253,13 @@ nginx:
     - require:
       - pkg: monitoring_packages
 
+{%- set php_fpm_svc = salt['cmd.run'](
+    'basename $(ls /lib/systemd/system/php*-fpm.service 2>/dev/null | head -1) .service'
+  ) | default('php-fpm', boolean=True) %}
+
 php_fpm:
   service.running:
-    - name: php-fpm
+    - name: {{ php_fpm_svc }}
     - enable: True
     - require:
       - pkg: monitoring_packages
