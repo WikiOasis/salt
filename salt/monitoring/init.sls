@@ -124,6 +124,15 @@ icinga2_feature_notification:
     - require:
       - pkg: monitoring_packages
 
+/etc/icinga2/conf.d/notification-commands.conf:
+  file.managed:
+    - source: salt://monitoring/files/icinga2/notification-commands.conf
+    - user: root
+    - group: nagios
+    - mode: '0640'
+    - require:
+      - pkg: monitoring_packages
+
 icinga2:
   service.running:
     - enable: True
@@ -131,6 +140,7 @@ icinga2:
       - file: /etc/icinga2/zones.conf
       - file: /etc/icinga2/features-available/api.conf
       - file: /etc/icinga2/features-available/ido-mysql.conf
+      - file: /etc/icinga2/conf.d/notification-commands.conf
     - require:
       - cmd: icinga2_feature_api
       - cmd: icinga2_feature_ido_mysql
