@@ -102,8 +102,6 @@ mariadb_running:
     - user: root
     - group: nagios
     - mode: '0640'
-    - require:
-      - cmd: import_ido_schema
 
 icinga2_feature_api:
   cmd.run:
