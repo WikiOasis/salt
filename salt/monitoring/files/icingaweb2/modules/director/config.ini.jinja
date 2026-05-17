@@ -1,4 +1,4 @@
-{%- set api_user = salt['pillar.get']('monitoring:icinga_api_user',     'director') %}
+{%- set api_user = salt['pillar.get']('monitoring:icinga_api_user',     'root') %}
 {%- set api_pass = salt['pillar.get']('monitoring:icinga_api_password') %}
 
 [db]
