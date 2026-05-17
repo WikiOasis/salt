@@ -2,9 +2,9 @@ nrpe_packages:
   pkg.installed:
     - pkgs:
       - nagios-nrpe-server
-      - nagios-plugins-basic
-      - nagios-plugins-standard
-      - nagios-plugins-contrib
+      - monitoring-plugins-basic
+      - monitoring-plugins-standard
+      - monitoring-plugins-contrib
 
 /etc/nagios/nrpe.cfg:
   file.managed:

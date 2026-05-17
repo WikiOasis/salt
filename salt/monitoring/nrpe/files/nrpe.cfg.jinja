@@ -1,6 +1,6 @@
 # Managed by Salt — do not edit manually.
 {%- set monitoring_ips = [] %}
-{%- for name, data in salt['pillar.get']('metal:dns_hosts', {}).items() %}
+{%- for name, data in salt['pillar.get']('dns_hosts', {}).items() %}
 {%- if name.startswith('monitoring') %}
 {%- do monitoring_ips.append(data.ip) %}
 {%- endif %}

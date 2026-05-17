@@ -1,4 +1,4 @@
-{%- set hosts = salt['pillar.get']('metal:dns_hosts', {}) %}
+{%- set hosts = salt['pillar.get']('dns_hosts', {}) %}
 
 # All cmd.run states use `unless` to check existence first — fully idempotent.
 # Run director.sls independently with: salt 'monitoring*' state.apply monitoring.director
@@ -268,12 +268,7 @@ director_svc_disk_srv_{{ sid }}:
 
 # NRPE service notifications (Discord + Slack per check) ───────────────────────
 
-{%- set nrpe_svcs = ['load', 'disk_root', 'procs', 'swap', 'mem'] %}
-{%- if is_db %}
-{%- set nrpe_svcs = nrpe_svcs + ['disk_srv'] %}
-{%- endif %}
-
-{%- for svc in nrpe_svcs %}
+{%- for svc in (['load', 'disk_root', 'procs', 'swap', 'mem'] + (['disk_srv'] if is_db else [])) %}
 director_notif_discord_svc_{{ sid }}_{{ svc }}:
   cmd.run:
     - name: >-
@@ -351,6 +346,7 @@ director_deploy:
     - name: icingacli director config deploy --wait
     - runas: www-data
     - require:
+      - cmd: director_user_webhook
 {%- for hostname in hosts.keys() %}
 {%- set sid = hostname | replace('-', '_') | replace('.', '_') %}
       - cmd: director_host_{{ sid }}
