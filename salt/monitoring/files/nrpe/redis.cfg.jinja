@@ -1,0 +1,2 @@
+{%- set port = salt['pillar.get']('redis:port', 6379) %}
+command[check_redis]=/usr/lib/nagios/plugins/check_redis.sh 127.0.0.1 {{ port }}

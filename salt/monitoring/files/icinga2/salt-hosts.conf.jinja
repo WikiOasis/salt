@@ -26,19 +26,23 @@ object User "webhook-notify" {
 # ── Per-host objects ──────────────────────────────────────────────────────────
 
 {%- for hostname, host_data in hosts.items() %}
-{%- set is_proxy      = hostname.startswith('proxy') %}
-{%- set is_db         = hostname.startswith('db') %}
-{%- set is_monitoring = hostname.startswith('monitoring') %}
-{%- set is_metal      = hostname.startswith('metal') %}
-{%- set has_nginx     = host_data.get('nginx', is_monitoring) %}
-{%- set nrpe_svcs     = ['load', 'disk_root', 'procs', 'swap', 'mem', 'apt']
-                        + (['disk_srv'] if is_db else [])
-                        + (['smart', 'raid'] if is_metal else []) %}
-{%- set notif_svcs    = ['ssh'] + nrpe_svcs
-                        + (['haproxy', 'haproxy_backends'] if is_proxy else [])
-                        + (['http'] if is_monitoring else [])
-                        + (['mysql_port'] if is_db else [])
-                        + (['nginx_errors'] if has_nginx else []) %}
+{%- set is_proxy       = hostname.startswith('proxy') %}
+{%- set is_db          = hostname.startswith('db') %}
+{%- set is_monitoring  = hostname.startswith('monitoring') %}
+{%- set is_metal       = hostname.startswith('metal') %}
+{%- set is_redis       = hostname.startswith('redis') %}
+{%- set is_salt_master = hostname.startswith('salt') %}
+{%- set has_nginx      = host_data.get('nginx', is_monitoring) %}
+{%- set nrpe_svcs      = ['load', 'disk_root', 'procs', 'swap', 'mem', 'apt', 'salt_minion']
+                         + (['disk_srv'] if is_db else [])
+                         + (['smart', 'raid'] if is_metal else []) %}
+{%- set notif_svcs     = ['ssh'] + nrpe_svcs
+                         + (['haproxy', 'haproxy_backends'] if is_proxy else [])
+                         + (['http'] if is_monitoring else [])
+                         + (['mysql_port'] if is_db else [])
+                         + (['nginx_errors'] if has_nginx else [])
+                         + (['redis'] if is_redis else [])
+                         + (['salt_master'] if is_salt_master else []) %}
 
 # -- {{ hostname }} ({{ host_data.ip }}) ----------------------------------------
 
@@ -189,6 +193,37 @@ object Service "disk_srv" {
   vars.nrpe_command = "check_disk_srv"
   check_interval    = 5m
   retry_interval    = 1m
+}
+{%- endif %}
+
+object Service "salt_minion" {
+  import            "generic-salt-service"
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_salt_minion"
+  check_interval    = 1m
+  retry_interval    = 10s
+}
+
+{%- if is_salt_master %}
+object Service "salt_master" {
+  import            "generic-salt-service"
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_salt_master"
+  check_interval    = 1m
+  retry_interval    = 10s
+}
+{%- endif %}
+
+{%- if is_redis %}
+object Service "redis" {
+  import            "generic-salt-service"
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_redis"
+  check_interval    = 1m
+  retry_interval    = 10s
 }
 {%- endif %}
 

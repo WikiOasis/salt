@@ -19,3 +19,9 @@ base:
    'monitoring*':
       - monitoring
       - private
+   'redis*':
+      - redis
+   'redis-us-east-011*':
+      - redis.redis-us-east-011
+   'redis-us-east-012*':
+      - redis.redis-us-east-012

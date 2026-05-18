@@ -1,0 +1,29 @@
+{%- set cfg = salt['pillar.get']('redis', {}) %}
+{%- set saves = cfg.get('save', ['900 1', '300 10', '60 10000']) %}
+# Managed by Salt — do not edit manually.
+
+bind {{ cfg.get('bind', '127.0.0.1') }}
+port {{ cfg.get('port', 6379) }}
+protected-mode {{ cfg.get('protected_mode', 'yes') }}
+
+timeout {{ cfg.get('timeout', 0) }}
+tcp-keepalive {{ cfg.get('tcp_keepalive', 300) }}
+
+loglevel {{ cfg.get('loglevel', 'notice') }}
+logfile "{{ cfg.get('logfile', '') }}"
+
+databases {{ cfg.get('databases', 16) }}
+
+{%- for s in saves %}
+save {{ s }}
+{%- endfor %}
+
+maxmemory {{ cfg.get('maxmemory', 0) }}
+maxmemory-policy {{ cfg.get('maxmemory_policy', 'noeviction') }}
+
+{%- if cfg.get('requirepass') %}
+requirepass {{ cfg.get('requirepass') }}
+{%- endif %}
+
+appendonly {{ cfg.get('appendonly', 'no') }}
+appendfsync {{ cfg.get('appendfsync', 'everysec') }}
