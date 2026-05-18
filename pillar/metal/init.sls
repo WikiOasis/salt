@@ -27,6 +27,12 @@ dns_hosts:
   db-other-us-east-011:
     ip: 10.0.1.20
     mac: bc:24:11:24:40:36
+  redis-us-east-011.ovvin.wonet:
+    ip: 10.0.1.40
+    mac: bc:24:11:9f:38:bc
+  redis-us-east-012.ovvin.wonet:
+    ip: 10.0.1.41
+    mac: bc:24:11:68:d8:67
   bastion-us-east-021:
     ip: 10.0.2.49
     mac: bc:24:11:ab:a4:70
@@ -68,6 +74,12 @@ proxmox:
     db-other-us-east-011.ovvin.wonet:
       metal_host: metal-us-east-01
       vmid: 120
+    redis-us-east-011.ovvin.wonet:
+      metal_host: metal-us-east-01
+      vmid: 140
+    redis-us-east-012.ovvin.wonet:
+      metal_host: metal-us-east-01
+      vmid: 141
     # metal-us-east-02
     bastion-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
