@@ -5,6 +5,7 @@ monitoring:
   icinga_api_password: CHANGE_ME
   ido_db_password: CHANGE_ME
   director_db_password: CHANGE_ME
+  monitoring_db_password: CHANGE_ME
 
 notifications:
   discord_webhook_url: https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN

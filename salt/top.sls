@@ -7,6 +7,7 @@ base:
     - monitoring.nrpe_salt
   'db*':
     - mariadb
+    - mariadb.monitoring_user
   'metal*':
     - metal
     - monitoring.nrpe_metal

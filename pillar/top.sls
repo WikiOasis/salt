@@ -5,6 +5,7 @@ base:
       - users.groups
    'db*':
       - mariadb
+      - private
    'db-other-us-east-011*':
       - mariadb.db-other-us-east-011
    'metal* or *-us-east-0[0-9][0-9]*':

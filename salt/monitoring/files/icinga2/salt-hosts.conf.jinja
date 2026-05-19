@@ -39,7 +39,7 @@ object User "webhook-notify" {
 {%- set notif_svcs     = ['ssh'] + nrpe_svcs
                          + (['haproxy', 'haproxy_backends'] if is_proxy else [])
                          + (['http'] if is_monitoring else [])
-                         + (['mysql_port'] if is_db else [])
+                         + (['mariadb'] if is_db else [])
                          + (['nginx_errors'] if has_nginx else [])
                          + (['redis'] if is_redis else [])
                          + (['salt_master'] if is_salt_master else []) %}
@@ -101,13 +101,16 @@ object Service "nginx_errors" {
 {%- endif %}
 
 {%- if is_db %}
-object Service "mysql_port" {
-  import         "generic-salt-service"
-  host_name      = "{{ hostname }}"
-  check_command  = "tcp"
-  vars.tcp_port  = 3306
-  check_interval = 1m
-  retry_interval = 10s
+object Service "mariadb" {
+  import                "generic-salt-service"
+  host_name             = "{{ hostname }}"
+  check_command         = "mysql"
+  vars.mysql_hostname   = "$address$"
+  vars.mysql_port       = 3306
+  vars.mysql_username   = "icinga_monitor"
+  vars.mysql_password   = "{{ salt['pillar.get']('monitoring:monitoring_db_password') }}"
+  check_interval        = 1m
+  retry_interval        = 10s
 }
 {%- endif %}
 
