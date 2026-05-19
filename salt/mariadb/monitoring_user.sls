@@ -1,17 +1,19 @@
+{% set password = salt['pillar.get']('monitoring:monitoring_db_password') %}
+
 icinga_monitor_user:
-  mysql_user.present:
-    - name: icinga_monitor
-    - host: '%'
-    - password: {{ salt['pillar.get']('monitoring:monitoring_db_password') }}
+  cmd.run:
+    - name: >
+        mysql -e
+        "CREATE USER IF NOT EXISTS 'icinga_monitor'@'%' IDENTIFIED BY '{{ password }}';
+        ALTER USER 'icinga_monitor'@'%' IDENTIFIED BY '{{ password }}';"
     - require:
       - pkg: install_mariadb
       - service: mariadb
 
 icinga_monitor_grant:
-  mysql_grants.present:
-    - grant: usage
-    - database: '*.*'
-    - user: icinga_monitor
-    - host: '%'
+  cmd.run:
+    - name: >
+        mysql -e
+        "GRANT USAGE ON *.* TO 'icinga_monitor'@'%';"
     - require:
-      - mysql_user: icinga_monitor_user
+      - cmd: icinga_monitor_user

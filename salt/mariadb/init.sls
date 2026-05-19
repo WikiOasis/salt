@@ -1,8 +1,6 @@
 install_mariadb:
   pkg.installed:
-    - pkgs:
-      - mariadb-server
-      - python3-mysqldb
+    - name: mariadb-server
 
 /etc/mysql/mariadb.conf.d/50-server.cnf:
   file.managed:
