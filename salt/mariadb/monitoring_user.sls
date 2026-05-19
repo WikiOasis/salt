@@ -4,6 +4,7 @@ icinga_monitor_user:
     - host: '%'
     - password: {{ salt['pillar.get']('monitoring:monitoring_db_password') }}
     - require:
+      - pkg: install_mariadb
       - service: mariadb
 
 icinga_monitor_grant:
