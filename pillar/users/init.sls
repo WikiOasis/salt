@@ -23,7 +23,7 @@ groups:
         description: elevated permissions on webservers, and deployment access on salt
         members: []
         privileges: ['ALL = (www-data) NOPASSWD: ALL',
-                'ALL = (ALL) /usr/bin/salt 'mw*' deploy.*',
+                "ALL = (ALL) /usr/bin/salt 'mw*' deploy.*",
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service php8.4-fpm *',
                 'ALL = (ALL) NOPASSWD: /bin/journalctl *']
