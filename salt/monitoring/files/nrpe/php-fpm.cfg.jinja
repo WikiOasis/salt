@@ -1,0 +1,4 @@
+{%- set version = salt['pillar.get']('php:version', '8.3') %}
+{%- set fpm = salt['pillar.get']('php:fpm', {}) %}
+{%- set listen = fpm.get('listen', '') or ('/run/php/php' ~ version ~ '-fpm.sock') %}
+command[check_php_fpm]=/usr/lib/nagios/plugins/check_php_fpm.sh {{ listen }}

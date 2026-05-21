@@ -1,0 +1,29 @@
+{%- set cfg = salt['pillar.get']('php', {}) %}
+{%- set fpm = cfg.get('fpm', {}) %}
+{%- set version = cfg.get('version', '8.3') %}
+{%- set pool = fpm.get('pool', 'www') %}
+{%- set listen = fpm.get('listen', '') or ('/run/php/php' ~ version ~ '-fpm.sock') %}
+; Managed by Salt — do not edit manually.
+
+[{{ pool }}]
+
+user = www-data
+group = www-data
+
+listen = {{ listen }}
+listen.owner = www-data
+listen.group = www-data
+
+pm = {{ fpm.get('pm', 'dynamic') }}
+pm.max_children = {{ fpm.get('pm_max_children', 10) }}
+{%- if fpm.get('pm', 'dynamic') == 'dynamic' %}
+pm.start_servers = {{ fpm.get('pm_start_servers', 2) }}
+pm.min_spare_servers = {{ fpm.get('pm_min_spare_servers', 1) }}
+pm.max_spare_servers = {{ fpm.get('pm_max_spare_servers', 3) }}
+{%- endif %}
+pm.max_requests = {{ fpm.get('pm_max_requests', 500) }}
+
+request_terminate_timeout = {{ fpm.get('request_terminate_timeout', 60) }}
+
+ping.path = /ping
+ping.response = pong

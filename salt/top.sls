@@ -18,6 +18,9 @@ base:
     - monitoring
     - monitoring.director
     - monitoring.nrpe_nginx
+  'mw*':
+    - php
+    - monitoring.nrpe_php
   'redis*':
     - redis
     - monitoring.nrpe_redis

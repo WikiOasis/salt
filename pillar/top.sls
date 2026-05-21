@@ -17,6 +17,9 @@ base:
       - metal.metal-us-east-02
    'mw*':
       - users.servers.mediawiki
+      - php
+   'mw-us-east-011*':
+      - php.mw-us-east-011
    'proxy*':
       - haproxy
    'monitoring*':
