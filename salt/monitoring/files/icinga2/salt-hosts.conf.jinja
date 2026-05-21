@@ -32,10 +32,12 @@ object User "webhook-notify" {
 {%- set is_metal       = hostname.startswith('metal') %}
 {%- set is_redis       = hostname.startswith('redis') %}
 {%- set is_salt_master = hostname.startswith('salt') %}
+{%- set is_mw          = hostname.startswith('mw') %}
 {%- set has_nginx      = host_data.get('nginx', is_monitoring) %}
 {%- set nrpe_svcs      = ['load', 'disk_root', 'procs', 'swap', 'mem', 'apt', 'salt_minion']
                          + (['disk_srv'] if is_db else [])
-                         + (['smart', 'raid'] if is_metal else []) %}
+                         + (['smart', 'raid'] if is_metal else [])
+                         + (['php_fpm'] if is_mw else []) %}
 {%- set notif_svcs     = ['ssh'] + nrpe_svcs
                          + (['haproxy', 'haproxy_backends'] if is_proxy else [])
                          + (['http'] if is_monitoring else [])
@@ -225,6 +227,17 @@ object Service "redis" {
   host_name         = "{{ hostname }}"
   check_command     = "nrpe"
   vars.nrpe_command = "check_redis"
+  check_interval    = 1m
+  retry_interval    = 10s
+}
+{%- endif %}
+
+{%- if is_mw %}
+object Service "php_fpm" {
+  import            "generic-salt-service"
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_php_fpm"
   check_interval    = 1m
   retry_interval    = 10s
 }
