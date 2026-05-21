@@ -55,10 +55,10 @@ dns_hosts:
     ip: 10.0.2.20
     mac: bc:24:11:89:75:da
   mw-us-east-021.ovvin.wonet:
-    ip: 10.0.1.60
+    ip: 10.0.2.60
     mac: bc:24:11:4c:80:6f
   mw-us-east-022.ovvin.wonet:
-    ip: 10.0.1.61
+    ip: 10.0.2.61
     mac: bc:24:11:a0:00:bc
 
 proxmox:
