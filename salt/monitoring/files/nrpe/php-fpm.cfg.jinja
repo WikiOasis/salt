@@ -1,4 +1,7 @@
-{%- set version = salt['pillar.get']('php:version', '8.3') %}
-{%- set fpm = salt['pillar.get']('php:fpm', {}) %}
-{%- set listen = fpm.get('listen', '') or ('/run/php/php' ~ version ~ '-fpm.sock') %}
-command[check_php_fpm]=/usr/lib/nagios/plugins/check_php_fpm.sh {{ listen }}
+{%- set version  = salt['pillar.get']('php:version', '8.4') %}
+{%- set fpm      = salt['pillar.get']('php:fpm', {}) %}
+{%- set mon      = salt['pillar.get']('php:monitoring', {}) %}
+{%- set listen   = fpm.get('listen', '') or ('/run/php/php' ~ version ~ '-fpm.sock') %}
+{%- set q_warn   = mon.get('queue_warn', 5) %}
+{%- set q_crit   = mon.get('queue_crit', 10) %}
+command[check_php_fpm]=/usr/lib/nagios/plugins/check_php_fpm.sh {{ listen }} {{ q_warn }} {{ q_crit }}

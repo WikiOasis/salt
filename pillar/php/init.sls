@@ -23,3 +23,6 @@ php:
     pm_max_spare_servers: 3
     pm_max_requests: 500
     request_terminate_timeout: 60
+  monitoring:
+    queue_warn: 5
+    queue_crit: 10
