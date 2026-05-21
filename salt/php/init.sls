@@ -9,12 +9,12 @@ install_php:
   pkg.installed:
     - pkgs:
       - php{{ version }}
-{%- for ext in extensions %}
+{% for ext in extensions %}
       - php{{ version }}-{{ ext }}
-{%- endfor %}
-{%- for pkg in extra_packages %}
+{% endfor %}
+{% for pkg in extra_packages %}
       - {{ pkg }}
-{%- endfor %}
+{% endfor %}
 
 /etc/php/{{ version }}/fpm/pool.d/{{ pool }}.conf:
   file.managed:
