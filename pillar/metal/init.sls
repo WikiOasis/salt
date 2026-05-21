@@ -33,6 +33,12 @@ dns_hosts:
   redis-us-east-012.ovvin.wonet:
     ip: 10.0.1.41
     mac: bc:24:11:68:d8:67
+  mw-us-east-011.ovvin.wonet:
+    ip: 10.0.1.60
+    mac: bc:24:11:ac:18:e0
+  mw-us-east-012.ovvin.wonet:
+    ip: 10.0.1.61
+    mac: bc:24:11:79:3a:be
   bastion-us-east-021:
     ip: 10.0.2.49
     mac: bc:24:11:ab:a4:70
@@ -48,6 +54,12 @@ dns_hosts:
   db-c1-us-east-021:
     ip: 10.0.2.20
     mac: bc:24:11:89:75:da
+  mw-us-east-021.ovvin.wonet:
+    ip: 10.0.1.60
+    mac: bc:24:11:4c:80:6f
+  mw-us-east-022.ovvin.wonet:
+    ip: 10.0.1.61
+    mac: bc:24:11:a0:00:bc
 
 proxmox:
   public_bridge: "vmbr0"
@@ -80,24 +92,31 @@ proxmox:
     redis-us-east-012.ovvin.wonet:
       metal_host: metal-us-east-01
       vmid: 141
+    mw-us-east-011.ovvin.wonet:
+      metal_host: metal-us-east-01
+      vmid: 160
+    mw-us-east-012.ovvin.wonet:
+      metal_host: metal-us-east-01
+      vmid: 161
     # metal-us-east-02
     bastion-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 201
-      interface: ens18
     proxy-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 202
-      interface: ens18
     salt-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 210
-      interface: ens18
     monitoring-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 203
-      interface: ens18
     db-c1-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 220
-      interface: ens18
+    mw-us-east-021.ovvin.wonet:
+      metal_host: metal-us-east-02
+      vmid: 260
+    mw-us-east-022.ovvin.wonet:
+      metal_host: metal-us-east-02
+      vmid: 261
