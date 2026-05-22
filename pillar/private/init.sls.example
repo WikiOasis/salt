@@ -2,6 +2,7 @@
 # It is gitignored (pillar/private/*.sls) and must never be committed.
 
 monitoring:
+  icinga_api_host: monitoring-us-east-021.ovvin.wonet
   icinga_api_password: CHANGE_ME
   ido_db_password: CHANGE_ME
   director_db_password: CHANGE_ME
