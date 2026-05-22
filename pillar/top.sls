@@ -3,6 +3,7 @@ base:
       - base
       - users
       - users.groups
+      - private
    'db*':
       - mariadb
       - private
