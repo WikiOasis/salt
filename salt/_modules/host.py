@@ -75,46 +75,34 @@ def _api_cfg():
 def _api_post(path, payload):
     """POST *payload* (dict) to the Icinga2 API and return the parsed response."""
     import json
-    import ssl
-    import urllib.error
-    import urllib.request
 
     host, port, user, password = _api_cfg()
     url = "https://{}:{}/v1/{}".format(host, port, path.lstrip("/"))
 
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(
+    resp = __salt__["http.query"](
         url,
-        data=data,
         method="POST",
-        headers={
+        username=user,
+        password=password,
+        data=json.dumps(payload),
+        header_dict={
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "X-HTTP-Method-Override": "POST",
         },
+        verify_ssl=False,
+        decode=True,
+        decode_type="json",
+        status=True,
     )
 
-    password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    password_mgr.add_password(None, url, user, password)
-    auth_handler = urllib.request.HTTPBasicAuthHandler(password_mgr)
-
-    # Icinga2 uses a self-signed cert by default; skip verification.
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    https_handler = urllib.request.HTTPSHandler(context=ctx)
-
-    opener = urllib.request.build_opener(auth_handler, https_handler)
-    try:
-        with opener.open(req, timeout=10) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode(errors="replace")
+    if resp.get("status") not in (200, "200"):
         raise CommandExecutionError(
-            "Icinga2 API returned HTTP {}: {}".format(exc.code, body)
+            "Icinga2 API returned HTTP {}: {}".format(
+                resp.get("status"), resp.get("body", "")
+            )
         )
-    except Exception as exc:
-        raise CommandExecutionError("Icinga2 API request failed: {}".format(exc))
+
+    return resp.get("dict", {})
 
 
 # ---------------------------------------------------------------------------

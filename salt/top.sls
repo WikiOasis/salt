@@ -18,7 +18,8 @@ base:
     - monitoring
     - monitoring.director
     - monitoring.nrpe_nginx
-  'mw*':
+  'mw* or staging*':
+    - match: compound
     - php
     - monitoring.nrpe_php
   'redis*':
