@@ -11,7 +11,8 @@ nginx:
 
 /etc/nginx/snippets/mediawiki-common.conf:
   file.managed:
-    - source: salt://nginx/files/mediawiki-common.conf
+    - source: salt://nginx/files/mediawiki-common.conf.jinja
+    - template: jinja
     - user: root
     - group: root
     - mode: '0644'

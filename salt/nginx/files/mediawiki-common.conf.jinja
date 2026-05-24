@@ -1,3 +1,6 @@
+{%- set nginx = salt['pillar.get']('nginx', {}) %}
+{%- set csp = nginx.get('csp_header', '') %}
+{%- set permission_policy = nginx.get('permission_policy_header', '') %}
 # salt managed, do not modify manually
 root /srv/mediawiki;
 index index.php index.html index.htm;
@@ -7,9 +10,12 @@ add_header Referrer-Policy strict-origin-when-cross-origin;
 add_header X-Permitted-Cross-Domain-Policies "none";
 add_header Cross-Origin-Opener-Policy "same-origin";
 add_header Cache-Tag $cache_tag;
-
-include /etc/nginx/snippets/_csp_headers.conf;
-include /etc/nginx/snippets/_permission_policy.conf;
+{% if csp %}
+add_header Content-Security-Policy "{{ csp }}" always;
+{% endif %}
+{% if permission_policy %}
+add_header Permissions-Policy "{{ permission_policy }}" always;
+{% endif %}
 
 location = /robots.txt {
   try_files $uri /w/config/robots.php;
