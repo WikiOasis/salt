@@ -1,8 +1,11 @@
 {%- set nginx = salt['pillar.get']('nginx', {}) %}
 {%- set csp = nginx.get('csp_header', '') %}
 {%- set permission_policy = nginx.get('permission_policy_header', '') %}
+{%- set doc_root = nginx.get('doc_root', '/srv/mediawiki') %}
+{%- set php_version = salt['pillar.get']('php:version', '8.4') %}
+{%- set fpm_listen = salt['pillar.get']('php:fpm:listen', '') or ('unix:/run/php/php' ~ php_version ~ '-fpm.sock') %}
 # salt managed, do not modify manually
-root /srv/mediawiki;
+root {{ doc_root }};
 index index.php index.html index.htm;
 client_max_body_size 128M;
 proxy_hide_header Referrer-Policy;
@@ -47,25 +50,31 @@ location /wiki/ {
 location ~ ^/w/img_auth.php {
   rewrite ^/w/img_auth.php/(.*)$ /w/img_auth.php last;
 
-  include snippets/fastcgi-php.conf;
-  fastcgi_pass 127.0.0.1:9000;
+  fastcgi_pass {{ fpm_listen }};
+  fastcgi_index index.php;
+  fastcgi_split_path_info ^(.+\.php)(/.*)$;
   fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+  fastcgi_param PATH_INFO $fastcgi_path_info;
   fastcgi_param MW_ENV production;
   include fastcgi_params;
 }
 
 location ~ /w/.*\.php$ {
-  include snippets/fastcgi-php.conf;
-  fastcgi_pass 127.0.0.1:9000;
+  fastcgi_pass {{ fpm_listen }};
+  fastcgi_index index.php;
+  fastcgi_split_path_info ^(.+\.php)(/.*)$;
   fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+  fastcgi_param PATH_INFO $fastcgi_path_info;
   fastcgi_param MW_ENV production;
   include fastcgi_params;
 }
 
 location ~ ^/w/rest\.php(/|$) {
-  include snippets/fastcgi-php.conf;
-  fastcgi_pass 127.0.0.1:9000;
+  fastcgi_pass {{ fpm_listen }};
+  fastcgi_index index.php;
+  fastcgi_split_path_info ^(.+\.php)(/.*)$;
   fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+  fastcgi_param PATH_INFO $fastcgi_path_info;
   fastcgi_param MW_ENV production;
   include fastcgi_params;
 }

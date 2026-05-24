@@ -1,4 +1,6 @@
 nginx:
+  doc_root: /srv/mediawiki
+
   csp_header: >-
     default-src 'self' https://*.betaoasis.xyz https://*.wikioasis.org;
     script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' https://*.betaoasis.xyz https://*.wikioasis.org https://*.newrelic.com https://*.wikimedia.org https://*.wikipedia.org https://*.mediawiki.org https://*.sentry-cdn.com https://*.cloudflareinsights.com https://hcaptcha.com https://*.hcaptcha.com https://*.miraheze.org https://*.googletagmanager.com;
