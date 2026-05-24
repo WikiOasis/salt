@@ -9,7 +9,6 @@ proxy_hide_header Referrer-Policy;
 add_header Referrer-Policy strict-origin-when-cross-origin;
 add_header X-Permitted-Cross-Domain-Policies "none";
 add_header Cross-Origin-Opener-Policy "same-origin";
-add_header Cache-Tag $cache_tag;
 {% if csp %}
 add_header Content-Security-Policy "{{ csp }}" always;
 {% endif %}
