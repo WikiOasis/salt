@@ -60,6 +60,11 @@ nginx:
     - require:
       - file: /etc/nginx/conf.d/custom_domains/_placeholder.conf
 
+/etc/nginx/sites-enabled/default:
+  file.absent:
+    - require:
+      - pkg: nginx
+
 nginx_service:
   service.running:
     - name: nginx
@@ -70,3 +75,4 @@ nginx_service:
       - file: /etc/nginx/conf.d/mediawiki-vhosts.conf
     - require:
       - pkg: nginx
+      - file: /etc/nginx/sites-enabled/default
