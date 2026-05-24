@@ -1,4 +1,4 @@
- nginx:
+nginx:
   pkg.installed: []
 
 /etc/nginx/snippets:
