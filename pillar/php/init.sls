@@ -11,6 +11,7 @@ php:
     - zip
     - apcu
     - igbinary
+    - redis
   extra_packages:
     - php-excimer
   fpm:
