@@ -1,0 +1,11 @@
+# salt managed, do not modify manually
+{%- set nginx = salt['pillar.get']('nginx', {}) %}
+{% for block in nginx.get('server_blocks', []) %}
+server {
+{%- for addr in block.get('listen', ['80', '[::]:80']) %}
+    listen {{ addr }};
+{%- endfor %}
+    server_name {{ block.server_name }};
+    include snippets/mediawiki-common.conf;
+}
+{% endfor %}

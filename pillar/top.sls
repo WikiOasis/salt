@@ -20,6 +20,7 @@ base:
       - match: compound
       - users.servers.mediawiki
       - php
+      - nginx
    'proxy*':
       - haproxy
    'monitoring*':

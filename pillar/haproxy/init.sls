@@ -24,7 +24,9 @@ haproxy:
       persistent_hosts:
         - hostname: icinga.wikioasis.org
           backend: icinga
-      default_backend: icinga
+        - hostname: test.wikioasis.org
+          backend: staging
+      default_backend: staging
       options:
         - forwardfor
         - http-server-close
@@ -37,6 +39,17 @@ haproxy:
       servers:
         - name: monitoring-us-east-021
           host: monitoring-us-east-021.ovvin.wonet
+          port: 80
+          check: true
+          weight: 1
+          depooled: false
+    staging:
+      balance: roundrobin
+      options:
+        - forwardfor
+      servers:
+        - name: staging-us-east-021
+          host: staging-us-east-021.ovvin.wonet
           port: 80
           check: true
           weight: 1

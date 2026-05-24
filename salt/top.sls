@@ -21,6 +21,7 @@ base:
   'mw* or staging*':
     - match: compound
     - php
+    - nginx
     - monitoring.nrpe_php
   'redis*':
     - redis
