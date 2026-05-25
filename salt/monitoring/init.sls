@@ -149,6 +149,18 @@ icinga2_remove_default_conf_notifications:
     - require:
       - pkg: monitoring_packages
 
+/etc/icinga2/conf.d/salt-hosts.conf:
+  file.managed:
+    - source: salt://monitoring/files/icinga2/salt-hosts.conf.jinja
+    - template: jinja
+    - user: root
+    - group: nagios
+    - mode: '0640'
+    - require:
+      - pkg: monitoring_packages
+    - watch_in:
+      - service: icinga2
+
 icinga2:
   service.running:
     - enable: True
@@ -157,6 +169,7 @@ icinga2:
       - file: /etc/icinga2/features-available/api.conf
       - file: /etc/icinga2/features-available/ido-mysql.conf
       - file: /etc/icinga2/conf.d/notification-commands.conf
+      - file: /etc/icinga2/conf.d/salt-hosts.conf
     - require:
       - cmd: icinga2_feature_api
       - cmd: icinga2_feature_ido_mysql
