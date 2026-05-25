@@ -92,5 +92,5 @@ location ~ ^/w/(cw_cache|docs|cache|config|includes|vendor|language|maintenance|
 
 location ~ /w/(composer\.json|composer\.lock|LocalSettings\.php)$ { deny all; }
 
-error_log /var/log/nginx/mediawiki_error.log;
-access_log /var/log/nginx/mediawiki_access.log;
+error_log /var/log/nginx/error.log;
+access_log /var/log/nginx/access.log;
