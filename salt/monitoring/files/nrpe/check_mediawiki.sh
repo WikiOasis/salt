@@ -11,10 +11,10 @@ start_ms=$(date +%s%3N)
 http_code=$(curl -sS \
     --max-time $(( (CRIT_MS + 999) / 1000 + 1 )) \
     --location \
-    -H "Host: ${HOST}" \
+    --resolve "${HOST}:80:127.0.0.1" \
     -o "$tmp" \
     -w "%{http_code}" \
-    "http://127.0.0.1/" 2>&1)
+    "http://${HOST}/" 2>&1)
 curl_exit=$?
 elapsed_ms=$(( $(date +%s%3N) - start_ms ))
 
