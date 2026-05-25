@@ -14,7 +14,7 @@ http_code=$(curl -sS \
     --resolve "${HOST}:80:127.0.0.1" \
     -o "$tmp" \
     -w "%{http_code}" \
-    "http://${HOST}/" 2>&1)
+    "http://${HOST}/wiki/Main_Page" 2>&1)
 curl_exit=$?
 elapsed_ms=$(( $(date +%s%3N) - start_ms ))
 
