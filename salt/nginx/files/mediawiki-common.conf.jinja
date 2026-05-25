@@ -59,6 +59,13 @@ location ~ ^/w/img_auth.php {
   include fastcgi_params;
 }
 
+location ^~ /w/resources/ {
+  include fastcgi_params;
+  fastcgi_param SCRIPT_FILENAME /srv/mediawiki/w/resources.php;
+  fastcgi_param MW_ENV production;
+  fastcgi_pass {{ fpm_listen }};
+}
+
 location ~ /w/.*\.php$ {
   fastcgi_pass {{ fpm_listen }};
   fastcgi_index index.php;
