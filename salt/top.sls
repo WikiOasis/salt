@@ -22,7 +22,9 @@ base:
     - match: compound
     - php
     - nginx
+    - monitoring.nrpe_nginx
     - monitoring.nrpe_php
+    - monitoring.nrpe_mediawiki
   'redis*':
     - redis
     - monitoring.nrpe_redis

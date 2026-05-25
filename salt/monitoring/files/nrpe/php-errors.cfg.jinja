@@ -1,0 +1,5 @@
+{%- set version = salt['pillar.get']('php:version', '8.4') %}
+{%- set mon     = salt['pillar.get']('php:monitoring', {}) %}
+{%- set e_warn  = mon.get('error_warn', 5) %}
+{%- set e_crit  = mon.get('error_crit', 20) %}
+command[check_php_errors]=/usr/lib/nagios/plugins/check_php_errors.sh /var/log/php{{ version }}-fpm.log {{ e_warn }} {{ e_crit }}
