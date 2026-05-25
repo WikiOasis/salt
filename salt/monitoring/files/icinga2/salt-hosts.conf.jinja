@@ -33,7 +33,7 @@ object User "webhook-notify" {
 {%- set is_metal       = hostname.startswith('metal') %}
 {%- set is_redis       = hostname.startswith('redis') %}
 {%- set is_salt_master = hostname.startswith('salt') %}
-{%- set is_mw          = hostname.startswith('mw') %}
+{%- set is_mw          = hostname.startswith('mw') or hostname.startswith('staging') %}
 {%- set has_nginx      = host_data.get('nginx', is_monitoring or is_mw) %}
 {%- set nrpe_svcs      = ['load', 'disk_root', 'procs', 'swap', 'mem', 'apt', 'salt_minion']
                          + (['disk_srv'] if is_db else [])
