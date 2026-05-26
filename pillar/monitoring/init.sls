@@ -5,3 +5,9 @@ monitoring:
   web_db_name: icingaweb
   director_db_name: icingaweb
   director_db_user: icingadb
+
+  grafana:
+    admin_user: admin
+
+  prometheus:
+    retention: 15d

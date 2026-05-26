@@ -15,6 +15,9 @@ haproxy:
     - hostname: icinga.wikioasis.org
       backend: icinga
       active: true
+    - hostname: grafana.wikioasis.org
+      backend: grafana
+      active: true
 
   frontends:
     http:
@@ -24,6 +27,8 @@ haproxy:
       persistent_hosts:
         - hostname: icinga.wikioasis.org
           backend: icinga
+        - hostname: grafana.wikioasis.org
+          backend: grafana
         - hostname: test.wikioasis.org
           backend: staging
       default_backend: staging
@@ -33,6 +38,17 @@ haproxy:
 
   backends:
     icinga:
+      balance: roundrobin
+      options:
+        - forwardfor
+      servers:
+        - name: monitoring-us-east-021
+          host: monitoring-us-east-021.ovvin.wonet
+          port: 80
+          check: true
+          weight: 1
+          depooled: false
+    grafana:
       balance: roundrobin
       options:
         - forwardfor
