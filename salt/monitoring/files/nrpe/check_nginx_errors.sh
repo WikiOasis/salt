@@ -12,6 +12,11 @@ if [ ! -f "$LOG" ]; then
     exit 3
 fi
 
+if [ ! -r "$LOG" ]; then
+    echo "UNKNOWN: Log not readable: $LOG"
+    exit 3
+fi
+
 read -r errors total <<< "$(tail -n "$LINES" "$LOG" | awk -v class="$CLASS" '
     { total++ }
     substr($9, 1, 1) == class { errors++ }
@@ -19,19 +24,19 @@ read -r errors total <<< "$(tail -n "$LINES" "$LOG" | awk -v class="$CLASS" '
 ')"
 
 if [ "$total" -eq 0 ]; then
-    echo "OK: No requests in last $LINES log lines"
+    echo "OK: No requests in last $LINES lines of $LOG"
     exit 0
 fi
 
 pct=$(( errors * 100 / total ))
 
 if [ "$pct" -ge "$CRIT_PCT" ]; then
-    echo "CRITICAL: ${pct}% ${CLASS}xx errors ($errors/$total in last $LINES requests)"
+    echo "CRITICAL: ${pct}% ${CLASS}xx errors ($errors/$total in last $LINES requests) [$LOG]"
     exit 2
 elif [ "$pct" -ge "$WARN_PCT" ]; then
-    echo "WARNING: ${pct}% ${CLASS}xx errors ($errors/$total in last $LINES requests)"
+    echo "WARNING: ${pct}% ${CLASS}xx errors ($errors/$total in last $LINES requests) [$LOG]"
     exit 1
 else
-    echo "OK: ${pct}% ${CLASS}xx errors ($errors/$total in last $LINES requests)"
+    echo "OK: ${pct}% ${CLASS}xx errors ($errors/$total in last $LINES requests) [$LOG]"
     exit 0
 fi

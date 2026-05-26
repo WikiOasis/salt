@@ -27,6 +27,9 @@ dns_hosts:
   db-other-us-east-011:
     ip: 10.0.1.20
     mac: bc:24:11:24:40:36
+  db-pc-us-east-011:
+    ip: 10.0.1.21
+    mac: bc:24:11:d1:a6:37
   redis-us-east-011.ovvin.wonet:
     ip: 10.0.1.40
     mac: bc:24:11:9f:38:bc
