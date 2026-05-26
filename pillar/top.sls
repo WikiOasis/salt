@@ -9,6 +9,10 @@ base:
       - private
    'db-other-us-east-011*':
       - mariadb.db-other-us-east-011
+   'db-pc-us-east-011*':
+      - mariadb.db-pc-us-east-011
+   'db-c1-us-east-021*':
+      - mariadb.db-c1-us-east-021
    'metal* or *-us-east-0[0-9][0-9]*':
       - match: compound
       - metal
