@@ -35,7 +35,7 @@ icinga_apt_update:
 
 monitoring_apt_fix_broken:
   cmd.run:
-    - name: DEBIAN_FRONTEND=noninteractive apt-get install -f -y
+    - name: DEBIAN_FRONTEND=noninteractive apt-get install -f -y -o Dpkg::Options::="--force-confold"
     - onlyif: dpkg --audit | grep -q .
     - require:
       - cmd: icinga_apt_update
