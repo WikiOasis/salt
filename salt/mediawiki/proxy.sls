@@ -30,6 +30,3 @@
       - file: /home/{{ deploy_user }}/.ssh
 {%- endif %}
 
-# socat is needed to talk to the HAProxy socket
-socat:
-  pkg.installed: []

@@ -6,6 +6,6 @@ mediawiki:
   log_file: /var/log/mwdeploy.log
   haproxy_backend: mediawiki
   haproxy_socket: /run/haproxy/admin.sock
-  mw_servers: ['mw-us-east-011', 'mw-us-east-012', 'mw-us-east-021', 'mw-us-east-022']
-  proxy_servers: ['proxy-us-east-011', 'proxy-us-east-021']
+  mw_servers: ['mw-us-east-011.ovvin.wonet', 'mw-us-east-012.ovvin.wonet', 'mw-us-east-021.ovvin.wonet', 'mw-us-east-022.ovvin.wonet']
+  proxy_servers: ['proxy-us-east-011.ovvin.wonet', 'proxy-us-east-021.ovvin.wonet']
   deploy_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBw+m6ZQT6Q7MPgfd5STamRLSUADflff/9uKVtbBZluM mwdeploy@staging-us-east-021"
