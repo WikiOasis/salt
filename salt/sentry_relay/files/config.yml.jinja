@@ -1,0 +1,8 @@
+relay:
+  upstream: "https://sentry.io/"
+  host: "0.0.0.0"
+  port: 3030
+
+sentry:
+  enabled: true
+  dsn: "{{ pillar['sentry_relay']['dsn'] }}"

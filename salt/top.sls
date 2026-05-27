@@ -29,6 +29,7 @@ base:
     - match: compound
     - php
     - nginx
+    - sentry_relay
     - monitoring.nrpe_nginx
     - monitoring.nrpe_php
     - monitoring.nrpe_mediawiki

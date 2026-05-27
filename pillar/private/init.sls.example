@@ -13,3 +13,6 @@ monitoring:
 notifications:
   discord_webhook_url: https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
   slack_webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+
+sentry_relay:
+  dsn: CHANGE_ME
