@@ -26,7 +26,7 @@ sentry_relay_binary:
   file.managed:
     - name: /usr/local/bin/sentry-relay
     - source: https://github.com/getsentry/relay/releases/download/24.9.0/relay-Linux-x86_64
-    - source_hash: https://github.com/getsentry/relay/releases/download/24.9.0/relay-Linux-x86_64.sha256
+    - source_hash: sha256=6b098fba024cc119f200f1fd7c6c602204e6159b7d72501f8a5c975f8f263683
     - mode: '0755'
     - user: root
     - group: root
