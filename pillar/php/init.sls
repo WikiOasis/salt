@@ -19,8 +19,8 @@ php:
     pool: www
     listen: ""
     pm: dynamic
-    pm_max_children: 6
-    pm_start_servers: 2
+    pm_max_children: 10
+    pm_start_servers: 6
     pm_min_spare_servers: 1
     pm_max_spare_servers: 3
     pm_max_requests: 500
