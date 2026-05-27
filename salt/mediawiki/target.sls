@@ -29,11 +29,12 @@
       - file: /home/{{ deploy_user }}/.ssh
 {%- endif %}
 
-# Allow rsync to write to /srv/mediawiki (owned by www-data)
+# Allow rsync to write to /srv/mediawiki (owned by www-data) and l10n rebuild
 /etc/sudoers.d/mwdeploy_target:
   file.managed:
     - contents:
       - "{{ deploy_user }} ALL=(root) NOPASSWD: /usr/bin/rsync"
+      - "{{ deploy_user }} ALL=(www-data) NOPASSWD: {{ prod_path }}/scripts/mwscript.php"
     - user: root
     - group: root
     - mode: '0440'

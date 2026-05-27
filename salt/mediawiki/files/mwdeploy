@@ -346,6 +346,30 @@ def git_pull(path: str, log: logging.Logger) -> subprocess.CompletedProcess:
 
 
 # ---------------------------------------------------------------------------
+# Localisation cache rebuild
+# ---------------------------------------------------------------------------
+
+def l10n_rebuild(host: str, cfg: dict, log: logging.Logger):
+    prod_path   = cfg["prod_path"]
+    deploy_user = cfg["deploy_user"]
+    script      = f"{prod_path}/scripts/mwscript.php"
+    cmd         = f"sudo -u www-data {script} rebuildLocalisationCache --wiki testwiki"
+
+    log.info("L10n cache rebuild on %s", host)
+    if host == STAGING_KEY:
+        r = _run(["bash", "-c", cmd])
+    else:
+        r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", cmd])
+
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"L10n rebuild failed on {host}\n"
+            f"stdout: {r.stdout.strip()}\nstderr: {r.stderr.strip()}"
+        )
+    log.info("L10n rebuild complete on %s", host)
+
+
+# ---------------------------------------------------------------------------
 # Canary check
 # ---------------------------------------------------------------------------
 
@@ -653,7 +677,10 @@ def _deploy_server(server: str, cfg: dict, args,
     step_names: list[str] = []
     if args.rollout:
         step_names += ["snapshot", "depool"]
-    step_names += ["rsync", "canary"]
+    step_names += ["rsync"]
+    if args.l10n:
+        step_names += ["l10n"]
+    step_names += ["canary"]
     if args.rollout:
         step_names += ["repool"]
     steps_total = len(step_names)
@@ -702,6 +729,23 @@ def _deploy_server(server: str, cfg: dict, args,
         if not args.force:
             prompter.abort()
         return False
+
+    if args.l10n:
+        state.update(server, steps_done=steps_done, step="l10n",
+                     line="Rebuilding localisation cache…")
+        try:
+            l10n_rebuild(server, cfg, log)
+            steps_done += 1
+            state.update(server, steps_done=steps_done, line="L10n cache rebuilt")
+        except RuntimeError as e:
+            log.error("L10n rebuild failed for %s: %s", server, e)
+            state.update(server, status=S_FAILED, line=f"L10n rebuild FAILED: {e}")
+            if args.rollout:
+                _repool_all(cfg, server, log)
+                state.update(server, line="Repooled after l10n failure")
+            if not args.force:
+                prompter.abort()
+            return False
 
     state.update(server, steps_done=steps_done, step="canary",
                  line="Running canary check…")
@@ -1296,6 +1340,8 @@ examples:
                    help="depool each server before deploy, repool after")
     p.add_argument("--provision", action="store_true",
                    help="rsync /srv/mediawiki to new servers (no staging sync)")
+    p.add_argument("--l10n",      action="store_true",
+                   help="run rebuildLocalisationCache on staging and each mw server")
     p.add_argument("--force",     action="store_true",
                    help="continue even if canary check fails")
     p.add_argument("--parallel",  metavar="N", type=int, default=1,
@@ -1411,7 +1457,10 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
                     staging_steps.append(f"git pull ext/{ext}")
                 for skin in skins:
                     staging_steps.append(f"git pull skin/{skin}")
-        staging_steps += ["local rsync", "canary"]
+        staging_steps += ["local rsync"]
+        if args.l10n:
+            staging_steps += ["l10n rebuild"]
+        staging_steps += ["canary"]
         staging_done = 0
 
         state.update(STAGING_KEY, steps_total=len(staging_steps),
@@ -1506,6 +1555,21 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
         staging_done += 1
         state.update(STAGING_KEY, steps_done=staging_done,
                      line="Local rsync complete")
+
+        # ── Phase 2.5: l10n rebuild on staging ─────────────────────────
+        if args.l10n:
+            state.update(STAGING_KEY, step="l10n rebuild",
+                         line="Rebuilding localisation cache on staging…")
+            try:
+                l10n_rebuild(STAGING_KEY, cfg, log)
+                staging_done += 1
+                state.update(STAGING_KEY, steps_done=staging_done,
+                             line="L10n cache rebuilt on staging")
+            except RuntimeError as e:
+                log.error("L10n rebuild failed on staging: %s", e)
+                state.update(STAGING_KEY, status=S_FAILED,
+                             line=f"L10n rebuild FAILED: {e}")
+                return
 
         # ── Phase 3: canary on staging ──────────────────────────────────
         state.update(STAGING_KEY, step="canary",
