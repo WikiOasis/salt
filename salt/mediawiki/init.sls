@@ -81,12 +81,13 @@
     - mode: '0755'
     - makedirs: true
 
-# Allow the deploy user to git pull as www-data, rsync as root, and run l10n rebuild
+# Allow the deploy user to git pull as www-data, rsync as root, patch and l10n rebuild
 /etc/sudoers.d/mwdeploy_staging:
   file.managed:
     - contents:
       - "{{ deploy_user }} ALL=(www-data) NOPASSWD: /usr/bin/git"
       - "{{ deploy_user }} ALL=(root) NOPASSWD: /usr/bin/rsync"
+      - "{{ deploy_user }} ALL=(www-data) NOPASSWD: /usr/bin/patch"
       - "{{ deploy_user }} ALL=(www-data) NOPASSWD: {{ prod_path }}/scripts/mwscript.php"
     - user: root
     - group: root

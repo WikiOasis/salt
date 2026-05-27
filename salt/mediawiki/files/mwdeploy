@@ -24,8 +24,7 @@ from pathlib import Path
 import yaml
 
 CONFIG_PATH   = "/etc/mwdeploy/config.yaml"
-ROLLBACK_BASE = "/tmp/mwdeploy-rollback"
-STATE_FILE    = "/var/log/mwdeploy-state.json"
+STATE_FILE = "/var/log/mwdeploy-state.json"
 
 _SSH_OPTS: list[str] = []
 
@@ -370,6 +369,22 @@ def l10n_rebuild(host: str, cfg: dict, log: logging.Logger):
 
 
 # ---------------------------------------------------------------------------
+# Patch application
+# ---------------------------------------------------------------------------
+
+def apply_patch(patch_file: str, target_dir: str, log: logging.Logger):
+    """Apply patch_file (absolute path) into target_dir using sudo -u www-data patch."""
+    log.info("Applying patch %s → %s", patch_file, target_dir)
+    r = _run(["sudo", "-u", "www-data", "patch", "-p1", "--batch",
+              "-d", target_dir, "--input", patch_file])
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"patch failed\nstdout: {r.stdout.strip()}\nstderr: {r.stderr.strip()}"
+        )
+    log.info("Patch applied: %s", patch_file)
+
+
+# ---------------------------------------------------------------------------
 # Canary check
 # ---------------------------------------------------------------------------
 
@@ -593,19 +608,17 @@ def _build_rsync_targets(args, staging_path: str, prod_path: str,
 # ---------------------------------------------------------------------------
 
 def save_rollback(host: str, deploy_user: str, prod_path: str,
-                  log: logging.Logger) -> str | None:
-    ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    snap = f"{ROLLBACK_BASE}-{ts}"
-    log.info("Saving rollback snapshot on %s: %s", host, snap)
+                  backup_path: str, log: logging.Logger) -> str | None:
+    log.info("Saving backup on %s: %s → %s", host, prod_path, backup_path)
     remote = (
-        f"rsync -a --exclude cache/ --exclude cw_cache/ "
-        f"{prod_path.rstrip('/')}/ {snap}/"
+        f"sudo rsync -a --delete --exclude cache/ --exclude cw_cache/ "
+        f"{prod_path.rstrip('/')}/ {backup_path.rstrip('/')}/"
     )
     r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", remote])
     if r.returncode != 0:
-        log.warning("Could not snapshot %s: %s", host, r.stderr.strip())
+        log.warning("Could not backup %s: %s", host, r.stderr.strip())
         return None
-    return snap
+    return backup_path
 
 
 def do_rollback(host: str, deploy_user: str, snap: str, prod_path: str,
@@ -676,7 +689,9 @@ def _deploy_server(server: str, cfg: dict, args,
 
     step_names: list[str] = []
     if args.rollout:
-        step_names += ["snapshot", "depool"]
+        step_names += ["depool"]
+    if not args.provision:
+        step_names += ["backup"]
     step_names += ["rsync"]
     if args.l10n:
         step_names += ["l10n"]
@@ -691,18 +706,21 @@ def _deploy_server(server: str, cfg: dict, args,
 
     snap = None
     if args.rollout:
-        state.update(server, step="snapshot", line="Saving rollback snapshot…")
-        snap = save_rollback(server, deploy_user, prod_path, log)
-        if snap:
-            state.update(server, line=f"Snapshot saved: {snap}", snapshot=snap)
-        else:
-            state.update(server, line="Snapshot could not be saved; continuing")
-        steps_done += 1
-
         state.update(server, steps_done=steps_done, step="depool",
                      line="Depooling from HAProxy…")
         _depool_all(cfg, server, log)
         state.update(server, line="Depooled from HAProxy")
+        steps_done += 1
+
+    if not args.provision:
+        backup_path = cfg.get("backup_path", "/srv/mediawiki-backup")
+        state.update(server, steps_done=steps_done, step="backup",
+                     line=f"Saving backup → {backup_path}…")
+        snap = save_rollback(server, deploy_user, prod_path, backup_path, log)
+        if snap:
+            state.update(server, line=f"Backup saved → {backup_path}", snapshot=snap)
+        else:
+            state.update(server, line="Backup could not be saved; continuing")
         steps_done += 1
 
     state.update(server, steps_done=steps_done, step="rsync",
@@ -1222,6 +1240,8 @@ class Dashboard:
             self._confirm_rollback = None
             snap = (self._state.server_snapshot_path(name)
                     if self._state else None)
+            if not snap:
+                snap = self._cfg.get("backup_path", "/srv/mediawiki-backup")
             if snap:
                 log         = logging.getLogger("mwdeploy")
                 deploy_user = self._cfg.get("deploy_user", "mwdeploy")
@@ -1259,10 +1279,7 @@ class Dashboard:
         elif key == 18:  # Ctrl+R — set confirm state; handled next frame
             if mw_servers and n > 0:
                 name = mw_servers[min(self._selected, n - 1)]
-                snap = (self._state.server_snapshot_path(name)
-                        if self._state else None)
-                if snap:
-                    self._confirm_rollback = name
+                self._confirm_rollback = name
         elif key in (24, 3, 27):  # Ctrl+X, Ctrl+C, Esc
             return False
         return True
@@ -1329,6 +1346,11 @@ examples:
                       help="git pull a skin (repeatable; comma-separated ok)")
     what.add_argument("--config",    action="store_true",
                       help="git pull /srv/mediawiki-staging/config")
+    what.add_argument("--patch",     metavar="PATCH", action="append", default=[],
+                      help=("patch file relative to {prod_path}/scripts/extensions/patches/ "
+                            "(repeatable); requires --patch-target"))
+    what.add_argument("--patch-target", metavar="PATH", dest="patch_target", default="",
+                      help="directory to patch, relative to {staging_path}/versions/<ver>/")
 
     p.add_argument("--versions",  metavar="VERSION",
                    help='version to target, e.g. "1.45" or "all"')
@@ -1401,7 +1423,8 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
             return
 
         # ── Mark staging running immediately so TUI shows something ────
-        needs_ver  = args.mediawiki or args.extension or args.skin
+        patches    = args.patch  # list of paths relative to patches dir
+        needs_ver  = args.mediawiki or args.extension or args.skin or bool(patches)
         extensions = [e for g in args.extension for e in g.split(",") if e.strip()]
         skins      = [s for g in args.skin      for s in g.split(",") if s.strip()]
 
@@ -1436,6 +1459,14 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
             state.update(STAGING_KEY, line=f"Extensions: {', '.join(extensions)}")
         if skins:
             state.update(STAGING_KEY, line=f"Skins: {', '.join(skins)}")
+        if patches and not args.patch_target:
+            state.update(STAGING_KEY, status=S_FAILED,
+                         line="--patch-target is required when using --patch")
+            return
+        if patches:
+            state.update(STAGING_KEY,
+                         line=(f"Patches: {', '.join(os.path.basename(p) for p in patches)}"
+                               f" → {args.patch_target}"))
 
         rsync_targets = _build_rsync_targets(
             args, staging_path, prod_path, versions, extensions, skins
@@ -1457,6 +1488,9 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
                     staging_steps.append(f"git pull ext/{ext}")
                 for skin in skins:
                     staging_steps.append(f"git pull skin/{skin}")
+        for ver in versions:
+            for pfile in patches:
+                staging_steps.append(f"patch {os.path.basename(pfile)} ({ver})")
         staging_steps += ["local rsync"]
         if args.l10n:
             staging_steps += ["l10n rebuild"]
@@ -1525,6 +1559,37 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
         else:
             state.update(STAGING_KEY, step="--rsync mode",
                          line="--rsync: skipping git pulls")
+
+        # ── Phase 1.5: apply patches ────────────────────────────────────
+        if patches:
+            patches_base = os.path.join(prod_path, "scripts", "extensions", "patches")
+            for ver in versions:
+                for pfile in patches:
+                    label = f"patch {os.path.basename(pfile)} ({ver})"
+                    patch_abs   = os.path.join(patches_base, pfile)
+                    target_dir  = os.path.join(staging_path, "versions", ver,
+                                               args.patch_target)
+                    state.update(STAGING_KEY, step=label,
+                                 line=f"Applying {os.path.basename(pfile)} → {args.patch_target}…")
+                    try:
+                        apply_patch(patch_abs, target_dir, log)
+                        staging_done += 1
+                        state.update(STAGING_KEY, steps_done=staging_done,
+                                     line=f"{label}: applied")
+                    except RuntimeError as e:
+                        full = str(e)
+                        msg  = ""
+                        for ln in full.splitlines():
+                            if ln.startswith("stderr:"):
+                                msg = ln[7:].strip()
+                                break
+                            if ln.startswith("stdout:") and not msg:
+                                msg = ln[7:].strip()
+                        msg = (msg or full.splitlines()[0])[:200]
+                        state.update(STAGING_KEY, status=S_FAILED,
+                                     line=f"FAILED {label}: {msg}")
+                        log.error("Patch failed for %s on %s:\n%s", pfile, ver, full)
+                        return
 
         # ── Phase 2: local rsync ────────────────────────────────────────
         is_full_sync = rsync_targets == [(staging_path, prod_path)]

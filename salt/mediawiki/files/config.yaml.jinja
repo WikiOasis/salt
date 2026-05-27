@@ -10,6 +10,7 @@ canary_vhost: {{ mw.get('canary_vhost', 'test.wikioasis.org') }}
 log_file: {{ mw.get('log_file', '/var/log/mwdeploy.log') }}
 haproxy_backend: {{ mw.get('haproxy_backend', 'mediawiki') }}
 haproxy_socket: {{ mw.get('haproxy_socket', '/run/haproxy/admin.sock') }}
+backup_path: {{ mw.get('backup_path', '/srv/mediawiki-backup') }}
 
 mw_servers:
 {%- for server in mw.get('mw_servers', []) %}
