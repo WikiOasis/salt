@@ -12,9 +12,9 @@ php:
     - apcu
     - igbinary
     - redis
-    - luasandbox
   extra_packages:
     - php-excimer
+    - php-luasandbox
   fpm:
     pool: www
     listen: ""
