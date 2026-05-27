@@ -1425,15 +1425,20 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
                              line=f"{label}: {first}")
                 return True
             except RuntimeError as e:
-                msg = str(e)
-                # Extract the most useful line from the error
-                for candidate in str(e).splitlines():
-                    if candidate.strip() and not candidate.startswith("stdout"):
-                        msg = candidate.strip()[:200]
+                full = str(e)
+                # _run_check formats as: "<prefix>\nstdout: ...\nstderr: ..."
+                # Prefer the actual git stderr over the generic prefix line.
+                git_msg = ""
+                for ln in full.splitlines():
+                    if ln.startswith("stderr:"):
+                        git_msg = ln[7:].strip()
                         break
+                    if ln.startswith("stdout:") and not git_msg:
+                        git_msg = ln[7:].strip()
+                msg = (git_msg or full.splitlines()[0])[:200]
                 state.update(STAGING_KEY, status=S_FAILED,
                              line=f"FAILED {label}: {msg}")
-                log.error("git pull failed for %s: %s", label, e)
+                log.error("git pull failed for %s:\n%s", label, full)
                 return False
 
         # ── Phase 1: git pulls ──────────────────────────────────────────
