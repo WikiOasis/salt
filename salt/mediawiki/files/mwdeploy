@@ -23,14 +23,14 @@ from pathlib import Path
 
 import yaml
 
-CONFIG_PATH = "/etc/mwdeploy/config.yaml"
+CONFIG_PATH  = "/etc/mwdeploy/config.yaml"
 ROLLBACK_BASE = "/tmp/mwdeploy-rollback"
-STATE_FILE = "/var/log/mwdeploy-state.json"
+STATE_FILE   = "/var/log/mwdeploy-state.json"
 
-# Used by all SSH/rsync calls; populated once in main() from config
+# Populated once in main(); shared by all SSH/rsync helpers
 _SSH_OPTS: list[str] = []
 
-# Per-server status values
+# Per-server status constants
 S_PENDING  = "pending"
 S_RUNNING  = "running"
 S_DONE     = "done"
@@ -38,14 +38,16 @@ S_FAILED   = "failed"
 S_ROLLBACK = "rolled_back"
 S_SKIPPED  = "skipped"
 
-_STATUS_ICON = {
-    S_PENDING:  ("○ pending",     "pending"),
-    S_RUNNING:  ("⟳ running",     "running"),
-    S_DONE:     ("✓ done",        "done"),
-    S_FAILED:   ("✗ failed",      "failed"),
-    S_ROLLBACK: ("⤺ rolled back", "rolled_back"),
-    S_SKIPPED:  ("– skipped",     "skipped"),
+_STATUS_ICON: dict[str, str] = {
+    S_PENDING:  "○ pending",
+    S_RUNNING:  "⟳ running",
+    S_DONE:     "✓ done",
+    S_FAILED:   "✗ failed",
+    S_ROLLBACK: "⤺ rolled back",
+    S_SKIPPED:  "– skipped",
 }
+
+STAGING_KEY = "localhost"   # state dict key for the staging / preparation server
 
 
 # ---------------------------------------------------------------------------
@@ -63,14 +65,72 @@ def load_config() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Deployment state  (thread-safe, persisted to STATE_FILE)
+# Prompter — TUI-safe blocking user prompts
+# ---------------------------------------------------------------------------
+
+class _PromptRequest:
+    """A question posed by the deploy thread, answered by the TUI."""
+    def __init__(self, question: str, opts: dict[str, str]):
+        self.question = question   # e.g. "Canary failed on mw-011. Continue?"
+        self.opts = opts           # e.g. {"y": "Yes, continue", "n": "Stop"}
+        self._event = threading.Event()
+        self._answer: str = ""
+
+    def answer(self, key: str):
+        self._answer = key.lower()
+        self._event.set()
+
+    def wait(self, timeout: float = 300.0) -> str:
+        self._event.wait(timeout)
+        return self._answer
+
+
+class Prompter:
+    """
+    Thread-safe gate between the background deploy thread and the curses TUI.
+    The deploy thread calls ask() which blocks; the TUI calls pending() to
+    detect a waiting question and answer() to unblock the deploy thread.
+    """
+    def __init__(self):
+        self._lock    = threading.Lock()
+        self._abort   = threading.Event()
+        self._pending: _PromptRequest | None = None
+
+    def ask(self, question: str,
+            opts: dict[str, str] | None = None,
+            default: str = "n") -> str:
+        """Block until the TUI (or timeout) provides an answer."""
+        if self._abort.is_set():
+            return default
+        opts = opts or {"y": "Yes", "n": "No"}
+        req = _PromptRequest(question, opts)
+        with self._lock:
+            self._pending = req
+        ans = req.wait(timeout=300.0)
+        with self._lock:
+            self._pending = None
+        return ans or default
+
+    def pending(self) -> _PromptRequest | None:
+        with self._lock:
+            return self._pending
+
+    def abort(self):
+        self._abort.set()
+
+    def is_aborted(self) -> bool:
+        return self._abort.is_set()
+
+
+# ---------------------------------------------------------------------------
+# DeployState — thread-safe runtime state, persisted to disk
 # ---------------------------------------------------------------------------
 
 class DeployState:
-    MAX_LOG = 50  # lines kept per server
+    MAX_LOG = 80   # lines per server
 
     def __init__(self, servers: list[str]):
-        self._lock = threading.Lock()
+        self._lock    = threading.Lock()
         self._started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._servers: dict[str, dict] = {
             s: {"status": S_PENDING, "log_lines": [], "snapshot": None}
@@ -78,7 +138,7 @@ class DeployState:
         }
         self._done = threading.Event()
 
-    # --- writers (called from deploy thread) --------------------------------
+    # --- writers -----------------------------------------------------------
 
     def update(self, server: str, *, status: str | None = None,
                line: str | None = None, snapshot: str | None = None):
@@ -102,20 +162,21 @@ class DeployState:
     def is_done(self) -> bool:
         return self._done.is_set()
 
-    # --- readers (called from UI thread) ------------------------------------
+    # --- readers -----------------------------------------------------------
 
     def snapshot(self) -> dict:
         with self._lock:
             return {
-                "started": self._started,
-                "servers": {k: dict(v) for k, v in self._servers.items()},
+                "started":  self._started,
+                "finished": self._done.is_set(),
+                "servers":  {k: dict(v) for k, v in self._servers.items()},
             }
 
     def server_snapshot_path(self, server: str) -> str | None:
         with self._lock:
             return self._servers.get(server, {}).get("snapshot")
 
-    # --- persistence --------------------------------------------------------
+    # --- persistence -------------------------------------------------------
 
     def _save(self):
         try:
@@ -137,18 +198,18 @@ class DeployState:
 
 
 # ---------------------------------------------------------------------------
-# Logging / webhook
+# Logging + webhooks
 # ---------------------------------------------------------------------------
 
 class _WebhookHandler(logging.Handler):
     def __init__(self, discord: str = "", slack: str = ""):
         super().__init__()
         self._discord = discord
-        self._slack = slack
+        self._slack   = slack
 
     def _post(self, url: str, payload: dict):
         data = json.dumps(payload).encode()
-        req = urllib.request.Request(
+        req  = urllib.request.Request(
             url, data=data,
             headers={"Content-Type": "application/json"}, method="POST"
         )
@@ -190,8 +251,8 @@ def _setup_logging(cfg: dict, no_log: bool,
         log.warning("Cannot open log file %s: %s", log_file, e)
 
     webhooks = cfg.get("webhooks", {})
-    discord = webhooks.get("discord") or ""
-    slack = webhooks.get("slack") or ""
+    discord  = webhooks.get("discord") or ""
+    slack    = webhooks.get("slack") or ""
     if discord or slack:
         wh = _WebhookHandler(discord, slack)
         wh.setLevel(logging.WARNING)
@@ -203,14 +264,13 @@ def _setup_logging(cfg: dict, no_log: bool,
 
 def _notify(log: logging.Logger, cfg: dict, no_log: bool, msg: str,
             level: int = logging.INFO):
-    """Always post a banner-level message (start/finish/abort) to all sinks."""
     log.log(level, msg)
     if no_log:
         return
     webhooks = cfg.get("webhooks", {})
-    discord = webhooks.get("discord") or ""
-    slack = webhooks.get("slack") or ""
-    if not discord and not slack:
+    discord  = webhooks.get("discord") or ""
+    slack    = webhooks.get("slack") or ""
+    if not (discord or slack):
         return
     h = _WebhookHandler(discord, slack)
     payload = f"[mwdeploy] {msg}"
@@ -221,7 +281,7 @@ def _notify(log: logging.Logger, cfg: dict, no_log: bool, msg: str,
 
 
 # ---------------------------------------------------------------------------
-# Shell
+# Shell helpers
 # ---------------------------------------------------------------------------
 
 def _run(cmd: list, **kwargs) -> subprocess.CompletedProcess:
@@ -233,7 +293,8 @@ def _run_check(cmd: list, error_prefix: str = "Command failed", **kwargs):
     r = _run(cmd, **kwargs)
     if r.returncode != 0:
         raise RuntimeError(
-            f"{error_prefix}\nstdout: {r.stdout.strip()}\nstderr: {r.stderr.strip()}"
+            f"{error_prefix}\n"
+            f"stdout: {r.stdout.strip()}\nstderr: {r.stderr.strip()}"
         )
     return r
 
@@ -257,14 +318,13 @@ def git_pull(path: str, log: logging.Logger):
 def canary_check(host: str, vhost: str, log: logging.Logger,
                  deploy_user: str = "mwdeploy",
                  force: bool = False, retries: int = 3,
-                 prompt_lock: threading.Lock | None = None,
-                 abort_event: threading.Event | None = None) -> bool:
+                 prompter: Prompter | None = None) -> bool:
     """
     SSH into the target (or run locally) and curl http://127.0.0.1/wiki/Main_Page
     with -H "Host: <vhost>".  Expects HTTP 200 and "mediawiki" in the body.
 
-    In parallel mode pass prompt_lock so only one thread prompts the user at a
-    time, and abort_event so a prior "no" is respected without re-prompting.
+    On failure, asks the user via the TUI prompter (or stdin when prompter
+    is None, i.e. --no-log mode).
     """
     curl_cmd = (
         f'code=$(curl -sS --max-time 15 --location'
@@ -283,27 +343,29 @@ def canary_check(host: str, vhost: str, log: logging.Logger,
 
     for attempt in range(1, retries + 1):
         try:
-            if host == "localhost":
+            if host == STAGING_KEY:
                 r = _run(["bash", "-c", curl_cmd])
             else:
                 r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", curl_cmd])
             output = r.stdout
 
-            code_line = next(
-                (ln for ln in output.splitlines() if ln.startswith("HTTP_CODE=")), ""
+            code = next(
+                (ln.replace("HTTP_CODE=", "").strip()
+                 for ln in output.splitlines() if ln.startswith("HTTP_CODE=")),
+                "???"
             )
-            mw_line = next(
-                (ln for ln in output.splitlines() if ln.startswith("HAS_MW=")), ""
+            has_mw = any(
+                ln.strip() == "HAS_MW=1"
+                for ln in output.splitlines() if ln.startswith("HAS_MW=")
             )
-            code = code_line.replace("HTTP_CODE=", "").strip()
-            has_mw = mw_line.strip() == "HAS_MW=1"
 
             if code == "200" and has_mw:
                 log.info("Canary OK  %s  (HTTP 200)", host)
                 return True
 
             reason = f"HTTP {code}" if code != "200" else "no MediaWiki content in body"
-            log.warning("Canary attempt %d/%d failed on %s: %s", attempt, retries, host, reason)
+            log.warning("Canary attempt %d/%d failed on %s: %s",
+                        attempt, retries, host, reason)
         except Exception as e:
             log.warning("Canary attempt %d/%d error on %s: %s", attempt, retries, host, e)
 
@@ -314,24 +376,28 @@ def canary_check(host: str, vhost: str, log: logging.Logger,
         log.warning("Canary failed on %s — --force set, continuing", host)
         return True
 
-    # Serialise prompts so parallel threads don't stomp each other
-    lock = prompt_lock or threading.Lock()
-    with lock:
-        if abort_event and abort_event.is_set():
-            log.warning("Canary failed on %s; aborting (already decided)", host)
+    short = _shorten(host)
+    if prompter:
+        if prompter.is_aborted():
             return False
+        ans = prompter.ask(
+            f"Canary failed on {short} (HTTP {code}). Continue deploying remaining servers?",
+            {"y": "Yes, continue", "n": "Stop here"},
+        )
+        if ans != "y":
+            prompter.abort()
+        return ans == "y"
+    else:
         ans = input(f"\nCanary failed on {host}. Continue? [y/N] ").strip().lower()
-        if ans != "y" and abort_event:
-            abort_event.set()
-    return ans == "y"
+        return ans == "y"
 
 
 # ---------------------------------------------------------------------------
 # HAProxy
 # ---------------------------------------------------------------------------
 
-def _haproxy_cmd(proxy: str, deploy_user: str, socket: str, command: str,
-                 log: logging.Logger):
+def _haproxy_cmd(proxy: str, deploy_user: str, socket: str,
+                 command: str, log: logging.Logger):
     remote = f"printf '{command}\\n' | socat stdio {socket}"
     r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{proxy}", remote])
     if r.returncode != 0:
@@ -393,7 +459,7 @@ def rsync_remote(src: str, host: str, dst: str, deploy_user: str,
                  log: logging.Logger, provision: bool = False):
     log.info("Remote rsync  %s → %s:%s", src, host, dst)
     excludes = [] if provision else ["cw_cache/"]
-    ssh_cmd = "ssh " + " ".join(_SSH_OPTS)
+    ssh_cmd  = "ssh " + " ".join(_SSH_OPTS)
     _run_check(
         _rsync_base(excludes) + [
             "--rsync-path=sudo rsync",
@@ -411,14 +477,14 @@ def rsync_remote(src: str, host: str, dst: str, deploy_user: str,
 
 def save_rollback(host: str, deploy_user: str, prod_path: str,
                   log: logging.Logger) -> str | None:
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     snap = f"{ROLLBACK_BASE}-{ts}"
     log.info("Saving rollback snapshot on %s: %s", host, snap)
-    remote_cmd = (
+    remote = (
         f"rsync -a --exclude cache/ --exclude cw_cache/ "
         f"{prod_path.rstrip('/')}/ {snap}/"
     )
-    r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", remote_cmd])
+    r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", remote])
     if r.returncode != 0:
         log.warning("Could not snapshot %s: %s", host, r.stderr.strip())
         return None
@@ -428,8 +494,8 @@ def save_rollback(host: str, deploy_user: str, prod_path: str,
 def do_rollback(host: str, deploy_user: str, snap: str, prod_path: str,
                 log: logging.Logger) -> bool:
     log.warning("Rolling back %s from %s", host, snap)
-    remote_cmd = f"sudo rsync -a --delete {snap}/ {prod_path.rstrip('/')}/"
-    r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", remote_cmd])
+    remote = f"sudo rsync -a --delete {snap}/ {prod_path.rstrip('/')}/"
+    r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", remote])
     if r.returncode != 0:
         log.error("Rollback failed on %s: %s", host, r.stderr.strip())
         return False
@@ -457,36 +523,35 @@ def resolve_servers(arg: str | None, all_servers: list) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Deploy one server (called from deploy thread)
+# Deploy one server
 # ---------------------------------------------------------------------------
 
-def _deploy_server(server: str, cfg: dict, args, log: logging.Logger,
-                   state: DeployState,
-                   prompt_lock: threading.Lock | None = None,
-                   abort_event: threading.Event | None = None) -> bool:
-    """Deploy to one server.  Returns True on success, False on failure."""
+def _deploy_server(server: str, cfg: dict, args,
+                   log: logging.Logger, state: DeployState,
+                   prompter: Prompter) -> bool:
 
-    # Respect an abort signalled by another parallel thread
-    if abort_event and abort_event.is_set():
-        state.update(server, status=S_SKIPPED, line="Skipped — deploy aborted by earlier failure")
-        return True   # skipped ≠ failed; don't add to the failure list
+    if prompter.is_aborted():
+        state.update(server, status=S_SKIPPED,
+                     line="Skipped — deploy aborted by earlier failure")
+        return True   # skipped != failed
 
     deploy_user = cfg["deploy_user"]
     staging_path = cfg["staging_path"]
-    prod_path = cfg["prod_path"]
+    prod_path    = cfg["prod_path"]
     canary_vhost = cfg["canary_vhost"]
-    lock = prompt_lock or threading.Lock()
 
     state.update(server, status=S_RUNNING, line="Starting deploy")
 
+    # Snapshot + depool
     snap = None
     if args.rollout:
         snap = save_rollback(server, deploy_user, prod_path, log)
         if snap:
-            state.update(server, line=f"Snapshot saved: {snap}", snapshot=snap)
+            state.update(server, line=f"Snapshot saved", snapshot=snap)
         _depool_all(cfg, server, log)
         state.update(server, line="Depooled from HAProxy")
 
+    # Rsync
     src = prod_path if args.provision else staging_path
     try:
         rsync_remote(src, server, prod_path, deploy_user, log,
@@ -498,20 +563,23 @@ def _deploy_server(server: str, cfg: dict, args, log: logging.Logger,
         if args.rollout:
             _repool_all(cfg, server, log)
             state.update(server, line="Repooled after rsync failure")
-        if not args.force and abort_event:
-            abort_event.set()
+        if not args.force:
+            prompter.abort()
         return False
 
+    # Canary
     if not canary_check(server, canary_vhost, log, deploy_user=deploy_user,
-                        force=args.force, prompt_lock=lock,
-                        abort_event=abort_event):
+                        force=args.force, prompter=prompter):
         log.error("Canary failed on %s", server)
         state.update(server, status=S_FAILED, line="Canary check FAILED")
 
         if snap and args.rollout:
-            with lock:
-                ans = input(f"Roll back {server}? [Y/n] ").strip().lower()
-            if ans != "n":
+            ans = prompter.ask(
+                f"Roll back {_shorten(server)} to pre-deploy state?",
+                {"y": "Yes, roll back", "n": "No, leave as-is"},
+                default="y",
+            )
+            if ans == "y":
                 ok = do_rollback(server, deploy_user, snap, prod_path, log)
                 state.update(server,
                              status=S_ROLLBACK if ok else S_FAILED,
@@ -521,14 +589,6 @@ def _deploy_server(server: str, cfg: dict, args, log: logging.Logger,
             _repool_all(cfg, server, log)
             state.update(server, line="Repooled")
 
-        if not args.force:
-            with lock:
-                # Another thread may have already asked and got "no"
-                if abort_event and abort_event.is_set():
-                    return False
-                ans = input("Continue with remaining servers? [y/N] ").strip().lower()
-                if ans != "y" and abort_event:
-                    abort_event.set()
         return False
 
     state.update(server, line="Canary OK")
@@ -544,46 +604,41 @@ def _deploy_server(server: str, cfg: dict, args, log: logging.Logger,
 # Dashboard TUI
 # ---------------------------------------------------------------------------
 
-# Color pair IDs
-_C_NAME    = 1   # server name — bright green bold
-_C_DONE    = 2   # ✓ done
-_C_FAIL    = 3   # ✗ failed  — red
-_C_RUNNING = 4   # ⟳ running — yellow
-_C_PENDING = 5   # ○ pending — dim
-_C_LOG     = 6   # log lines — green (normal weight)
-_C_BAR     = 7   # status bar
-_C_SEL     = 8   # selected row
+_C_NAME    = 1
+_C_DONE    = 2
+_C_FAIL    = 3
+_C_RUNNING = 4
+_C_PENDING = 5
+_C_LOG     = 6
+_C_BAR     = 7
+_C_SEL     = 8
+_C_HEAD    = 9
 
 
 def _shorten(name: str) -> str:
-    """Drop the FQDN suffix for display."""
     return name.split(".")[0]
 
 
 class Dashboard:
-    REFRESH_MS = 300
-    LOG_LINES = 10   # shown per server in main view
+    REFRESH_MS  = 250
+    MAX_LOG_MAIN = 4   # log lines shown per server in main view
 
-    def __init__(self, state: DeployState | None, cfg: dict):
-        self._state = state          # live (during deploy) or None
-        self._cfg = cfg
-        self._selected = 0
-        self._detail: str | None = None   # server name in detail view
+    def __init__(self, state: DeployState | None,
+                 prompter: Prompter | None,
+                 cfg: dict):
+        self._state    = state
+        self._prompter = prompter
+        self._cfg      = cfg
+        self._selected = 0        # index into mw_servers list (not staging)
+        self._detail: str | None = None
         self._detail_scroll = 0
-        self._confirm_rollback = False
-        self._status_msg = ""        # transient message on bar
-        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
-    # Public entry point
+    # Entry point
     # ------------------------------------------------------------------
 
     def run(self):
         curses.wrapper(self._main)
-
-    # ------------------------------------------------------------------
-    # Curses main loop
-    # ------------------------------------------------------------------
 
     def _main(self, scr):
         self._init_colors()
@@ -593,15 +648,18 @@ class Dashboard:
 
         while True:
             data = self._data()
-            servers = list(data.get("servers", {}).keys())
+            mw_servers = [s for s in data.get("servers", {}) if s != STAGING_KEY]
 
             if self._detail:
-                sdata = data.get("servers", {}).get(self._detail, {})
-                self._draw_detail(scr, self._detail, sdata)
+                sd = data["servers"].get(self._detail, {})
+                self._draw_detail(scr, self._detail, sd)
             else:
-                self._draw_main(scr, data, servers)
-                if self._confirm_rollback and servers:
-                    self._draw_confirm(scr, servers)
+                self._draw_main(scr, data, mw_servers)
+
+                # Prompt overlay (highest priority — blocks key handling below)
+                req = self._prompter.pending() if self._prompter else None
+                if req:
+                    self._draw_prompt(scr, req)
 
             try:
                 key = scr.getch()
@@ -609,12 +667,13 @@ class Dashboard:
                 key = -1
 
             if key == -1:
-                # No key: check if deploy finished and we're in no-deploy mode
                 continue
 
-            if self._confirm_rollback:
-                if not self._handle_confirm_key(key, servers):
-                    return   # Ctrl+X from confirm
+            # Route keypresses
+            req = self._prompter.pending() if self._prompter else None
+            if req:
+                if not self._handle_prompt_key(key, req):
+                    return
                 continue
 
             if self._detail:
@@ -622,8 +681,8 @@ class Dashboard:
                     return
                 continue
 
-            if not self._handle_main_key(key, servers):
-                return   # exit
+            if not self._handle_main_key(key, mw_servers, data):
+                return
 
     # ------------------------------------------------------------------
     # Data source
@@ -633,10 +692,10 @@ class Dashboard:
         if self._state:
             return self._state.snapshot()
         d = DeployState.load_file()
-        return d if d else {"started": "", "servers": {}}
+        return d if d else {"started": "", "finished": False, "servers": {}}
 
     # ------------------------------------------------------------------
-    # Color setup
+    # Colors
     # ------------------------------------------------------------------
 
     def _init_colors(self):
@@ -650,6 +709,7 @@ class Dashboard:
         curses.init_pair(_C_LOG,     curses.COLOR_GREEN,  -1)
         curses.init_pair(_C_BAR,     curses.COLOR_BLACK,  curses.COLOR_GREEN)
         curses.init_pair(_C_SEL,     curses.COLOR_BLACK,  curses.COLOR_GREEN)
+        curses.init_pair(_C_HEAD,    curses.COLOR_GREEN,  -1)
 
     def _status_attr(self, status: str) -> int:
         return {
@@ -664,60 +724,177 @@ class Dashboard:
     # Main view
     # ------------------------------------------------------------------
 
-    def _draw_main(self, scr, data: dict, servers: list):
+    def _draw_main(self, scr, data: dict, mw_servers: list):
         h, w = scr.getmaxyx()
         scr.erase()
 
-        # ── title ──────────────────────────────────────────────────────
-        title = "mwdeploy"
+        srv  = data.get("servers", {})
+        done = data.get("finished", False)
+
+        # Determine overall phase
+        staging      = srv.get(STAGING_KEY, {})
+        staging_st   = staging.get("status", S_PENDING)
+        staging_done = staging_st in (S_DONE, S_FAILED)
+        mw_statuses  = [srv.get(s, {}).get("status", S_PENDING) for s in mw_servers]
+        terminal_st  = {S_DONE, S_FAILED, S_SKIPPED, S_ROLLBACK}
+        all_mw_done  = all(st in terminal_st for st in mw_statuses) if mw_servers else True
+
+        # Header row
+        if done or all_mw_done:
+            n_done = sum(1 for st in mw_statuses if st == S_DONE)
+            n_fail = sum(1 for st in mw_statuses if st == S_FAILED)
+            if n_fail:
+                title = f"mwdeploy — {n_fail} failure(s)"
+                title_attr = curses.color_pair(_C_FAIL) | curses.A_BOLD
+            else:
+                title = "mwdeploy — complete"
+                title_attr = curses.color_pair(_C_DONE) | curses.A_BOLD
+        else:
+            title = "mwdeploy"
+            title_attr = curses.color_pair(_C_NAME) | curses.A_BOLD
+
         started = data.get("started", "")
-        right = f"started {started}" if started else ""
-        self._addstr(scr, 0, 2, title, curses.color_pair(_C_NAME) | curses.A_BOLD)
-        if right and w - len(right) - 3 > len(title) + 4:
-            self._addstr(scr, 0, w - len(right) - 2, right,
-                         curses.color_pair(_C_LOG))
+        self._put(scr, 0, 2, title, title_attr)
+        if started and w - len(started) - 4 > len(title) + 4:
+            self._put(scr, 0, w - len(started) - 2, started,
+                      curses.color_pair(_C_LOG))
 
         row = 2
-        srv_data = data.get("servers", {})
 
-        for idx, name in enumerate(servers):
-            if row >= h - 1:
-                break
-
-            sd = srv_data.get(name, {})
-            status = sd.get("status", S_PENDING)
-            icon, _ = _STATUS_ICON.get(status, (status, status))
-            short = _shorten(name)
-            selected = (idx == self._selected)
-
-            # ── server name row ────────────────────────────────────────
-            if selected:
-                self._addstr(scr, row, 0, " " * w, curses.color_pair(_C_SEL))
-                label = f"  {short:<26}{icon}"
-                self._addstr(scr, row, 0, label, curses.color_pair(_C_SEL) | curses.A_BOLD)
+        # ── SECTION 1: Preparation ─────────────────────────────────────
+        if STAGING_KEY in srv:
+            if not staging_done:
+                # Expanded: show last few lines while work is in progress
+                self._put(scr, row, 2, "Preparing…",
+                          curses.color_pair(_C_RUNNING) | curses.A_BOLD)
+                row += 1
+                for ln in staging.get("log_lines", [])[-5:]:
+                    if row >= h - 2:
+                        break
+                    self._put(scr, row, 4, ln[:w - 5], curses.color_pair(_C_LOG))
+                    row += 1
+                row += 1
             else:
-                self._addstr(scr, row, 2, f"{short:<26}",
-                             curses.color_pair(_C_NAME) | curses.A_BOLD)
-                self._addstr(scr, row, 28, icon, self._status_attr(status))
-
-            row += 1
-
-            # ── log lines ──────────────────────────────────────────────
-            lines = sd.get("log_lines", [])[-self.LOG_LINES:]
-            for line in lines:
-                if row >= h - 1:
-                    break
-                self._addstr(scr, row, 4, line[:w - 5], curses.color_pair(_C_LOG))
+                # Collapsed to a single summary line
+                icon = "✓" if staging_st == S_DONE else "✗"
+                attr = (curses.color_pair(_C_DONE) if staging_st == S_DONE
+                        else curses.color_pair(_C_FAIL)) | curses.A_BOLD
+                self._put(scr, row, 2,
+                          f"Preparation  {icon} {staging_st}",
+                          attr)
+                row += 1
                 row += 1
 
-            row += 1   # blank separator
+        # ── SECTION 2: Server deployment ───────────────────────────────
+        if mw_servers and staging_done:
+            n_done  = sum(1 for st in mw_statuses if st == S_DONE)
+            n_total = len(mw_servers)
+            if all_mw_done:
+                sect_hdr = "Servers"
+            else:
+                sect_hdr = f"Deploying  ({n_done}/{n_total} done)"
 
-        # ── status bar ─────────────────────────────────────────────────
-        bar = self._status_msg if self._status_msg else (
-            "  [↑↓] select   [Ctrl+O] detailed logs"
-            "   [Ctrl+R] rollback   [Ctrl+X] exit"
-        )
-        self._draw_bar(scr, bar)
+            self._put(scr, row, 2, sect_hdr,
+                      curses.color_pair(_C_HEAD) | curses.A_BOLD)
+            row += 1
+
+            for idx, name in enumerate(mw_servers):
+                if row >= h - 2:
+                    break
+                sd     = srv.get(name, {})
+                status = sd.get("status", S_PENDING)
+                icon   = _STATUS_ICON.get(status, status)
+                short  = _shorten(name)
+                sel    = (idx == self._selected)
+
+                # Server name + status
+                if sel:
+                    self._put(scr, row, 0, " " * w, curses.color_pair(_C_SEL))
+                    self._put(scr, row, 4,
+                              f"{short:<24}{icon}",
+                              curses.color_pair(_C_SEL) | curses.A_BOLD)
+                else:
+                    self._put(scr, row, 4, f"{short:<24}",
+                              curses.color_pair(_C_NAME) | curses.A_BOLD)
+                    self._put(scr, row, 28, icon, self._status_attr(status))
+                row += 1
+
+                # Show log lines only for active/completed servers
+                if status not in (S_PENDING,):
+                    lines = sd.get("log_lines", [])
+                    show  = lines[-self.MAX_LOG_MAIN:]
+                    for ln in show:
+                        if row >= h - 2:
+                            break
+                        self._put(scr, row, 6, ln[:w - 7],
+                                  curses.color_pair(_C_LOG))
+                        row += 1
+                    row += 1
+
+        # ── SECTION 3: Summary (when finished) ─────────────────────────
+        if (done or all_mw_done) and mw_servers:
+            if row < h - 4:
+                row += 1
+                n_done   = sum(1 for st in mw_statuses if st == S_DONE)
+                n_fail   = sum(1 for st in mw_statuses if st == S_FAILED)
+                n_skip   = sum(1 for st in mw_statuses
+                               if st in (S_SKIPPED, S_ROLLBACK))
+                summary  = (f"  ✓ {n_done} succeeded   "
+                            f"✗ {n_fail} failed   "
+                            f"– {n_skip} skipped/rolled back")
+                attr = (curses.color_pair(_C_FAIL) if n_fail
+                        else curses.color_pair(_C_DONE)) | curses.A_BOLD
+                self._put(scr, row, 0, summary[:w], attr)
+                row += 1
+
+        # ── SECTION 4: Issues ──────────────────────────────────────────
+        failed = [s for s in mw_servers
+                  if srv.get(s, {}).get("status") == S_FAILED]
+        if failed and row < h - 2:
+            row += 1
+            self._put(scr, row, 2, "Issues",
+                      curses.color_pair(_C_FAIL) | curses.A_BOLD)
+            row += 1
+            for name in failed:
+                if row >= h - 2:
+                    break
+                sd    = srv.get(name, {})
+                lines = sd.get("log_lines", [])
+                last  = lines[-1] if lines else "unknown error"
+                self._put(scr, row, 4,
+                          f"✗ {_shorten(name)}: {last}"[:w - 5],
+                          curses.color_pair(_C_FAIL))
+                row += 1
+
+        # Status bar
+        self._draw_bar(scr,
+                       "  [↑↓] select   [Ctrl+O] detailed logs"
+                       "   [Ctrl+R] rollback   [Ctrl+X] exit")
+        scr.refresh()
+
+    # ------------------------------------------------------------------
+    # Prompt overlay
+    # ------------------------------------------------------------------
+
+    def _draw_prompt(self, scr, req: _PromptRequest):
+        h, w = scr.getmaxyx()
+
+        # Build lines
+        lines = ["", f"  {req.question}", ""]
+        for key, label in req.opts.items():
+            lines.append(f"  [{key.upper()}]  {label}")
+        lines.append("")
+
+        bw  = min(w - 4, max(len(l) for l in lines) + 6)
+        bh  = len(lines) + 2
+        y0  = max(1, h - bh - 3)
+        x0  = max(0, (w - bw) // 2)
+
+        for i, line in enumerate(lines):
+            self._put(scr, y0 + i, x0,
+                      line.ljust(bw)[:bw],
+                      curses.color_pair(_C_BAR) | curses.A_BOLD)
+
         scr.refresh()
 
     # ------------------------------------------------------------------
@@ -729,66 +906,41 @@ class Dashboard:
         scr.erase()
 
         status = sdata.get("status", S_PENDING)
-        icon, _ = _STATUS_ICON.get(status, (status, status))
-        heading = f"  {_shorten(name)}   {icon}"
-        self._addstr(scr, 0, 0, heading,
-                     curses.color_pair(_C_NAME) | curses.A_BOLD)
-        self._addstr(scr, 1, 0, "─" * min(w, 72), curses.color_pair(_C_LOG))
+        icon   = _STATUS_ICON.get(status, status)
+        self._put(scr, 0, 2, f"{_shorten(name)}   {icon}",
+                  curses.color_pair(_C_NAME) | curses.A_BOLD)
+        self._put(scr, 1, 0, "─" * min(w, 72),
+                  curses.color_pair(_C_LOG))
 
-        lines = sdata.get("log_lines", [])
+        lines   = sdata.get("log_lines", [])
         visible = lines[self._detail_scroll: self._detail_scroll + h - 4]
-        for i, line in enumerate(visible):
-            self._addstr(scr, 2 + i, 2, line[:w - 3], curses.color_pair(_C_LOG))
+        for i, ln in enumerate(visible):
+            self._put(scr, 2 + i, 2, ln[:w - 3], curses.color_pair(_C_LOG))
 
         if not lines:
-            self._addstr(scr, 3, 4, "(no log lines yet)", curses.color_pair(_C_PENDING))
+            self._put(scr, 3, 4, "(no log lines yet)",
+                      curses.color_pair(_C_PENDING))
 
-        self._draw_bar(scr, "  [↑↓] scroll   [Q / Esc] back   [Ctrl+X] exit")
+        self._draw_bar(scr,
+                       "  [↑↓] scroll   [Q / Esc] back   [Ctrl+X] exit")
         scr.refresh()
 
     # ------------------------------------------------------------------
-    # Rollback confirmation overlay
-    # ------------------------------------------------------------------
-
-    def _draw_confirm(self, scr, servers: list):
-        h, w = scr.getmaxyx()
-        name = servers[self._selected] if self._selected < len(servers) else "?"
-        short = _shorten(name)
-        lines = [
-            "",
-            f"  Roll back {short}?",
-            "",
-            "  This restores the pre-deploy snapshot on that server,",
-            "  then repools it into HAProxy.",
-            "",
-            "  [Y] confirm rollback        [N / Esc] cancel",
-            "",
-        ]
-        box_w = 58
-        box_h = len(lines)
-        y0 = max(0, (h - box_h) // 2)
-        x0 = max(0, (w - box_w) // 2)
-        for i, line in enumerate(lines):
-            self._addstr(scr, y0 + i, x0, line.ljust(box_w)[:box_w],
-                         curses.color_pair(_C_BAR))
-        scr.refresh()
-
-    # ------------------------------------------------------------------
-    # Shared bar
+    # Status bar
     # ------------------------------------------------------------------
 
     def _draw_bar(self, scr, text: str):
         h, w = scr.getmaxyx()
-        self._addstr(scr, h - 1, 0, text.ljust(w)[:w], curses.color_pair(_C_BAR))
+        self._put(scr, h - 1, 0, text.ljust(w)[:w], curses.color_pair(_C_BAR))
 
     # ------------------------------------------------------------------
     # Safe addstr
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _addstr(scr, y: int, x: int, text: str, attr: int = 0):
+    def _put(scr, y: int, x: int, text: str, attr: int = 0):
         h, w = scr.getmaxyx()
-        if y < 0 or y >= h or x < 0 or x >= w:
+        if y < 0 or y >= h or x < 0 or x >= w or not text:
             return
         try:
             scr.addstr(y, x, text[:max(0, w - x)], attr)
@@ -799,75 +951,73 @@ class Dashboard:
     # Key handlers
     # ------------------------------------------------------------------
 
-    def _handle_main_key(self, key: int, servers: list) -> bool:
-        n = len(servers)
+    def _handle_main_key(self, key: int, mw_servers: list, data: dict) -> bool:
+        n = len(mw_servers)
         if key == curses.KEY_UP:
             self._selected = max(0, self._selected - 1)
         elif key == curses.KEY_DOWN:
             self._selected = min(max(0, n - 1), self._selected + 1)
-        elif key == 15:   # Ctrl+O
-            if servers:
-                self._detail = servers[min(self._selected, n - 1)]
+        elif key == 15:  # Ctrl+O
+            if mw_servers:
+                self._detail = mw_servers[min(self._selected, n - 1)]
                 self._detail_scroll = 0
-        elif key == 18:   # Ctrl+R
-            if servers:
-                self._confirm_rollback = True
-        elif key in (24, 3, 27):   # Ctrl+X, Ctrl+C, Esc
+        elif key == 18:  # Ctrl+R
+            if mw_servers and self._prompter:
+                name = mw_servers[min(self._selected, n - 1)]
+                snap = self._state.server_snapshot_path(name) if self._state else None
+                log  = logging.getLogger("mwdeploy")
+                deploy_user = self._cfg.get("deploy_user", "mwdeploy")
+                prod_path   = self._cfg.get("prod_path", "/srv/mediawiki")
+
+                def _bg():
+                    ok = do_rollback(name, deploy_user, snap, prod_path, log)
+                    if self._state:
+                        self._state.update(
+                            name,
+                            status=S_ROLLBACK if ok else S_FAILED,
+                            line="Rolled back" if ok else "Rollback FAILED",
+                        )
+                        _repool_all(self._cfg, name, log)
+                        self._state.update(name, line="Repooled after rollback")
+
+                if snap:
+                    ans = self._prompter.ask(
+                        f"Roll back {_shorten(name)} to pre-deploy snapshot?",
+                        {"y": "Yes, roll back and repool", "n": "Cancel"},
+                        default="n",
+                    )
+                    if ans == "y":
+                        threading.Thread(target=_bg, daemon=True).start()
+        elif key in (24, 3, 27):  # Ctrl+X, Ctrl+C, Esc
             return False
         return True
 
     def _handle_detail_key(self, key: int, data: dict) -> bool:
-        if key in (ord("q"), ord("Q"), 27):   # Q / Esc
+        if key in (ord("q"), ord("Q"), 27):
             self._detail = None
         elif key == curses.KEY_UP:
             self._detail_scroll = max(0, self._detail_scroll - 1)
         elif key == curses.KEY_DOWN:
-            lines = data.get("servers", {}).get(self._detail, {}).get("log_lines", [])
+            lines = (data.get("servers", {})
+                        .get(self._detail, {})
+                        .get("log_lines", []))
             self._detail_scroll = min(
                 max(0, len(lines) - 5), self._detail_scroll + 1
             )
-        elif key in (24, 3):   # Ctrl+X / Ctrl+C
-            return False
-        return True
-
-    def _handle_confirm_key(self, key: int, servers: list) -> bool:
-        if key in (ord("y"), ord("Y")):
-            self._confirm_rollback = False
-            if servers and self._selected < len(servers):
-                self._start_rollback(servers[self._selected])
-        elif key in (ord("n"), ord("N"), 27):
-            self._confirm_rollback = False
         elif key in (24, 3):
             return False
         return True
 
-    def _start_rollback(self, server: str):
-        snap = None
-        if self._state:
-            snap = self._state.server_snapshot_path(server)
-        if not snap:
-            self._status_msg = f"No snapshot available for {_shorten(server)}"
-            return
-
-        deploy_user = self._cfg.get("deploy_user", "mwdeploy")
-        prod_path = self._cfg.get("prod_path", "/srv/mediawiki")
-        log = logging.getLogger("mwdeploy")
-        state = self._state
-
-        def _bg():
-            ok = do_rollback(server, deploy_user, snap, prod_path, log)
-            new_status = S_ROLLBACK if ok else S_FAILED
-            msg = "Rolled back" if ok else "Rollback FAILED"
-            if state:
-                state.update(server, status=new_status, line=msg)
-                # Also repool
-                _repool_all(self._cfg, server, log)
-                state.update(server, line="Repooled after rollback")
-            with self._lock:
-                self._status_msg = f"{msg}: {_shorten(server)}"
-
-        self._status_msg = f"Rolling back {_shorten(server)}…"
-        threading.Thread(target=_bg, daemon=True).start()
+    def _handle_prompt_key(self, key: int, req: _PromptRequest) -> bool:
+        ch = chr(key).lower() if 32 <= key < 127 else ""
+        if ch in req.opts:
+            req.answer(ch)
+        elif key == 27:           # Esc → pick default (first option)
+            req.answer(next(iter(req.opts)))
+        elif key in (24, 3):      # Ctrl+X / Ctrl+C
+            req.answer(next(iter(req.opts)))
+            return False
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -889,7 +1039,7 @@ examples:
   mwdeploy --versions 1.45 --extension Echo --servers all --rollout
   mwdeploy --config --servers all --rollout
   mwdeploy --rsync --servers all --rollout
-  mwdeploy --rsync --servers all --rollout --parallel 2      # deploy 2 at a time
+  mwdeploy --rsync --servers all --rollout --parallel 2      # 2 at a time
   mwdeploy --provision --servers mw-us-east-031
 """,
     )
@@ -906,9 +1056,9 @@ examples:
     what.add_argument("--config",    action="store_true",
                       help="git pull /srv/mediawiki-staging/config")
 
-    p.add_argument("--versions", metavar="VERSION",
+    p.add_argument("--versions",  metavar="VERSION",
                    help='version to target, e.g. "1.45" or "all"')
-    p.add_argument("--servers",  metavar="SERVERS",
+    p.add_argument("--servers",   metavar="SERVERS",
                    help='comma-separated server names or "all"')
     p.add_argument("--rsync",     action="store_true",
                    help="skip git pulls; deploy current staging content")
@@ -919,7 +1069,7 @@ examples:
     p.add_argument("--force",     action="store_true",
                    help="continue even if canary check fails")
     p.add_argument("--parallel",  metavar="N", type=int, default=1,
-                   help="deploy to N servers simultaneously (default: 1, serial)")
+                   help="deploy to N servers simultaneously (default: 1 = serial)")
     p.add_argument("--no-log", dest="no_log", action="store_true",
                    help="terminal only; skip file log and webhook notifications")
     return p
@@ -929,117 +1079,120 @@ examples:
 # Deploy thread
 # ---------------------------------------------------------------------------
 
-def _deploy_thread(args, cfg: dict, log: logging.Logger, state: DeployState):
-    """Full deployment logic — runs in a background thread."""
-    deploy_user = cfg["deploy_user"]
+def _deploy_thread(args, cfg: dict, log: logging.Logger,
+                   state: DeployState, prompter: Prompter):
+    deploy_user  = cfg["deploy_user"]
     staging_path = cfg["staging_path"]
-    prod_path = cfg["prod_path"]
+    prod_path    = cfg["prod_path"]
     canary_vhost = cfg["canary_vhost"]
+    parallel     = max(1, args.parallel or 1)
     target_servers = resolve_servers(args.servers, cfg.get("mw_servers", []))
-    staging_server = "localhost"   # represent staging in state
 
-    prompt_lock = threading.Lock()
-    abort_event = threading.Event()
-    parallel = max(1, getattr(args, "parallel", 1) or 1)
+    def _run_one(server):
+        return _deploy_server(server, cfg, args, log, state, prompter)
 
-    def _run_server(server):
-        return _deploy_server(server, cfg, args, log, state,
-                              prompt_lock=prompt_lock, abort_event=abort_event)
-
-    def _run_servers(servers):
-        """Serial or parallel deploy loop, honouring abort_event."""
+    def _run_all(servers):
         if parallel <= 1:
-            for server in servers:
-                ok = _run_server(server)
-                if not ok and abort_event.is_set():
+            for s in servers:
+                ok = _run_one(s)
+                if not ok and prompter.is_aborted():
                     break
             return
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as pool:
-            futures = {pool.submit(_run_server, s): s for s in servers}
-            for fut in concurrent.futures.as_completed(futures):
-                server = futures[fut]
+            futs = {pool.submit(_run_one, s): s for s in servers}
+            for fut in concurrent.futures.as_completed(futs):
                 try:
                     fut.result()
                 except Exception as e:
-                    log.error("Unexpected error deploying %s: %s", server, e)
-                    state.update(server, status=S_FAILED, line=f"Unexpected error: {e}")
+                    srv = futs[fut]
+                    log.error("Unexpected error deploying %s: %s", srv, e)
+                    state.update(srv, status=S_FAILED,
+                                 line=f"Unexpected error: {e}")
                     if not args.force:
-                        abort_event.set()
-                # Cancel pending futures if aborted
-                if abort_event.is_set() and not args.force:
-                    for f in futures:
+                        prompter.abort()
+                if prompter.is_aborted() and not args.force:
+                    for f in futs:
                         f.cancel()
 
     try:
-        # ── provision mode ────────────────────────────────────────────
+        # ── provision mode ─────────────────────────────────────────────
         if args.provision:
-            _run_servers(target_servers)
+            if parallel > 1:
+                log.info("Parallel provision: %d workers", parallel)
+            _run_all(target_servers)
             return
 
-        # ── Phase 1: git pulls ────────────────────────────────────────
+        # ── Phase 1: git pulls ──────────────────────────────────────────
         if not args.rsync:
             needs_ver = args.mediawiki or args.extension or args.skin
             if needs_ver and not args.versions:
-                log.error("--versions required with --mediawiki / --extension / --skin")
-                state.mark_done()
+                log.error("--versions required with --mediawiki/--extension/--skin")
                 return
 
             if args.core:
-                state.update(staging_server, status=S_RUNNING, line="git pull (core)")
+                state.update(STAGING_KEY, status=S_RUNNING,
+                             line="git pull (core)")
                 git_pull(staging_path, log)
 
             if args.config:
-                state.update(staging_server, line="git pull (config)")
+                state.update(STAGING_KEY, line="git pull (config)")
                 git_pull(os.path.join(staging_path, "config"), log)
 
             if needs_ver:
-                versions = resolve_versions(args.versions, staging_path)
-                extensions = [e for g in args.extension for e in g.split(",") if e.strip()]
-                skins = [s for g in args.skin for s in g.split(",") if s.strip()]
+                versions   = resolve_versions(args.versions, staging_path)
+                extensions = [e for g in args.extension
+                              for e in g.split(",") if e.strip()]
+                skins      = [s for g in args.skin
+                              for s in g.split(",") if s.strip()]
                 for ver in versions:
                     vp = os.path.join(staging_path, "versions", ver)
                     if args.mediawiki:
-                        state.update(staging_server, line=f"git pull (mediawiki {ver})")
+                        state.update(STAGING_KEY,
+                                     line=f"git pull (mediawiki {ver})")
                         git_pull(vp, log)
                     for ext in extensions:
-                        state.update(staging_server, line=f"git pull (extension/{ext})")
+                        state.update(STAGING_KEY,
+                                     line=f"git pull (extension/{ext})")
                         git_pull(os.path.join(vp, "extensions", ext), log)
                     for skin in skins:
-                        state.update(staging_server, line=f"git pull (skin/{skin})")
+                        state.update(STAGING_KEY,
+                                     line=f"git pull (skin/{skin})")
                         git_pull(os.path.join(vp, "skins", skin), log)
         else:
-            state.update(staging_server, status=S_RUNNING, line="--rsync: skipping git pulls")
+            state.update(STAGING_KEY, status=S_RUNNING,
+                         line="--rsync: skipping git pulls")
 
-        # ── Phase 2: local staging sync ───────────────────────────────
-        state.update(staging_server, line=f"Syncing {staging_path} → {prod_path}")
+        # ── Phase 2: local staging sync ────────────────────────────────
+        state.update(STAGING_KEY,
+                     line=f"Syncing {staging_path} → {prod_path}")
         try:
             rsync_local(staging_path, prod_path, log)
-            state.update(staging_server, line="Local rsync complete")
+            state.update(STAGING_KEY, line="Local rsync complete")
         except RuntimeError as e:
             log.error("Local rsync failed: %s", e)
-            state.update(staging_server, status=S_FAILED,
+            state.update(STAGING_KEY, status=S_FAILED,
                          line=f"Local rsync FAILED: {e}")
             return
 
-        # ── Phase 3: canary on staging ────────────────────────────────
-        state.update(staging_server, line="Canary check on localhost…")
-        if not canary_check("localhost", canary_vhost, log,
-                            deploy_user=deploy_user, force=args.force):
-            state.update(staging_server, status=S_FAILED,
-                         line="Canary FAILED on staging — deploy aborted")
+        # ── Phase 3: canary on staging ─────────────────────────────────
+        state.update(STAGING_KEY, line="Canary check on localhost…")
+        if not canary_check(STAGING_KEY, canary_vhost, log,
+                            deploy_user=deploy_user,
+                            force=args.force, prompter=prompter):
+            state.update(STAGING_KEY, status=S_FAILED,
+                         line="Canary FAILED — deploy aborted")
             return
 
-        state.update(staging_server, status=S_DONE, line="Canary OK")
+        state.update(STAGING_KEY, status=S_DONE, line="Canary OK")
 
         if not target_servers:
             return
 
-        # ── Phase 4: rolling deploy ───────────────────────────────────
+        # ── Phase 4: rolling deploy ─────────────────────────────────────
         if parallel > 1:
             log.info("Parallel deploy: %d workers across %d servers",
                      parallel, len(target_servers))
-        _run_servers(target_servers)
+        _run_all(target_servers)
 
     finally:
         state.mark_done()
@@ -1051,13 +1204,11 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger, state: DeployState):
 
 def main():
     parser = _build_parser()
-    args = parser.parse_args()
+    args   = parser.parse_args()
+    cfg    = load_config()
 
-    cfg = load_config()
-
-    # Build SSH options once
     global _SSH_OPTS
-    deploy_user = cfg.get("deploy_user", "mwdeploy")
+    deploy_user  = cfg.get("deploy_user", "mwdeploy")
     ssh_identity = cfg.get("ssh_identity",
                            f"/home/{deploy_user}/.ssh/id_ed25519")
     _SSH_OPTS = [
@@ -1071,42 +1222,48 @@ def main():
         args.config, args.rsync, args.provision,
     ])
 
-    # ── No deploy flags → open dashboard showing last state ──────────
+    # ── No deploy flags → dashboard of last run ───────────────────────
     if not deploy_flags:
-        Dashboard(state=None, cfg=cfg).run()
+        Dashboard(state=None, prompter=None, cfg=cfg).run()
         return
 
+    # ── Build state + prompter ────────────────────────────────────────
     target_servers = resolve_servers(args.servers, cfg.get("mw_servers", []))
-    all_servers = (["localhost"] + target_servers) if not args.provision else target_servers
-    state = DeployState(all_servers)
+    all_servers    = (
+        ([STAGING_KEY] + target_servers) if not args.provision
+        else target_servers
+    )
+    state    = DeployState(all_servers)
+    prompter = Prompter()
 
     if args.no_log:
-        # ── --no-log: raw terminal output, no dashboard ───────────────
-        # Curses and stdout logging can't coexist; --no-log implies plain text.
+        # ── --no-log: raw terminal, no dashboard ──────────────────────
+        # Curses and stdout can't coexist; --no-log implies plain text output.
         log = _setup_logging(cfg, no_log=True, suppress_stdout=False)
         _notify(log, cfg, True,
                 f"mwdeploy starting — targets: {target_servers or 'staging only'}")
-        _deploy_thread(args, cfg, log, state)
+        _deploy_thread(args, cfg, log, state, prompter)
     else:
-        # ── Dashboard mode: curses owns the terminal ──────────────────
-        # Suppress stdout from the deploy thread entirely — the TUI shows
-        # per-server progress via DeployState; file + webhooks capture the rest.
+        # ── Dashboard mode: curses owns stdout ────────────────────────
         log = _setup_logging(cfg, no_log=False, suppress_stdout=True)
         _notify(log, cfg, False,
                 f"mwdeploy starting — targets: {target_servers or 'staging only'}")
         t = threading.Thread(
-            target=_deploy_thread, args=(args, cfg, log, state), daemon=True
+            target=_deploy_thread,
+            args=(args, cfg, log, state, prompter),
+            daemon=True,
         )
         t.start()
-        Dashboard(state=state, cfg=cfg).run()
+        Dashboard(state=state, prompter=prompter, cfg=cfg).run()
         t.join(timeout=5)
 
     # ── Final result ──────────────────────────────────────────────────
-    snap = state.snapshot()
+    snap   = state.snapshot()
     failed = [s for s, d in snap["servers"].items() if d["status"] == S_FAILED]
     if failed:
         _notify(log, cfg, args.no_log,
-                f"DEPLOY FINISHED WITH FAILURES: {failed}", level=logging.ERROR)
+                f"DEPLOY FINISHED WITH FAILURES: {failed}",
+                level=logging.ERROR)
         sys.exit(1)
     else:
         _notify(log, cfg, args.no_log,
