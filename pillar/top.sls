@@ -7,6 +7,8 @@ base:
    'apps*':
       - php
       - private
+   'bastion*':
+      - users.servers.bastion
    'db*':
       - mariadb
       - private
