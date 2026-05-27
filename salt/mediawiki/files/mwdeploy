@@ -7,6 +7,7 @@ Pass deployment flags to run a deploy (dashboard opens automatically).
 """
 
 import argparse
+import concurrent.futures
 import curses
 import json
 import logging
@@ -35,6 +36,7 @@ S_RUNNING  = "running"
 S_DONE     = "done"
 S_FAILED   = "failed"
 S_ROLLBACK = "rolled_back"
+S_SKIPPED  = "skipped"
 
 _STATUS_ICON = {
     S_PENDING:  ("○ pending",     "pending"),
@@ -42,6 +44,7 @@ _STATUS_ICON = {
     S_DONE:     ("✓ done",        "done"),
     S_FAILED:   ("✗ failed",      "failed"),
     S_ROLLBACK: ("⤺ rolled back", "rolled_back"),
+    S_SKIPPED:  ("– skipped",     "skipped"),
 }
 
 
@@ -250,35 +253,54 @@ def git_pull(path: str, log: logging.Logger):
 # ---------------------------------------------------------------------------
 
 def canary_check(host: str, vhost: str, log: logging.Logger,
-                 force: bool = False, retries: int = 3) -> bool:
-    url = f"http://{vhost}/wiki/Main_Page"
-    resolve = f"{vhost}:80:127.0.0.1" if host == "localhost" else f"{vhost}:80:{host}"
+                 deploy_user: str = "mwdeploy",
+                 force: bool = False, retries: int = 3,
+                 prompt_lock: threading.Lock | None = None,
+                 abort_event: threading.Event | None = None) -> bool:
+    """
+    SSH into the target (or run locally) and curl http://127.0.0.1/wiki/Main_Page
+    with -H "Host: <vhost>".  Expects HTTP 200 and "mediawiki" in the body.
+
+    In parallel mode pass prompt_lock so only one thread prompts the user at a
+    time, and abort_event so a prior "no" is respected without re-prompting.
+    """
+    curl_cmd = (
+        f'code=$(curl -sS --max-time 15 --location'
+        f' -H "Host: {vhost}"'
+        f' -o /tmp/mwdeploy-canary'
+        f' -w "%{{http_code}}"'
+        f' "http://127.0.0.1/wiki/Main_Page" 2>&1);'
+        f' echo "HTTP_CODE=$code";'
+        f' grep -qi mediawiki /tmp/mwdeploy-canary'
+        f' && echo "HAS_MW=1" || echo "HAS_MW=0";'
+        f' rm -f /tmp/mwdeploy-canary'
+    )
+
     log.info("Canary  %s  (Host: %s)", host, vhost)
-
     code = "???"
-    for attempt in range(1, retries + 1):
-        tmp = f"/tmp/mwdeploy-canary-{os.getpid()}"
-        try:
-            r = _run([
-                "curl", "-sS", "--max-time", "15", "--location",
-                "--resolve", resolve, "-o", tmp, "-w", "%{http_code}", url,
-            ])
-            code = r.stdout.strip()
-            body = ""
-            try:
-                with open(tmp) as f:
-                    body = f.read(8192)
-            finally:
-                try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
 
-            if code == "200" and "mediawiki" in body.lower():
+    for attempt in range(1, retries + 1):
+        try:
+            if host == "localhost":
+                r = _run(["bash", "-c", curl_cmd])
+            else:
+                r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", curl_cmd])
+            output = r.stdout
+
+            code_line = next(
+                (ln for ln in output.splitlines() if ln.startswith("HTTP_CODE=")), ""
+            )
+            mw_line = next(
+                (ln for ln in output.splitlines() if ln.startswith("HAS_MW=")), ""
+            )
+            code = code_line.replace("HTTP_CODE=", "").strip()
+            has_mw = mw_line.strip() == "HAS_MW=1"
+
+            if code == "200" and has_mw:
                 log.info("Canary OK  %s  (HTTP 200)", host)
                 return True
 
-            reason = f"HTTP {code}" if code != "200" else "no MediaWiki content"
+            reason = f"HTTP {code}" if code != "200" else "no MediaWiki content in body"
             log.warning("Canary attempt %d/%d failed on %s: %s", attempt, retries, host, reason)
         except Exception as e:
             log.warning("Canary attempt %d/%d error on %s: %s", attempt, retries, host, e)
@@ -290,7 +312,15 @@ def canary_check(host: str, vhost: str, log: logging.Logger,
         log.warning("Canary failed on %s — --force set, continuing", host)
         return True
 
-    ans = input(f"\nCanary failed on {host}. Continue? [y/N] ").strip().lower()
+    # Serialise prompts so parallel threads don't stomp each other
+    lock = prompt_lock or threading.Lock()
+    with lock:
+        if abort_event and abort_event.is_set():
+            log.warning("Canary failed on %s; aborting (already decided)", host)
+            return False
+        ans = input(f"\nCanary failed on {host}. Continue? [y/N] ").strip().lower()
+        if ans != "y" and abort_event:
+            abort_event.set()
     return ans == "y"
 
 
@@ -341,26 +371,29 @@ def _repool_all(cfg: dict, server: str, log: logging.Logger):
 # Rsync
 # ---------------------------------------------------------------------------
 
-def _rsync_base(excludes: list[str]) -> list[str]:
+def _rsync_base(extra_excludes: list[str]) -> list[str]:
     cmd = ["rsync", "-az", "--checksum", "--delete"]
-    for ex in excludes + ["cache/", "cw_cache/"]:
+    for ex in ["cache/"] + extra_excludes:
         cmd += ["--exclude", ex]
     return cmd
 
 
-def rsync_local(src: str, dst: str, log: logging.Logger):
+def rsync_local(src: str, dst: str, log: logging.Logger, provision: bool = False):
     log.info("Local rsync  %s → %s", src, dst)
+    excludes = [] if provision else ["cw_cache/"]
     _run_check(
-        _rsync_base([]) + [src.rstrip("/") + "/", dst.rstrip("/") + "/"],
+        _rsync_base(excludes) + [src.rstrip("/") + "/", dst.rstrip("/") + "/"],
         error_prefix="Local rsync failed",
     )
 
 
-def rsync_remote(src: str, host: str, dst: str, deploy_user: str, log: logging.Logger):
+def rsync_remote(src: str, host: str, dst: str, deploy_user: str,
+                 log: logging.Logger, provision: bool = False):
     log.info("Remote rsync  %s → %s:%s", src, host, dst)
+    excludes = [] if provision else ["cw_cache/"]
     ssh_cmd = "ssh " + " ".join(_SSH_OPTS)
     _run_check(
-        _rsync_base([]) + [
+        _rsync_base(excludes) + [
             "--rsync-path=sudo rsync",
             "-e", ssh_cmd,
             src.rstrip("/") + "/",
@@ -426,11 +459,21 @@ def resolve_servers(arg: str | None, all_servers: list) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _deploy_server(server: str, cfg: dict, args, log: logging.Logger,
-                   state: DeployState) -> bool:
+                   state: DeployState,
+                   prompt_lock: threading.Lock | None = None,
+                   abort_event: threading.Event | None = None) -> bool:
+    """Deploy to one server.  Returns True on success, False on failure."""
+
+    # Respect an abort signalled by another parallel thread
+    if abort_event and abort_event.is_set():
+        state.update(server, status=S_SKIPPED, line="Skipped — deploy aborted by earlier failure")
+        return True   # skipped ≠ failed; don't add to the failure list
+
     deploy_user = cfg["deploy_user"]
     staging_path = cfg["staging_path"]
     prod_path = cfg["prod_path"]
     canary_vhost = cfg["canary_vhost"]
+    lock = prompt_lock or threading.Lock()
 
     state.update(server, status=S_RUNNING, line="Starting deploy")
 
@@ -444,7 +487,8 @@ def _deploy_server(server: str, cfg: dict, args, log: logging.Logger,
 
     src = prod_path if args.provision else staging_path
     try:
-        rsync_remote(src, server, prod_path, deploy_user, log)
+        rsync_remote(src, server, prod_path, deploy_user, log,
+                     provision=args.provision)
         state.update(server, line="Rsync complete")
     except RuntimeError as e:
         log.error("rsync failed for %s: %s", server, e)
@@ -452,14 +496,19 @@ def _deploy_server(server: str, cfg: dict, args, log: logging.Logger,
         if args.rollout:
             _repool_all(cfg, server, log)
             state.update(server, line="Repooled after rsync failure")
+        if not args.force and abort_event:
+            abort_event.set()
         return False
 
-    if not canary_check(server, canary_vhost, log, force=args.force):
+    if not canary_check(server, canary_vhost, log, deploy_user=deploy_user,
+                        force=args.force, prompt_lock=lock,
+                        abort_event=abort_event):
         log.error("Canary failed on %s", server)
         state.update(server, status=S_FAILED, line="Canary check FAILED")
 
         if snap and args.rollout:
-            ans = input(f"Roll back {server}? [Y/n] ").strip().lower()
+            with lock:
+                ans = input(f"Roll back {server}? [Y/n] ").strip().lower()
             if ans != "n":
                 ok = do_rollback(server, deploy_user, snap, prod_path, log)
                 state.update(server,
@@ -471,9 +520,13 @@ def _deploy_server(server: str, cfg: dict, args, log: logging.Logger,
             state.update(server, line="Repooled")
 
         if not args.force:
-            ans = input("Continue with remaining servers? [y/N] ").strip().lower()
-            if ans != "y":
-                return False
+            with lock:
+                # Another thread may have already asked and got "no"
+                if abort_event and abort_event.is_set():
+                    return False
+                ans = input("Continue with remaining servers? [y/N] ").strip().lower()
+                if ans != "y" and abort_event:
+                    abort_event.set()
         return False
 
     state.update(server, line="Canary OK")
@@ -602,6 +655,7 @@ class Dashboard:
             S_FAILED:   curses.color_pair(_C_FAIL)    | curses.A_BOLD,
             S_RUNNING:  curses.color_pair(_C_RUNNING) | curses.A_BOLD,
             S_ROLLBACK: curses.color_pair(_C_RUNNING),
+            S_SKIPPED:  curses.color_pair(_C_PENDING),
         }.get(status, curses.color_pair(_C_PENDING))
 
     # ------------------------------------------------------------------
@@ -829,10 +883,11 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  mwdeploy                                         # open dashboard
+  mwdeploy                                                   # open dashboard
   mwdeploy --versions 1.45 --extension Echo --servers all --rollout
   mwdeploy --config --servers all --rollout
   mwdeploy --rsync --servers all --rollout
+  mwdeploy --rsync --servers all --rollout --parallel 2      # deploy 2 at a time
   mwdeploy --provision --servers mw-us-east-031
 """,
     )
@@ -861,6 +916,8 @@ examples:
                    help="rsync /srv/mediawiki to new servers (no staging sync)")
     p.add_argument("--force",     action="store_true",
                    help="continue even if canary check fails")
+    p.add_argument("--parallel",  metavar="N", type=int, default=1,
+                   help="deploy to N servers simultaneously (default: 1, serial)")
     p.add_argument("--no-log", dest="no_log", action="store_true",
                    help="terminal only; skip file log and webhook notifications")
     return p
@@ -879,11 +936,43 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger, state: DeployState):
     target_servers = resolve_servers(args.servers, cfg.get("mw_servers", []))
     staging_server = "localhost"   # represent staging in state
 
+    prompt_lock = threading.Lock()
+    abort_event = threading.Event()
+    parallel = max(1, getattr(args, "parallel", 1) or 1)
+
+    def _run_server(server):
+        return _deploy_server(server, cfg, args, log, state,
+                              prompt_lock=prompt_lock, abort_event=abort_event)
+
+    def _run_servers(servers):
+        """Serial or parallel deploy loop, honouring abort_event."""
+        if parallel <= 1:
+            for server in servers:
+                ok = _run_server(server)
+                if not ok and abort_event.is_set():
+                    break
+            return
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as pool:
+            futures = {pool.submit(_run_server, s): s for s in servers}
+            for fut in concurrent.futures.as_completed(futures):
+                server = futures[fut]
+                try:
+                    fut.result()
+                except Exception as e:
+                    log.error("Unexpected error deploying %s: %s", server, e)
+                    state.update(server, status=S_FAILED, line=f"Unexpected error: {e}")
+                    if not args.force:
+                        abort_event.set()
+                # Cancel pending futures if aborted
+                if abort_event.is_set() and not args.force:
+                    for f in futures:
+                        f.cancel()
+
     try:
         # ── provision mode ────────────────────────────────────────────
         if args.provision:
-            for server in target_servers:
-                _deploy_server(server, cfg, args, log, state)
+            _run_servers(target_servers)
             return
 
         # ── Phase 1: git pulls ────────────────────────────────────────
@@ -933,7 +1022,8 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger, state: DeployState):
 
         # ── Phase 3: canary on staging ────────────────────────────────
         state.update(staging_server, line="Canary check on localhost…")
-        if not canary_check("localhost", canary_vhost, log, force=args.force):
+        if not canary_check("localhost", canary_vhost, log,
+                            deploy_user=deploy_user, force=args.force):
             state.update(staging_server, status=S_FAILED,
                          line="Canary FAILED on staging — deploy aborted")
             return
@@ -944,11 +1034,10 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger, state: DeployState):
             return
 
         # ── Phase 4: rolling deploy ───────────────────────────────────
-        for server in target_servers:
-            ok = _deploy_server(server, cfg, args, log, state)
-            if not ok and not args.force:
-                log.error("Aborting after failure on %s", server)
-                break
+        if parallel > 1:
+            log.info("Parallel deploy: %d workers across %d servers",
+                     parallel, len(target_servers))
+        _run_servers(target_servers)
 
     finally:
         state.mark_done()
