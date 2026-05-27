@@ -734,7 +734,9 @@ class Dashboard:
         # Determine overall phase
         staging      = srv.get(STAGING_KEY, {})
         staging_st   = staging.get("status", S_PENDING)
-        staging_done = staging_st in (S_DONE, S_FAILED)
+        # In --provision mode STAGING_KEY is never added to state, so treat
+        # its absence as "preparation already done" so servers section shows.
+        staging_done = staging_st in (S_DONE, S_FAILED) or STAGING_KEY not in srv
         mw_statuses  = [srv.get(s, {}).get("status", S_PENDING) for s in mw_servers]
         terminal_st  = {S_DONE, S_FAILED, S_SKIPPED, S_ROLLBACK}
         all_mw_done  = all(st in terminal_st for st in mw_statuses) if mw_servers else True
