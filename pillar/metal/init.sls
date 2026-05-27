@@ -66,6 +66,9 @@ dns_hosts:
   staging-us-east-021.ovvin.wonet:
     ip: 10.0.2.65
     mac: bc:24:11:12:6a:a6
+  apps-us-east-021.ovvin.wonet:
+    ip: 10.0.2.70
+    mac: bc:24:11:62:c2:3d
 
 proxmox:
   public_bridge: "vmbr0"
@@ -129,3 +132,6 @@ proxmox:
     staging-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 265
+     apps-us-east-021.ovvin.wonet:
+      metal_host: metal-us-east-02
+      vmid: 270
