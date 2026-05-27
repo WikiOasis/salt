@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=www-data
 Group=www-data
-ExecStart=/usr/bin/php /srv/mediawiki-services-jobrunner/redisJobRunnerService.php --config-file=/etc/mediawiki-jobrunner/config.json
+ExecStart=/usr/bin/php /srv/mediawiki-services-jobrunner/redisJobRunnerService --config-file=/etc/mediawiki-jobrunner/config.json
 Restart=always
 RestartSec=5
 
