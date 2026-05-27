@@ -86,8 +86,9 @@ class _PromptRequest:
 
 class Prompter:
     def __init__(self):
-        self._lock    = threading.Lock()
-        self._abort   = threading.Event()
+        self._ask_lock   = threading.Lock()   # serialise: one prompt at a time
+        self._state_lock = threading.Lock()   # protects _pending
+        self._abort      = threading.Event()
         self._pending: _PromptRequest | None = None
 
     def ask(self, question: str,
@@ -96,20 +97,29 @@ class Prompter:
         if self._abort.is_set():
             return default
         opts = opts or {"y": "Yes", "n": "No"}
-        req  = _PromptRequest(question, opts)
-        with self._lock:
-            self._pending = req
-        ans = req.wait(timeout=300.0)
-        with self._lock:
-            self._pending = None
+        # _ask_lock serialises concurrent callers so they queue rather than
+        # overwriting each other's _pending slot.
+        with self._ask_lock:
+            if self._abort.is_set():
+                return default
+            req = _PromptRequest(question, opts)
+            with self._state_lock:
+                self._pending = req
+            ans = req.wait(timeout=300.0)
+            with self._state_lock:
+                self._pending = None
         return ans or default
 
     def pending(self) -> _PromptRequest | None:
-        with self._lock:
+        with self._state_lock:
             return self._pending
 
     def abort(self):
         self._abort.set()
+        # Wake any blocked req.wait() immediately instead of waiting 300 s.
+        with self._state_lock:
+            if self._pending and not self._pending._event.is_set():
+                self._pending._event.set()   # _answer stays "" → ask() returns default
 
     def is_aborted(self) -> bool:
         return self._abort.is_set()
