@@ -313,12 +313,16 @@ def _run_check(cmd: list, error_prefix: str = "Command failed", **kwargs):
 # Git
 # ---------------------------------------------------------------------------
 
-def git_pull(path: str, log: logging.Logger):
+def git_pull(path: str, log: logging.Logger) -> subprocess.CompletedProcess:
     log.info("git pull  %s", path)
-    _run_check(
+    r = _run_check(
         ["sudo", "-u", "www-data", "git", "-C", path, "pull", "--ff-only"],
         error_prefix=f"git pull failed in {path}",
     )
+    out = (r.stdout or r.stderr or "").strip()
+    if out:
+        log.debug("git: %s", out)
+    return r
 
 
 # ---------------------------------------------------------------------------
