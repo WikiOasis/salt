@@ -24,19 +24,20 @@ mariadb_backup_pkgs:
     - require:
       - file: /etc/mariadb-backup
 
-/var/backups/mariadb/binlogs:
+/var/backups/mariadb:
   file.directory:
     - user: root
     - group: root
     - mode: '0750'
     - makedirs: True
 
-/var/backups/mariadb/incremental:
+/var/backups/mariadb/binlogs:
   file.directory:
     - user: root
     - group: root
     - mode: '0750'
-    - makedirs: True
+    - require:
+      - file: /var/backups/mariadb
 
 /usr/local/bin/mariadb-backup-run.sh:
   file.managed:
@@ -86,9 +87,9 @@ mariadb_backup_db_user:
   cmd.run:
     - name: >
         mysql -e
-        "CREATE USER IF NOT EXISTS '{{ backup.get('user', 'mariadb_backup') }}'@'127.0.0.1' IDENTIFIED BY '{{ backup.get('password', '') }}';
-        ALTER USER '{{ backup.get('user', 'mariadb_backup') }}'@'127.0.0.1' IDENTIFIED BY '{{ backup.get('password', '') }}';
-        GRANT RELOAD, LOCK TABLES, PROCESS, REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO '{{ backup.get('user', 'mariadb_backup') }}'@'127.0.0.1';
+        "CREATE USER IF NOT EXISTS '{{ backup.get('user', 'mariadb_backup') }}'@'localhost' IDENTIFIED BY '{{ backup.get('password', '') }}';
+        ALTER USER '{{ backup.get('user', 'mariadb_backup') }}'@'localhost' IDENTIFIED BY '{{ backup.get('password', '') }}';
+        GRANT RELOAD, LOCK TABLES, PROCESS, REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO '{{ backup.get('user', 'mariadb_backup') }}'@'localhost';
         FLUSH PRIVILEGES;"
     - require:
       - pkg: install_mariadb

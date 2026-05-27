@@ -13,7 +13,7 @@ LATEST=$(ls -t "$BACKUP_DIR"/mysql-bin.[0-9]* 2>/dev/null | head -1)
 if [ -n "$LATEST" ]; then
     BINLOG=$(basename "$LATEST")
 else
-    BINLOG=$(mysql -u"$MYSQL_USER" -p"$MYSQL_PASS" -h 127.0.0.1 \
+    BINLOG=$(mysql -u"$MYSQL_USER" -p"$MYSQL_PASS" \
         --skip-column-names -e "SHOW MASTER STATUS" | awk '{print $1}')
 fi
 
@@ -29,5 +29,4 @@ exec mariadb-binlog \
     --result-file="$BACKUP_DIR/" \
     --user="$MYSQL_USER" \
     --password="$MYSQL_PASS" \
-    --host=127.0.0.1 \
     "$BINLOG"

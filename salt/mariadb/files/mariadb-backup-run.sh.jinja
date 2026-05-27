@@ -1,5 +1,9 @@
 #!/bin/bash
-# Runs a full or incremental mariabackup and rsyncs the result to the backup server.
+# Streams full or incremental mariabackup directly to the remote backup server via SSH.
+# No backup data is written to local disk — only two small state files are kept:
+#   /var/backups/mariadb/xtrabackup_checkpoints  (LSN for next incremental)
+#   /var/backups/mariadb/last_full_backup         (epoch of last full)
+#   /var/backups/mariadb/last_backup              (epoch of last backup of any kind)
 # Usage: mariadb-backup-run.sh [full|incremental]
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
 {%- set dest = backup.get('destination', {}) %}
@@ -8,9 +12,10 @@
 set -euo pipefail
 
 MODE="${1:-incremental}"
-BACKUP_BASE=/var/backups/mariadb
-BASE_DIR="$BACKUP_BASE/base"
-INCR_BASE="$BACKUP_BASE/incremental"
+STATE_DIR=/var/backups/mariadb
+CHECKPOINTS="$STATE_DIR/xtrabackup_checkpoints"
+LAST_FULL="$STATE_DIR/last_full_backup"
+LAST_BACKUP="$STATE_DIR/last_backup"
 MYSQL_USER="{{ backup.get('user', 'mariadb_backup') }}"
 MYSQL_PASS="{{ backup.get('password', '') }}"
 REMOTE_USER="{{ dest.get('user', '') }}"
@@ -22,6 +27,8 @@ START=$(date +%s)
 
 DISCORD_WEBHOOK_URL="{{ discord }}"
 SLACK_WEBHOOK_URL="{{ slack }}"
+
+SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes $REMOTE_USER@$REMOTE_HOST"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
@@ -49,82 +56,72 @@ on_exit() {
 }
 trap on_exit EXIT
 
-rsync_to_remote() {
-    local src="$1" dst="$2"
-    rsync -az --delete \
-        -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes" \
-        "$src" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH/$HOST/$dst"
+remote_size() {
+    $SSH "du -sh '$1' 2>/dev/null" | cut -f1
 }
 
 run_full() {
-    log "Starting full base backup"
-    [ -d "${BASE_DIR}.prev" ] && rm -rf "${BASE_DIR}.prev"
-    [ -d "$BASE_DIR" ] && mv "$BASE_DIR" "${BASE_DIR}.prev"
-    mkdir -p "$BASE_DIR"
+    log "Starting streamed full backup"
+    $SSH "rm -rf '$REMOTE_PATH/$HOST/base.prev' ; \
+          [ -d '$REMOTE_PATH/$HOST/base' ] && mv '$REMOTE_PATH/$HOST/base' '$REMOTE_PATH/$HOST/base.prev' ; \
+          mkdir -p '$REMOTE_PATH/$HOST/base'"
 
-    mariabackup --backup \
-        --target-dir="$BASE_DIR" \
-        --user="$MYSQL_USER" \
-        --password="$MYSQL_PASS"
+    mariabackup --backup --stream=xbstream \
+        --user="$MYSQL_USER" --password="$MYSQL_PASS" \
+    | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/base/'"
 
-    mariabackup --prepare --target-dir="$BASE_DIR"
+    # Pull back the checkpoints file so we know the LSN for future incrementals
+    $SSH "cat '$REMOTE_PATH/$HOST/base/xtrabackup_checkpoints'" > "$CHECKPOINTS"
 
-    rm -rf "$INCR_BASE"
-    mkdir -p "$INCR_BASE"
+    local now; now=$(date +%s)
+    echo "$now" > "$LAST_FULL"
+    echo "$now" > "$LAST_BACKUP"
 
-    log "Syncing full backup to remote"
-    rsync_to_remote "$BASE_DIR/" "base/"
-
-    local elapsed=$(( $(date +%s) - START ))
-    local size; size=$(du -sh "$BASE_DIR" | cut -f1)
+    local elapsed=$(( now - START ))
+    local size; size=$(remote_size "$REMOTE_PATH/$HOST/base/")
     log "Full backup complete — size: ${size}, duration: ${elapsed}s"
     notify ":white_check_mark:" "full backup complete — size: ${size}, duration: ${elapsed}s"
 }
 
-if [ "$MODE" = "full" ]; then
-    run_full
-
-elif [ "$MODE" = "incremental" ]; then
-    NOW=$(date +%s)
-
-    # If no base exists or it is 7+ days old (missed weekly run), create one first
-    if [ ! -d "$BASE_DIR" ]; then
-        log "No base backup found; running full backup first"
+run_incremental() {
+    if [ ! -f "$CHECKPOINTS" ]; then
+        log "No checkpoints file found; running full backup first"
         run_full
         START=$(date +%s)
     else
-        BASE_AGE=$(( (NOW - $(stat -c %Y "$BASE_DIR")) / 86400 ))
-        if [ "$BASE_AGE" -ge 7 ]; then
-            log "Base backup is ${BASE_AGE}d old (weekly run missed); running full backup first"
+        local full_age=$(( ($(date +%s) - $(cat "$LAST_FULL")) / 86400 ))
+        if [ "$full_age" -ge 7 ]; then
+            log "Full backup is ${full_age}d old (weekly run missed); running full backup first"
             run_full
             START=$(date +%s)
         fi
     fi
 
-    log "Starting incremental backup"
-    mkdir -p "$INCR_BASE"
+    local to_lsn; to_lsn=$(awk '/^to_lsn/{print $3}' "$CHECKPOINTS")
+    local DATE; DATE=$(date +%Y%m%d-%H%M%S)
 
-    LAST_INCR=$(ls -dt "$INCR_BASE"/[0-9]* 2>/dev/null | head -1)
-    BASEDIR="${LAST_INCR:-$BASE_DIR}"
-    DATE=$(date +%Y%m%d-%H%M%S)
-    INCR_DIR="$INCR_BASE/$DATE"
-    mkdir -p "$INCR_DIR"
+    log "Starting streamed incremental backup (from LSN ${to_lsn})"
+    $SSH "mkdir -p '$REMOTE_PATH/$HOST/incremental/$DATE'"
 
-    mariabackup --backup \
-        --incremental-basedir="$BASEDIR" \
-        --target-dir="$INCR_DIR" \
-        --user="$MYSQL_USER" \
-        --password="$MYSQL_PASS"
+    mariabackup --backup --stream=xbstream \
+        --incremental-lsn="$to_lsn" \
+        --user="$MYSQL_USER" --password="$MYSQL_PASS" \
+    | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/incremental/$DATE/'"
 
-    log "Syncing incremental backup to remote"
-    rsync_to_remote "$INCR_DIR/" "incremental/$DATE/"
+    # Update local checkpoints so the next incremental chains from this one
+    $SSH "cat '$REMOTE_PATH/$HOST/incremental/$DATE/xtrabackup_checkpoints'" > "$CHECKPOINTS"
 
-    elapsed=$(( $(date +%s) - START ))
-    size=$(du -sh "$INCR_DIR" | cut -f1)
+    local now; now=$(date +%s)
+    echo "$now" > "$LAST_BACKUP"
+
+    local elapsed=$(( now - START ))
+    local size; size=$(remote_size "$REMOTE_PATH/$HOST/incremental/$DATE/")
     log "Incremental backup complete — size: ${size}, duration: ${elapsed}s"
     notify ":white_check_mark:" "incremental backup complete — size: ${size}, duration: ${elapsed}s"
+}
 
-else
-    echo "Usage: $0 [full|incremental]" >&2
-    exit 1
-fi
+case "$MODE" in
+    full)        run_full ;;
+    incremental) run_incremental ;;
+    *)           echo "Usage: $0 [full|incremental]" >&2; exit 1 ;;
+esac
