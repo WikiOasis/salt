@@ -325,8 +325,13 @@ def _run_check(cmd: list, error_prefix: str = "Command failed", **kwargs):
 
 def git_pull(path: str, log: logging.Logger) -> subprocess.CompletedProcess:
     log.info("git pull  %s", path)
-    # safe.directory=* silences the dubious-ownership error when mwdeploy
-    # runs as root (sudo) but the repo is owned by www-data.
+    # Fix .git/ ownership before pulling: if a previous git op ran as root it
+    # leaves root-owned files (FETCH_HEAD, index, …) that www-data can't write.
+    # mwdeploy itself runs as root (via sudo), so this chown succeeds.
+    subprocess.run(
+        ["chown", "-R", "www-data:www-data", os.path.join(path, ".git")],
+        capture_output=True,
+    )
     r = _run_check(
         ["sudo", "-u", "www-data", "git",
          "-c", "safe.directory=*",
