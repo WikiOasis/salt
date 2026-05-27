@@ -27,6 +27,7 @@ exec mariadb-binlog \
     --stop-never \
     --raw \
     --stop-never-slave-server-id=65535 \
+    --skip-ssl \
     --result-file="$BACKUP_DIR/" \
     --user="$MYSQL_USER" \
     --password="$MYSQL_PASS" \
