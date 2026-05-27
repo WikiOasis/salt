@@ -25,7 +25,7 @@
 {%- endfor %}
 
 # Add users and assign groups
-{%- set server_groups = pillar.get('server_groups', []) %}
+{%- set server_groups = pillar.get('server_groups', ['ops']) %}
 {%- set server_users = [] %}
 {%- for group in server_groups %}
   {%- set group_members = pillar.get('groups', {}).get(group, {}).get('members', []) %}

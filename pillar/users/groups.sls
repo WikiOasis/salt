@@ -1,2 +1,0 @@
-server_groups:
-  - ops

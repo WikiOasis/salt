@@ -2,7 +2,6 @@ base:
    '*':
       - base
       - users
-      - users.groups
       - private
    'apps*':
       - php
