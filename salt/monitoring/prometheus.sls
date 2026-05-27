@@ -47,6 +47,7 @@ prometheus_package:
     ('haproxy', 'proxy',       9101),
     ('redis',   'redis',       9121),
     ('statsd',  'monitoring',  9102),
+    ('phpfpm',  'apps/mw',     9253),
 ] %}
 /etc/prometheus/file_sd/{{ job }}.json:
   file.managed:
@@ -65,7 +66,7 @@ prometheus:
     - watch:
       - file: /etc/prometheus/prometheus.yml
       - file: /etc/default/prometheus
-{%- for job in ['node', 'mysqld', 'haproxy', 'redis', 'statsd'] %}
+{%- for job in ['node', 'mysqld', 'haproxy', 'redis', 'statsd', 'phpfpm'] %}
       - file: /etc/prometheus/file_sd/{{ job }}.json
 {%- endfor %}
     - require:

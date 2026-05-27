@@ -1,0 +1,17 @@
+#!/bin/bash
+# Managed by Salt — do not edit manually.
+# Reads /etc/mediawiki-jobrunner/config.yaml and loops runJobs.php.
+
+set -euo pipefail
+
+CONFIG=/etc/mediawiki-jobrunner/config.yaml
+
+php_bin=$(grep -E '^  php_binary:' "$CONFIG" | awk '{print $2}')
+mw_path=$(grep -E '^  path:' "$CONFIG" | awk '{print $2}')
+max_jobs=$(grep -E '^  max_jobs:' "$CONFIG" | awk '{print $2}')
+max_time=$(grep -E '^  max_time:' "$CONFIG" | awk '{print $2}')
+
+exec "$php_bin" "$mw_path/maintenance/runJobs.php" \
+    --maxjobs="${max_jobs}" \
+    --maxtime="${max_time}" \
+    --wait

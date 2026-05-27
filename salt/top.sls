@@ -11,6 +11,7 @@ base:
     - nginx
     - monitoring.nrpe_nginx
     - monitoring.nrpe_php
+    - monitoring.phpfpm_exporter
   'db*':
     - mariadb
     - mariadb.monitoring_user
@@ -47,6 +48,12 @@ base:
     - monitoring.nrpe_nginx
     - monitoring.nrpe_php
     - monitoring.nrpe_mediawiki
+    - monitoring.phpfpm_exporter
+  'task*':
+    - php
+    - mediawiki.target
+    - mediawiki.jobrunner
+
   'redis*':
     - redis
     - monitoring.nrpe_redis

@@ -42,6 +42,9 @@ dns_hosts:
   mw-us-east-012.ovvin.wonet:
     ip: 10.0.1.61
     mac: bc:24:11:79:3a:be
+  task-us-east-011.ovvin.wonet:
+    ip: 10.0.1.65
+    mac: bc:24:11:27:84:e8
   bastion-us-east-021:
     ip: 10.0.2.49
     mac: bc:24:11:ab:a4:70
@@ -107,6 +110,9 @@ proxmox:
     mw-us-east-012.ovvin.wonet:
       metal_host: metal-us-east-01
       vmid: 161
+    task-us-east-011.ovvin.wonet:
+      metal_host: metal-us-east-01
+      vmid: 165
     # metal-us-east-02
     bastion-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02

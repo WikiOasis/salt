@@ -1,0 +1,9 @@
+{%- set dns_hosts = salt['pillar.get']('dns_hosts', {}) %}
+{%- set entries = [] %}
+{%- for hostname, data in dns_hosts.items() if hostname.startswith('apps') or hostname.startswith('mw') or hostname.startswith('staging') %}
+{%- set clean = hostname.split('.')[0] %}
+{%- do entries.append('  {"targets": ["' ~ data.ip ~ ':9253"], "labels": {"instance": "' ~ clean ~ '"}}') %}
+{%- endfor %}
+[
+{{ entries | join(',\n') }}
+]

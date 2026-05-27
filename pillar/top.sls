@@ -35,6 +35,11 @@ base:
    'monitoring*':
       - monitoring
       - private
+   'task*':
+      - php
+      - mediawiki
+      - mediawiki.jobrunner
+
    'redis*':
       - redis
    'redis-us-east-011*':

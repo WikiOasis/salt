@@ -1,0 +1,15 @@
+[Unit]
+Description=MediaWiki job runner worker %i
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+EnvironmentFile=/etc/mediawiki-jobrunner/config.env
+ExecStart=/usr/local/bin/mediawiki-jobrunner %i
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

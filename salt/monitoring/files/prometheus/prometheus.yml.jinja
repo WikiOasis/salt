@@ -28,3 +28,8 @@ scrape_configs:
     file_sd_configs:
       - files: ['/etc/prometheus/file_sd/statsd.json']
         refresh_interval: 5m
+
+  - job_name: 'phpfpm'
+    file_sd_configs:
+      - files: ['/etc/prometheus/file_sd/phpfpm.json']
+        refresh_interval: 5m

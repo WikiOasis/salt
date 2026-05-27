@@ -1,0 +1,29 @@
+# MediaWiki job runner configuration — managed by Salt, do not edit manually.
+{%- set jr = salt['pillar.get']('mediawiki_jobrunner', {}) %}
+{%- set dns_hosts = salt['pillar.get']('dns_hosts', {}) %}
+{%- set monitoring_ip = '' %}
+{%- for hostname, data in dns_hosts.items() if hostname.startswith('monitoring') %}
+{%-   if not monitoring_ip %}
+{%-     set monitoring_ip = data.ip %}
+{%-   endif %}
+{%- endfor %}
+
+redis:
+  host: {{ jr.get('redis_host', 'redis-us-east-012.ovvin.wonet') }}
+  port: {{ jr.get('redis_port', 6379) }}
+  database: {{ jr.get('redis_db', 0) }}
+
+mediawiki:
+  path: {{ jr.get('mw_path', '/srv/mediawiki') }}
+  php_binary: {{ jr.get('php_binary', '/usr/bin/php') }}
+
+runner:
+  workers: {{ jr.get('workers', 4) }}
+  max_jobs: {{ jr.get('max_jobs', 200) }}
+  max_time: {{ jr.get('max_time', 3600) }}
+
+{%- if monitoring_ip %}
+statsd:
+  host: {{ monitoring_ip }}
+  port: 9125
+{%- endif %}
