@@ -6,7 +6,7 @@ phpfpm_exporter_binary:
   archive.extracted:
     - name: /opt/phpfpm_exporter
     - source: https://github.com/hipages/php-fpm_exporter/releases/download/v2.2.0/php-fpm_exporter_2.2.0_linux_amd64.tar.gz
-    - source_hash: sha256=d0bf7cec44fb8e22c8fcb0f6c73c1d50ecf5e56cf17f36c2f8c75748df1c0843
+    - source_hash: sha256=b1c207fcd89f9be20104fd90bc76b3c584987ea5a769c99d5759f79af8322449
     - archive_format: tar
     - enforce_toplevel: False
     - if_missing: /opt/phpfpm_exporter/php-fpm_exporter
