@@ -61,6 +61,15 @@ nginx:
     - require:
       - file: /etc/nginx/conf.d/custom_domains/_placeholder.conf
 
+/etc/nginx/conf.d/phorge.conf:
+  file.managed:
+    - source: salt://nginx/files/phorge.conf
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: nginx
+
 /etc/nginx/sites-enabled/default:
   file.absent:
     - require:
@@ -74,6 +83,7 @@ nginx_service:
     - watch:
       - file: /etc/nginx/snippets/mediawiki-common.conf
       - file: /etc/nginx/conf.d/mediawiki-vhosts.conf
+      - file: /etc/nginx/conf.d/phorge.conf
     - require:
       - pkg: nginx
       - file: /etc/nginx/sites-enabled/default

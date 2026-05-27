@@ -31,12 +31,56 @@ haproxy:
           backend: grafana
         - hostname: test.wikioasis.org
           backend: staging
-      default_backend: staging
+        - hostname: phorge.wikioasis.org
+          backend: apps
+        - hostname: safety.wikioasis.org
+          backend: apps
+      default_backend: mediawiki
       options:
         - forwardfor
         - http-server-close
 
   backends:
+    apps:
+      balance: roundrobin
+      options:
+        - forwardfor
+      servers:
+        - name: apps-us-east-021
+          host: apps-us-east-021.ovvin.wonet
+          port: 80
+          check: true
+          weight: 1
+          depooled: false
+    mediawiki:
+      balance: roundrobin
+      options:
+        - forwardfor
+      servers:
+        - name: mw-us-east-011
+          host: mw-us-east-011.ovvin.wonet
+          port: 80
+          check: true
+          weight: 1
+          depooled: false
+        - name: mw-us-east-012
+          host: mw-us-east-012.ovvin.wonet
+          port: 80
+          check: true
+          weight: 1
+          depooled: false
+        - name: mw-us-east-021
+          host: mw-us-east-021.ovvin.wonet
+          port: 80
+          check: true
+          weight: 1
+          depooled: false
+        - name: mw-us-east-022
+          host: mw-us-east-022.ovvin.wonet
+          port: 80
+          check: true
+          weight: 1
+          depooled: false
     icinga:
       balance: roundrobin
       options:

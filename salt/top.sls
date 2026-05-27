@@ -6,6 +6,11 @@ base:
     - monitoring.nrpe_common
     - monitoring.nrpe_salt
     - monitoring.node_exporter
+  'apps*':
+    - php
+    - nginx
+    - monitoring.nrpe_nginx
+    - monitoring.nrpe_php
   'db*':
     - mariadb
     - mariadb.monitoring_user
