@@ -325,19 +325,20 @@ def _run_check(cmd: list, error_prefix: str = "Command failed", **kwargs):
 
 def git_pull(path: str, log: logging.Logger) -> subprocess.CompletedProcess:
     log.info("git pull  %s", path)
-    # Fix .git/ ownership before pulling: if a previous git op ran as root it
-    # leaves root-owned files (FETCH_HEAD, index, …) that www-data can't write.
-    # mwdeploy itself runs as root (via sudo), so this chown succeeds.
+    # Fix .git/ ownership so www-data can write FETCH_HEAD, index, etc.
+    # (Previous root-run git ops leave root-owned files behind.)
     subprocess.run(
         ["chown", "-R", "www-data:www-data", os.path.join(path, ".git")],
         capture_output=True,
     )
-    r = _run_check(
-        ["sudo", "-u", "www-data", "git",
-         "-c", "safe.directory=*",
-         "-C", path, "pull", "--ff-only"],
-        error_prefix=f"git pull failed in {path}",
-    )
+    git = ["sudo", "-u", "www-data", "git", "-c", "safe.directory=*", "-C", path]
+    # Fetch first so FETCH_HEAD is set regardless of local state.
+    _run_check(git + ["fetch", "--quiet", "origin"],
+               error_prefix=f"git fetch failed in {path}")
+    # Hard-reset to the fetched ref — this discards any local modifications
+    # (config drift, leftover edits) that would block a normal merge.
+    r = _run_check(git + ["reset", "--hard", "FETCH_HEAD"],
+                   error_prefix=f"git reset failed in {path}")
     out = (r.stdout or r.stderr or "").strip()
     if out:
         log.debug("git: %s", out)
