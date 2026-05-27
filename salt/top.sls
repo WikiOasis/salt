@@ -51,8 +51,12 @@ base:
     - monitoring.phpfpm_exporter
   'task*':
     - php
+    - nginx
     - mediawiki.target
     - mediawiki.jobrunner
+    - monitoring.nrpe_nginx
+    - monitoring.nrpe_php
+    - monitoring.phpfpm_exporter
 
   'redis*':
     - redis

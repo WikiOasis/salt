@@ -37,6 +37,7 @@ base:
       - private
    'task*':
       - php
+      - nginx
       - mediawiki
       - mediawiki.jobrunner
 
