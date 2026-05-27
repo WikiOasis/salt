@@ -33,6 +33,8 @@ haproxy:
           backend: staging
         - hostname: phorge.wikioasis.org
           backend: apps
+        - hostname: phorge.wikioasisusercontent.net
+          backend: apps
         - hostname: safety.wikioasis.org
           backend: apps
       default_backend: mediawiki
