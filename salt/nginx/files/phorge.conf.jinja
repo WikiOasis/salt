@@ -1,3 +1,8 @@
+{%- set php = salt['pillar.get']('php', {}) %}
+{%- set version = php.get('version', '8.3') %}
+{%- set fpm = php.get('fpm', {}) %}
+{%- set listen = fpm.get('listen', '') or ('/run/php/php' ~ version ~ '-fpm.sock') %}
+# salt managed, do not modify manually
 server {
   server_name phorge.wikioasis.org phorge.wikioasisusercontent.net;
   root        /var/www/phorge/webroot;
@@ -8,7 +13,7 @@ server {
   }
 
   location /index.php {
-    fastcgi_pass   localhost:9000;
+    fastcgi_pass   unix:{{ listen }};
     fastcgi_index  index.php;
 
     fastcgi_param  REDIRECT_STATUS    200;

@@ -63,7 +63,8 @@ nginx:
 
 /etc/nginx/conf.d/phorge.conf:
   file.managed:
-    - source: salt://nginx/files/phorge.conf
+    - source: salt://nginx/files/phorge.conf.jinja
+    - template: jinja
     - user: root
     - group: root
     - mode: '0644'
