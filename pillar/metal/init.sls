@@ -132,6 +132,6 @@ proxmox:
     staging-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 265
-     apps-us-east-021.ovvin.wonet:
+    apps-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 270
