@@ -26,6 +26,7 @@ exec mariadb-binlog \
     --read-from-remote-server \
     --stop-never \
     --raw \
+    --connection-server-id=65535 \
     --result-file="$BACKUP_DIR/" \
     --user="$MYSQL_USER" \
     --password="$MYSQL_PASS" \
