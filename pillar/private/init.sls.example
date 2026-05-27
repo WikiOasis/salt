@@ -14,5 +14,10 @@ notifications:
   discord_webhook_url: https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
   slack_webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
 
+mediawiki:
+  webhooks:
+    discord: ""
+    slack: ""
+
 sentry_relay:
   dsn: CHANGE_ME
