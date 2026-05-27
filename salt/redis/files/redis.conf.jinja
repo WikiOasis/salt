@@ -27,3 +27,5 @@ requirepass {{ cfg.get('requirepass') }}
 
 appendonly {{ cfg.get('appendonly', 'no') }}
 appendfsync {{ cfg.get('appendfsync', 'everysec') }}
+
+dir /var/lib/redis
