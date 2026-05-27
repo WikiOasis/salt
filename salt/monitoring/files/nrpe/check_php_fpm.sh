@@ -53,11 +53,6 @@ if [ -n "$listen_queue" ]; then
     fi
 fi
 
-if [ -n "$max_children_reached" ] && [ "$max_children_reached" -gt 0 ]; then
-    msgs+=("max children reached=${max_children_reached} (WARNING)")
-    [ "$state" -lt 1 ] && state=1
-fi
-
 if [ -n "$slow_requests" ] && [ "$slow_requests" -gt 0 ]; then
     msgs+=("slow requests=${slow_requests} (WARNING)")
     [ "$state" -lt 1 ] && state=1
