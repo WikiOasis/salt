@@ -37,6 +37,7 @@ base:
       - monitoring
       - private
    'task*':
+      - users.servers.mediawiki
       - php
       - nginx
       - mediawiki
