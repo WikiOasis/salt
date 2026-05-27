@@ -1,3 +1,5 @@
+// Configuration file for MediaWiki Jobrunner
+// This file is managed by Salt
 {%- set jr = salt['pillar.get']('mediawiki_jobrunner', {}) %}
 {%- set dns_hosts = salt['pillar.get']('dns_hosts', {}) %}
 {%- set monitoring_ip = '' %}
@@ -7,11 +9,61 @@
 {%-   endif %}
 {%- endfor %}
 {
-    "redis-job-servers": ["tcp://{{ jr.get('redis_host', 'redis-us-east-012.ovvin.wonet') }}:{{ jr.get('redis_port', 6379) }}"],
-    "queue-type": "redis",
-    "mw-install-path": "{{ jr.get('mw_path', '/srv/mediawiki') }}",
-    "php-command": "{{ jr.get('php_binary', '/usr/bin/php') }}"{% if monitoring_ip %},
-    "statsd-host": "{{ monitoring_ip }}",
-    "statsd-port": 9125{% endif %}
+    "groups": {
+        "basic": {
+            // Number of runner processes in this group
+            "runners": 4,
+            // Job types to include ("*" means "all")
+            "include": [
+                "*"
+            ],
+            // Job types to exempt (useful when combined with "*")
+            "exclude": [
+                "AssembleUploadChunks",
+                "PublishStashedFile",
+                "uploadFromUrl",
+                "webVideoTranscode"
+            ],
+            "low-priority": [
+                "htmlCacheUpdate",
+                "refreshLinks"
+            ]
+        }
+    },
 
+    "limits": {
+        // How many times to let jobs be recycled before abandoning
+        "attempts": {
+            "*": 3
+        },
+        // How long jobs can be claimed before being recycled
+        "claimTTL": {
+            "*": 3600
+        },
+        // runJobs.php process time limits
+        "real": {
+            "*": 300
+        },
+        // runJobs.php memory limits
+        "memory": {
+            "*": "300M"
+        }
+    },
+
+    "redis": {
+        // Ready queue trackers
+        "aggregators": [
+            "{{ jr.get('redis_host', 'redis-us-east-012.ovvin.wonet') }}"
+        ],
+        // Main queue servers
+        "queues": [
+            "{{ jr.get('redis_host', 'redis-us-east-012.ovvin.wonet') }}"
+        ]
+    },
+
+    // Address to send statsd metrics to
+    "statsd": "{{ monitoring_ip }}:9125",
+
+    // Command used to launch a runner for a given job queue
+    "dispatcher": "php /srv/mediawiki/scripts/mwdeploy.php runJobs.php --wiki=%(db)x --type=%(type)x --maxtime=%(maxtime)x --memory-limit=%(maxmem)x --result=json"
 }
