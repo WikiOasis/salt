@@ -165,16 +165,18 @@ class _WebhookHandler(logging.Handler):
             self._post(self._slack, {"text": msg})
 
 
-def _setup_logging(cfg: dict, no_log: bool) -> logging.Logger:
+def _setup_logging(cfg: dict, no_log: bool,
+                   suppress_stdout: bool = False) -> logging.Logger:
     log = logging.getLogger("mwdeploy")
     log.setLevel(logging.DEBUG)
     fmt = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%dT%H:%M:%SZ"
     )
 
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setFormatter(fmt)
-    log.addHandler(ch)
+    if not suppress_stdout:
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setFormatter(fmt)
+        log.addHandler(ch)
 
     if no_log:
         return log
@@ -1074,34 +1076,34 @@ def main():
         Dashboard(state=None, cfg=cfg).run()
         return
 
-    # ── Deploy flags → wire up live state + start deploy thread ──────
-    log = _setup_logging(cfg, args.no_log)
-
     target_servers = resolve_servers(args.servers, cfg.get("mw_servers", []))
     all_servers = (["localhost"] + target_servers) if not args.provision else target_servers
     state = DeployState(all_servers)
 
-    _notify(log, cfg, args.no_log,
-            f"mwdeploy starting — targets: {target_servers or 'staging only'}")
+    if args.no_log:
+        # ── --no-log: raw terminal output, no dashboard ───────────────
+        # Curses and stdout logging can't coexist; --no-log implies plain text.
+        log = _setup_logging(cfg, no_log=True, suppress_stdout=False)
+        _notify(log, cfg, True,
+                f"mwdeploy starting — targets: {target_servers or 'staging only'}")
+        _deploy_thread(args, cfg, log, state)
+    else:
+        # ── Dashboard mode: curses owns the terminal ──────────────────
+        # Suppress stdout from the deploy thread entirely — the TUI shows
+        # per-server progress via DeployState; file + webhooks capture the rest.
+        log = _setup_logging(cfg, no_log=False, suppress_stdout=True)
+        _notify(log, cfg, False,
+                f"mwdeploy starting — targets: {target_servers or 'staging only'}")
+        t = threading.Thread(
+            target=_deploy_thread, args=(args, cfg, log, state), daemon=True
+        )
+        t.start()
+        Dashboard(state=state, cfg=cfg).run()
+        t.join(timeout=5)
 
-    t = threading.Thread(
-        target=_deploy_thread,
-        args=(args, cfg, log, state),
-        daemon=True,
-    )
-    t.start()
-
-    # Run dashboard in main thread (curses must own the terminal)
-    Dashboard(state=state, cfg=cfg).run()
-
-    t.join(timeout=5)
-
-    # Final result
+    # ── Final result ──────────────────────────────────────────────────
     snap = state.snapshot()
-    failed = [
-        s for s, d in snap["servers"].items()
-        if d["status"] == S_FAILED
-    ]
+    failed = [s for s, d in snap["servers"].items() if d["status"] == S_FAILED]
     if failed:
         _notify(log, cfg, args.no_log,
                 f"DEPLOY FINISHED WITH FAILURES: {failed}", level=logging.ERROR)
