@@ -1,0 +1,17 @@
+{%- set jr = salt['pillar.get']('mediawiki_jobrunner', {}) %}
+{%- set dns_hosts = salt['pillar.get']('dns_hosts', {}) %}
+{%- set monitoring_ip = '' %}
+{%- for hostname, data in dns_hosts.items() if hostname.startswith('monitoring') %}
+{%-   if not monitoring_ip %}
+{%-     set monitoring_ip = data.ip %}
+{%-   endif %}
+{%- endfor %}
+{
+    "redis-job-servers": ["tcp://{{ jr.get('redis_host', 'redis-us-east-012.ovvin.wonet') }}:{{ jr.get('redis_port', 6379) }}"],
+    "queue-type": "redis",
+    "mw-install-path": "{{ jr.get('mw_path', '/srv/mediawiki') }}",
+    "php-command": "{{ jr.get('php_binary', '/usr/bin/php') }}"{% if monitoring_ip %},
+    "statsd-host": "{{ monitoring_ip }}",
+    "statsd-port": 9125{% endif %}
+
+}
