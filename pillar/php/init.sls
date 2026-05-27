@@ -21,8 +21,8 @@ php:
     pm: dynamic
     pm_max_children: 10
     pm_start_servers: 6
-    pm_min_spare_servers: 1
-    pm_max_spare_servers: 3
+    pm_min_spare_servers: 6
+    pm_max_spare_servers: 8
     pm_max_requests: 500
     request_terminate_timeout: 60
   monitoring:
