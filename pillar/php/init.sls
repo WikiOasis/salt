@@ -12,6 +12,7 @@ php:
     - apcu
     - igbinary
     - redis
+    - luasandbox
   extra_packages:
     - php-excimer
   fpm:
