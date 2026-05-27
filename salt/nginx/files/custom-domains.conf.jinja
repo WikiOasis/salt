@@ -1,0 +1,15 @@
+# salt managed, do not modify manually
+{%- set custom_domains = salt['pillar.get']('nginx:custom_domains', {}) %}
+{% for wikiname, domain in custom_domains.items() %}
+server {
+    listen {{ domain.get('listen', 80) }};
+    server_name {{ domain.server_name }};
+
+    set $custom_domain_sitemap "{{ domain.get('database_name', wikiname) }}";
+    include snippets/mediawiki-common.conf;
+
+    location = /.well-known/acme-challenge/{{ domain.location }} {
+        return 200 "{{ domain['return'] }}";
+    }
+}
+{% endfor %}
