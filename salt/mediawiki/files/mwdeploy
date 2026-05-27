@@ -1255,20 +1255,44 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
             _run_all(target_servers)
             return
 
-        # ── Resolve targets ────────────────────────────────────────────
+        # ── Mark staging running immediately so TUI shows something ────
         needs_ver  = args.mediawiki or args.extension or args.skin
         extensions = [e for g in args.extension for e in g.split(",") if e.strip()]
         skins      = [s for g in args.skin      for s in g.split(",") if s.strip()]
+
+        state.update(STAGING_KEY, status=S_RUNNING,
+                     steps_total=1, steps_done=0, step="init",
+                     line="Starting preparation…")
+
+        # ── Resolve versions ────────────────────────────────────────────
         versions: list[str] = []
-
-        if not args.rsync:
-            if needs_ver and not args.versions:
-                log.error("--versions required with --mediawiki/--extension/--skin")
+        if not args.rsync and needs_ver:
+            ver_arg = args.versions or "all"
+            if not args.versions:
+                state.update(STAGING_KEY,
+                             line="--versions not set; defaulting to 'all'")
+                log.info("--versions not specified; defaulting to 'all'")
+            state.update(STAGING_KEY, line=f"Resolving versions ({ver_arg})…")
+            try:
+                versions = resolve_versions(ver_arg, staging_path)
+            except SystemExit as e:
+                state.update(STAGING_KEY, status=S_FAILED,
+                             line=f"Cannot resolve versions: {e}")
                 return
-            if needs_ver:
-                versions = resolve_versions(args.versions, staging_path)
+            if not versions:
+                state.update(STAGING_KEY, status=S_FAILED,
+                             line=f"No versions found under {staging_path}/versions/")
+                return
+            state.update(STAGING_KEY,
+                         line=(f"Targeting {len(versions)} version(s): "
+                               f"{', '.join(versions)}"))
 
-        # Compute staging step list so the progress bar knows its total
+        if extensions:
+            state.update(STAGING_KEY, line=f"Extensions: {', '.join(extensions)}")
+        if skins:
+            state.update(STAGING_KEY, line=f"Skins: {', '.join(skins)}")
+
+        # ── Compute staging step list ───────────────────────────────────
         staging_steps: list[str] = []
         if not args.rsync:
             if args.core:   staging_steps.append("git pull core")
@@ -1283,57 +1307,67 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
         staging_steps += ["local rsync", "canary"]
         staging_done = 0
 
-        state.update(STAGING_KEY, status=S_RUNNING,
-                     steps_total=len(staging_steps), steps_done=0, step="")
+        state.update(STAGING_KEY, steps_total=len(staging_steps),
+                     steps_done=0, step="",
+                     line=f"Plan: {len(staging_steps)} step(s)")
+
+        # Helper: git pull one path, update state, return False on failure.
+        def _do_git_pull(path: str, label: str) -> bool:
+            nonlocal staging_done
+            state.update(STAGING_KEY, step=label, line=f"git pull  {label}…")
+            try:
+                r = git_pull(path, log)
+                out = (r.stdout or r.stderr or "").strip()
+                first = out.splitlines()[0][:120] if out else "already up to date"
+                staging_done += 1
+                state.update(STAGING_KEY, steps_done=staging_done,
+                             line=f"{label}: {first}")
+                return True
+            except RuntimeError as e:
+                msg = str(e)
+                # Extract the most useful line from the error
+                for candidate in str(e).splitlines():
+                    if candidate.strip() and not candidate.startswith("stdout"):
+                        msg = candidate.strip()[:200]
+                        break
+                state.update(STAGING_KEY, status=S_FAILED,
+                             line=f"FAILED {label}: {msg}")
+                log.error("git pull failed for %s: %s", label, e)
+                return False
 
         # ── Phase 1: git pulls ──────────────────────────────────────────
         if not args.rsync:
             if args.core:
-                state.update(STAGING_KEY, step="git pull core",
-                             line="git pull (core)")
-                git_pull(staging_path, log)
-                staging_done += 1
-                state.update(STAGING_KEY, steps_done=staging_done,
-                             line="core: up to date")
+                if not _do_git_pull(staging_path, "core"):
+                    return
 
             if args.config:
-                state.update(STAGING_KEY, step="git pull config",
-                             line="git pull (config)")
-                git_pull(os.path.join(staging_path, "config"), log)
-                staging_done += 1
-                state.update(STAGING_KEY, steps_done=staging_done,
-                             line="config: up to date")
+                if not _do_git_pull(
+                        os.path.join(staging_path, "config"), "config"):
+                    return
 
             for ver in versions:
                 vp = os.path.join(staging_path, "versions", ver)
                 if args.mediawiki:
-                    state.update(STAGING_KEY, step=f"git pull mw/{ver}",
-                                 line=f"git pull (mediawiki {ver})")
-                    git_pull(vp, log)
-                    staging_done += 1
-                    state.update(STAGING_KEY, steps_done=staging_done,
-                                 line=f"mediawiki {ver}: up to date")
+                    if not _do_git_pull(vp, f"mw/{ver}"):
+                        return
                 for ext in extensions:
-                    state.update(STAGING_KEY, step=f"git pull ext/{ext}",
-                                 line=f"git pull (extension/{ext})")
-                    git_pull(os.path.join(vp, "extensions", ext), log)
-                    staging_done += 1
-                    state.update(STAGING_KEY, steps_done=staging_done,
-                                 line=f"extension/{ext}: up to date")
+                    if not _do_git_pull(
+                            os.path.join(vp, "extensions", ext),
+                            f"ext/{ext}"):
+                        return
                 for skin in skins:
-                    state.update(STAGING_KEY, step=f"git pull skin/{skin}",
-                                 line=f"git pull (skin/{skin})")
-                    git_pull(os.path.join(vp, "skins", skin), log)
-                    staging_done += 1
-                    state.update(STAGING_KEY, steps_done=staging_done,
-                                 line=f"skin/{skin}: up to date")
+                    if not _do_git_pull(
+                            os.path.join(vp, "skins", skin),
+                            f"skin/{skin}"):
+                        return
         else:
             state.update(STAGING_KEY, step="--rsync mode",
                          line="--rsync: skipping git pulls")
 
         # ── Phase 2: local rsync ────────────────────────────────────────
         state.update(STAGING_KEY, step="local rsync",
-                     line=f"Syncing {staging_path} → {prod_path}")
+                     line=f"Syncing {staging_path} → {prod_path}…")
         try:
             rsync_local(staging_path, prod_path, log)
             staging_done += 1
@@ -1347,7 +1381,7 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
 
         # ── Phase 3: canary on staging ──────────────────────────────────
         state.update(STAGING_KEY, step="canary",
-                     line="Canary check on localhost…")
+                     line="Running canary check on localhost…")
         if not canary_check(STAGING_KEY, canary_vhost, log,
                             deploy_user=deploy_user,
                             force=args.force, prompter=prompter):
@@ -1369,6 +1403,14 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
                      parallel, len(target_servers))
         _run_all(target_servers)
 
+    except Exception as e:
+        # Catch-all so unexpected exceptions update state rather than
+        # silently dying, leaving STAGING_KEY stuck in S_RUNNING.
+        log.error("Unexpected error in deploy thread: %s", e, exc_info=True)
+        staging_st = state.snapshot()["servers"].get(STAGING_KEY, {}).get("status")
+        if staging_st == S_RUNNING:
+            state.update(STAGING_KEY, status=S_FAILED,
+                         line=f"Unexpected error: {e}")
     finally:
         state.mark_done()
 
