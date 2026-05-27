@@ -13,6 +13,7 @@ statsd_exporter_binary:
     - source_hash: https://github.com/prometheus/statsd_exporter/releases/download/v0.28.0/sha256sums.txt
     - archive_format: tar
     - options: '--strip-components=1'
+    - enforce_toplevel: False
     - if_missing: /opt/statsd_exporter/statsd_exporter
 
 /usr/local/bin/prometheus-statsd-exporter:

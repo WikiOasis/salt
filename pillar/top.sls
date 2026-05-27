@@ -25,8 +25,10 @@ base:
       - users.servers.mediawiki
       - php
       - nginx
+      - mediawiki
    'proxy*':
       - haproxy
+      - mediawiki
    'monitoring*':
       - monitoring
       - private

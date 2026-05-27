@@ -1,0 +1,25 @@
+# mwdeploy configuration — managed by Salt, do not edit manually
+{%- set mw = salt['pillar.get']('mediawiki', {}) %}
+{%- set webhooks = mw.get('webhooks', {}) %}
+
+deploy_user: {{ mw.get('deploy_user', 'mwdeploy') }}
+staging_path: {{ mw.get('staging_path', '/srv/mediawiki-staging') }}
+prod_path: {{ mw.get('prod_path', '/srv/mediawiki') }}
+canary_vhost: {{ mw.get('canary_vhost', 'test.wikioasis.org') }}
+log_file: {{ mw.get('log_file', '/var/log/mwdeploy.log') }}
+haproxy_backend: {{ mw.get('haproxy_backend', 'mediawiki') }}
+haproxy_socket: {{ mw.get('haproxy_socket', '/run/haproxy/admin.sock') }}
+
+mw_servers:
+{%- for server in mw.get('mw_servers', []) %}
+  - {{ server }}
+{%- endfor %}
+
+proxy_servers:
+{%- for server in mw.get('proxy_servers', []) %}
+  - {{ server }}
+{%- endfor %}
+
+webhooks:
+  discord: {{ webhooks.get('discord', '') | tojson }}
+  slack: {{ webhooks.get('slack', '') | tojson }}

@@ -1,0 +1,588 @@
+#!/usr/bin/env python3
+"""
+mwdeploy — MediaWiki deployment tool for wikioasis.org
+
+Manages the full deployment lifecycle: git pulls in staging, local rsync,
+canary verification, and rolling rsync to production mw servers with
+optional HAProxy depool/repool.
+"""
+
+import argparse
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+import urllib.error
+from datetime import datetime, timezone
+from pathlib import Path
+
+import yaml
+
+CONFIG_PATH = "/etc/mwdeploy/config.yaml"
+ROLLBACK_BASE = "/tmp/mwdeploy-rollback"
+
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+def load_config():
+    try:
+        with open(CONFIG_PATH) as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        sys.exit(f"Config not found: {CONFIG_PATH}")
+    except yaml.YAMLError as e:
+        sys.exit(f"Bad config: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Logging / webhook notification
+# ---------------------------------------------------------------------------
+
+class WebhookHandler(logging.Handler):
+    """Emit log records to Discord and/or Slack webhooks."""
+
+    def __init__(self, discord_url=None, slack_url=None):
+        super().__init__()
+        self.discord_url = discord_url
+        self.slack_url = slack_url
+
+    def _post(self, url, payload):
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except (urllib.error.URLError, OSError):
+            pass  # never let webhook failures break a deploy
+
+    def emit(self, record):
+        msg = self.format(record)
+        if self.discord_url:
+            self._post(self.discord_url, {"content": msg})
+        if self.slack_url:
+            self._post(self.slack_url, {"text": msg})
+
+
+def setup_logging(cfg, no_log: bool) -> logging.Logger:
+    log = logging.getLogger("mwdeploy")
+    log.setLevel(logging.DEBUG)
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%dT%H:%M:%SZ")
+
+    # Always write to terminal
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(fmt)
+    log.addHandler(ch)
+
+    if no_log:
+        return log
+
+    # File log
+    log_file = cfg.get("log_file", "/var/log/mwdeploy.log")
+    try:
+        fh = logging.FileHandler(log_file)
+        fh.setFormatter(fmt)
+        log.addHandler(fh)
+    except OSError as e:
+        log.warning("Could not open log file %s: %s", log_file, e)
+
+    # Webhook log (WARNING+ only — we don't spam webhooks with debug)
+    webhooks = cfg.get("webhooks", {})
+    discord = webhooks.get("discord")
+    slack = webhooks.get("slack")
+    if discord or slack:
+        wh = WebhookHandler(discord_url=discord, slack_url=slack)
+        wh.setLevel(logging.WARNING)
+        wh.setFormatter(logging.Formatter("[mwdeploy] %(levelname)s: %(message)s"))
+        log.addHandler(wh)
+
+    return log
+
+
+def notify(log, cfg, no_log, msg, level=logging.INFO):
+    """
+    Post a high-level status message to all channels (file + webhooks).
+    Used for deploy start/finish/abort banners so they always appear even
+    at INFO severity.
+    """
+    log.log(level, msg)
+    if no_log:
+        return
+    webhooks = cfg.get("webhooks", {})
+    discord = webhooks.get("discord")
+    slack = webhooks.get("slack")
+    if discord or slack:
+        handler = WebhookHandler(discord_url=discord, slack_url=slack)
+        payload_msg = f"[mwdeploy] {msg}"
+        if discord:
+            handler._post(discord, {"content": payload_msg})
+        if slack:
+            handler._post(slack, {"text": payload_msg})
+
+
+# ---------------------------------------------------------------------------
+# Shell helpers
+# ---------------------------------------------------------------------------
+
+def run(cmd, **kwargs):
+    log = logging.getLogger("mwdeploy")
+    log.debug("$ %s", " ".join(str(c) for c in cmd))
+    return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+
+
+def run_check(cmd, error_prefix="Command failed", **kwargs):
+    result = run(cmd, **kwargs)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"{error_prefix}: {' '.join(str(c) for c in cmd)}\n"
+            f"stdout: {result.stdout.strip()}\nstderr: {result.stderr.strip()}"
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Git operations
+# ---------------------------------------------------------------------------
+
+def git_pull(path: str, log):
+    log.info("git pull: %s", path)
+    run_check(
+        ["sudo", "-u", "www-data", "git", "-C", path, "pull", "--ff-only"],
+        error_prefix=f"git pull failed in {path}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Canary check
+# ---------------------------------------------------------------------------
+
+def canary_check(host: str, vhost: str, log, force: bool = False, retries: int = 3) -> bool:
+    """
+    Curl host resolving vhost to 127.0.0.1 (for local checks) or to host
+    directly (for remote checks).  Expects HTTP 200 with "mediawiki" in body.
+    """
+    url = f"http://{vhost}/wiki/Main_Page"
+    resolve_flag = f"{vhost}:80:127.0.0.1" if host == "localhost" else f"{vhost}:80:{host}"
+    log.info("Canary check → %s (Host: %s)", host, vhost)
+
+    for attempt in range(1, retries + 1):
+        tmp = f"/tmp/mwdeploy-canary-{os.getpid()}"
+        try:
+            result = run([
+                "curl", "-sS", "--max-time", "15", "--location",
+                "--resolve", resolve_flag,
+                "-o", tmp, "-w", "%{http_code}",
+                url,
+            ])
+            code = result.stdout.strip()
+            body = ""
+            try:
+                with open(tmp) as f:
+                    body = f.read(8192)
+            except OSError:
+                pass
+            finally:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+
+            if code == "200" and "mediawiki" in body.lower():
+                log.info("Canary OK on %s (HTTP 200)", host)
+                return True
+
+            reason = f"HTTP {code}" if code != "200" else "no MediaWiki content in body"
+            log.warning("Canary attempt %d/%d failed on %s: %s", attempt, retries, host, reason)
+        except RuntimeError as e:
+            log.warning("Canary attempt %d/%d error on %s: %s", attempt, retries, host, e)
+
+        if attempt < retries:
+            time.sleep(3)
+
+    if force:
+        log.warning("Canary failed on %s but --force is set; continuing", host)
+        return True
+
+    answer = input(f"\nCanary check failed on {host}. Continue anyway? [y/N] ").strip().lower()
+    return answer == "y"
+
+
+# ---------------------------------------------------------------------------
+# HAProxy depool / repool
+# ---------------------------------------------------------------------------
+
+def _haproxy_cmd(proxy_host: str, deploy_user: str, socket: str, command: str, log):
+    remote = f"printf '{command}\\n' | socat stdio {socket}"
+    result = run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+                  f"{deploy_user}@{proxy_host}", remote])
+    if result.returncode != 0:
+        raise RuntimeError(f"HAProxy command on {proxy_host} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def depool_server(proxy_host: str, deploy_user: str, socket: str, backend: str, server: str, log):
+    log.info("Depooling %s/%s via %s", backend, server, proxy_host)
+    _haproxy_cmd(proxy_host, deploy_user, socket, f"disable server {backend}/{server}", log)
+    log.info("Depooled %s/%s", backend, server)
+
+
+def repool_server(proxy_host: str, deploy_user: str, socket: str, backend: str, server: str, log):
+    log.info("Repooling %s/%s via %s", backend, server, proxy_host)
+    _haproxy_cmd(proxy_host, deploy_user, socket, f"enable server {backend}/{server}", log)
+    log.info("Repooled %s/%s", backend, server)
+
+
+def depool_all(proxies, deploy_user, socket, backend, server, log):
+    for p in proxies:
+        try:
+            depool_server(p, deploy_user, socket, backend, server, log)
+        except RuntimeError as e:
+            log.error("Failed to depool %s from %s: %s", server, p, e)
+
+
+def repool_all(proxies, deploy_user, socket, backend, server, log):
+    for p in proxies:
+        try:
+            repool_server(p, deploy_user, socket, backend, server, log)
+        except RuntimeError as e:
+            log.error("Failed to repool %s into %s: %s", server, p, e)
+
+
+# ---------------------------------------------------------------------------
+# Rsync helpers
+# ---------------------------------------------------------------------------
+
+def _rsync_base(src: str, extra_excludes: list) -> list:
+    """Build the common rsync argument list."""
+    excludes = ["cache/", "cw_cache/"] + extra_excludes
+    cmd = ["rsync", "-az", "--checksum", "--delete"]
+    for ex in excludes:
+        cmd += ["--exclude", ex]
+    return cmd
+
+
+def rsync_local(src: str, dst: str, log, extra_excludes=None):
+    """Rsync on the local machine: src/ → dst/"""
+    log.info("Local rsync: %s → %s", src, dst)
+    cmd = _rsync_base(src, extra_excludes or [])
+    cmd += [src.rstrip("/") + "/", dst.rstrip("/") + "/"]
+    run_check(cmd, error_prefix="Local rsync failed")
+
+
+def rsync_remote(src: str, dst_host: str, dst_path: str, deploy_user: str, log, extra_excludes=None):
+    """Rsync src/ to deploy_user@dst_host:dst_path/ using sudo rsync on target."""
+    log.info("Remote rsync: %s → %s:%s", src, dst_host, dst_path)
+    cmd = _rsync_base(src, extra_excludes or [])
+    cmd += [
+        "--rsync-path=sudo rsync",
+        "-e", "ssh -o StrictHostKeyChecking=no -o BatchMode=yes",
+        src.rstrip("/") + "/",
+        f"{deploy_user}@{dst_host}:{dst_path.rstrip('/')}/",
+    ]
+    run_check(cmd, error_prefix=f"Remote rsync to {dst_host} failed")
+
+
+# ---------------------------------------------------------------------------
+# Rollback state
+# ---------------------------------------------------------------------------
+
+def save_rollback(dst_host: str, deploy_user: str, prod_path: str, log) -> str | None:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    snap = f"{ROLLBACK_BASE}-{ts}"
+    log.info("Saving rollback snapshot on %s: %s", dst_host, snap)
+    remote_cmd = f"rsync -a --exclude cache/ --exclude cw_cache/ {prod_path.rstrip('/')}/ {snap}/"
+    result = run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+                  f"{deploy_user}@{dst_host}", remote_cmd])
+    if result.returncode != 0:
+        log.warning("Could not save rollback snapshot on %s: %s", dst_host, result.stderr.strip())
+        return None
+    return snap
+
+
+def do_rollback(dst_host: str, deploy_user: str, snap: str, prod_path: str, log) -> bool:
+    log.warning("Rolling back %s from %s", dst_host, snap)
+    remote_cmd = f"sudo rsync -a --delete {snap}/ {prod_path.rstrip('/')}/"
+    result = run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+                  f"{deploy_user}@{dst_host}", remote_cmd])
+    if result.returncode != 0:
+        log.error("Rollback failed on %s: %s", dst_host, result.stderr.strip())
+        return False
+    log.info("Rollback complete on %s", dst_host)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Version resolution
+# ---------------------------------------------------------------------------
+
+def resolve_versions(versions_arg: str, staging_path: str) -> list[str]:
+    if versions_arg == "all":
+        versions_dir = Path(staging_path) / "versions"
+        if not versions_dir.is_dir():
+            sys.exit(f"versions/ not found under {staging_path}")
+        return sorted(d.name for d in versions_dir.iterdir() if d.is_dir())
+    return [versions_arg]
+
+
+def resolve_servers(servers_arg: str | None, all_servers: list) -> list:
+    if servers_arg is None or servers_arg == "all":
+        return list(all_servers)
+    return [s.strip() for s in servers_arg.split(",") if s.strip()]
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="mwdeploy",
+        description="MediaWiki deployment tool — wikioasis.org",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Pull and deploy a single extension to all servers
+  mwdeploy --versions 1.45 --extension Echo --servers all --rollout
+
+  # Deploy config changes
+  mwdeploy --config --servers all --rollout
+
+  # Skip git; deploy whatever is in staging right now
+  mwdeploy --rsync --servers all --rollout
+
+  # Provision a brand-new server
+  mwdeploy --provision --servers mw-us-east-031
+
+  # Force-deploy ignoring canary failures (e.g. during a DB outage)
+  mwdeploy --rsync --servers all --rollout --force
+""",
+    )
+
+    # --- What to update in staging ---
+    what = p.add_argument_group("what to update in staging")
+    what.add_argument("--core", action="store_true",
+                      help="git pull the root /srv/mediawiki-staging repo")
+    what.add_argument("--mediawiki", action="store_true",
+                      help="git pull MediaWiki core for the selected version(s)")
+    what.add_argument("--extension", metavar="NAME", action="append", default=[],
+                      help="git pull an extension (repeatable; comma-separated names ok)")
+    what.add_argument("--skin", metavar="NAME", action="append", default=[],
+                      help="git pull a skin (repeatable; comma-separated names ok)")
+    what.add_argument("--config", action="store_true",
+                      help="git pull /srv/mediawiki-staging/config")
+
+    # --- Version selection ---
+    p.add_argument("--versions", metavar="VERSION",
+                   help='MediaWiki version to target, e.g. "1.45", or "all"')
+
+    # --- Deployment flags ---
+    p.add_argument("--servers", metavar="SERVERS",
+                   help='Comma-separated mw server names, or "all"')
+    p.add_argument("--rsync", action="store_true",
+                   help="Skip git pulls; deploy whatever is currently in /srv/mediawiki-staging")
+    p.add_argument("--rollout", action="store_true",
+                   help="Depool each server before deploying and repool it after")
+    p.add_argument("--provision", action="store_true",
+                   help="Provision a new server by rsyncing /srv/mediawiki (no git pull, no staging sync)")
+    p.add_argument("--force", action="store_true",
+                   help="Continue even if a canary check fails")
+    p.add_argument("--no-log", dest="no_log", action="store_true",
+                   help="Output to terminal only; skip file log and webhook notifications")
+
+    return p
+
+
+# ---------------------------------------------------------------------------
+# Main deploy loop for a single server
+# ---------------------------------------------------------------------------
+
+def deploy_to_server(server, cfg, log, args) -> bool:
+    """
+    Deploy to one server.  Returns True on success, False on failure.
+    Handles depool/repool and rollback internally.
+    """
+    deploy_user = cfg["deploy_user"]
+    staging_path = cfg["staging_path"]
+    prod_path = cfg["prod_path"]
+    canary_vhost = cfg["canary_vhost"]
+    proxies = cfg.get("proxy_servers", [])
+    backend = cfg["haproxy_backend"]
+    haproxy_socket = cfg.get("haproxy_socket", "/run/haproxy/admin.sock")
+
+    log.info("─── Deploying to %s ───", server)
+    snap = None
+
+    if args.rollout:
+        snap = save_rollback(server, deploy_user, prod_path, log)
+        depool_all(proxies, deploy_user, haproxy_socket, backend, server, log)
+
+    # Provision mode: rsync from local /srv/mediawiki (already live)
+    src = prod_path if args.provision else staging_path
+
+    try:
+        rsync_remote(src, server, prod_path, deploy_user, log)
+    except RuntimeError as e:
+        log.error("rsync failed for %s: %s", server, e)
+        if args.rollout:
+            repool_all(proxies, deploy_user, haproxy_socket, backend, server, log)
+        return False
+
+    # Canary check on the remote server
+    if not canary_check(server, canary_vhost, log, force=args.force):
+        log.error("Canary failed on %s", server)
+
+        if snap and args.rollout:
+            ans = input(f"Roll back {server} to pre-deploy state? [Y/n] ").strip().lower()
+            if ans != "n":
+                do_rollback(server, deploy_user, snap, prod_path, log)
+
+        if args.rollout:
+            repool_all(proxies, deploy_user, haproxy_socket, backend, server, log)
+
+        if not args.force:
+            ans = input("Continue deploying remaining servers? [y/N] ").strip().lower()
+            if ans != "y":
+                return False  # caller will abort
+        return False
+
+    if args.rollout:
+        repool_all(proxies, deploy_user, haproxy_socket, backend, server, log)
+
+    log.info("Deploy to %s complete", server)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    cfg = load_config()
+    log = setup_logging(cfg, args.no_log)
+
+    deploy_user = cfg["deploy_user"]
+    staging_path = cfg["staging_path"]
+    prod_path = cfg["prod_path"]
+    canary_vhost = cfg["canary_vhost"]
+    all_mw_servers = cfg.get("mw_servers", [])
+
+    target_servers = resolve_servers(args.servers, all_mw_servers)
+
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    notify(log, cfg, args.no_log,
+           f"mwdeploy starting — servers: {target_servers or 'staging only'} "
+           f"at {started_at}")
+
+    # -------------------------------------------------------------------------
+    # --provision: skip all staging work; just push /srv/mediawiki to servers
+    # -------------------------------------------------------------------------
+    if args.provision:
+        if not target_servers:
+            log.error("--provision requires --servers")
+            sys.exit(1)
+        log.info("Provision mode: rsyncing %s to %s", prod_path, target_servers)
+        failed = []
+        for server in target_servers:
+            if not deploy_to_server(server, cfg, log, args):
+                failed.append(server)
+                if not args.force:
+                    break
+        _finish(log, cfg, args.no_log, target_servers, failed)
+        return
+
+    # -------------------------------------------------------------------------
+    # Phase 1: Update staging (git pulls) — unless --rsync
+    # -------------------------------------------------------------------------
+    if not args.rsync:
+        needs_versions = args.mediawiki or args.extension or args.skin
+        if needs_versions and not args.versions:
+            log.error("--versions is required when using --mediawiki, --extension, or --skin")
+            sys.exit(1)
+
+        if args.core:
+            git_pull(staging_path, log)
+
+        if args.config:
+            git_pull(os.path.join(staging_path, "config"), log)
+
+        if needs_versions:
+            versions = resolve_versions(args.versions, staging_path)
+            # Flatten comma-separated values
+            extensions = [e for grp in args.extension for e in grp.split(",") if e.strip()]
+            skins = [s for grp in args.skin for s in grp.split(",") if s.strip()]
+
+            for version in versions:
+                ver_path = os.path.join(staging_path, "versions", version)
+                if args.mediawiki:
+                    git_pull(ver_path, log)
+                for ext in extensions:
+                    git_pull(os.path.join(ver_path, "extensions", ext), log)
+                for skin in skins:
+                    git_pull(os.path.join(ver_path, "skins", skin), log)
+
+        if not any([args.core, args.mediawiki, args.extension, args.skin, args.config]):
+            log.warning("No component specified — nothing pulled. "
+                        "Pass --rsync to deploy current staging as-is.")
+    else:
+        log.info("--rsync: skipping git pulls")
+
+    # -------------------------------------------------------------------------
+    # Phase 2: Sync staging → local /srv/mediawiki (for canary on this host)
+    # -------------------------------------------------------------------------
+    log.info("Syncing staging to local production (%s → %s)", staging_path, prod_path)
+    try:
+        rsync_local(staging_path, prod_path, log)
+    except RuntimeError as e:
+        msg = f"DEPLOY ABORTED: local staging sync failed: {e}"
+        notify(log, cfg, args.no_log, msg, level=logging.ERROR)
+        sys.exit(1)
+
+    # -------------------------------------------------------------------------
+    # Phase 3: Canary check on this host (staging server)
+    # -------------------------------------------------------------------------
+    if not canary_check("localhost", canary_vhost, log, force=args.force):
+        msg = "DEPLOY ABORTED: canary check failed on staging"
+        notify(log, cfg, args.no_log, msg, level=logging.ERROR)
+        sys.exit(1)
+
+    if not target_servers:
+        notify(log, cfg, args.no_log, "Staging deploy complete (no remote servers targeted)")
+        return
+
+    # -------------------------------------------------------------------------
+    # Phase 4: Deploy to each mw server
+    # -------------------------------------------------------------------------
+    failed = []
+    for server in target_servers:
+        success = deploy_to_server(server, cfg, log, args)
+        if not success:
+            failed.append(server)
+            if not args.force:
+                # deploy_to_server already asked "continue remaining servers?"
+                # If we get here without force, user said no
+                break
+
+    _finish(log, cfg, args.no_log, target_servers, failed)
+
+
+def _finish(log, cfg, no_log, target_servers, failed):
+    if failed:
+        msg = f"DEPLOY FINISHED WITH FAILURES: {failed}"
+        notify(log, cfg, no_log, msg, level=logging.ERROR)
+        sys.exit(1)
+    else:
+        msg = f"Deploy complete — {len(target_servers)} server(s) updated"
+        notify(log, cfg, no_log, msg)
+
+
+if __name__ == "__main__":
+    main()

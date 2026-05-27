@@ -18,6 +18,7 @@ base:
     - haproxy
     - monitoring.nrpe_haproxy
     - monitoring.haproxy_exporter
+    - mediawiki.proxy
   'monitoring*':
     - monitoring
     - monitoring.director
@@ -25,6 +26,12 @@ base:
     - monitoring.prometheus
     - monitoring.grafana
     - monitoring.statsd_exporter
+  'staging*':
+    - mediawiki
+
+  'mw*':
+    - mediawiki.target
+
   'mw* or staging*':
     - match: compound
     - php
