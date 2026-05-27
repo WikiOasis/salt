@@ -65,5 +65,5 @@
     "statsd": "{{ monitoring_ip }}:9125",
 
     // Command used to launch a runner for a given job queue
-    "dispatcher": "php /srv/mediawiki/scripts/mwdeploy.php runJobs.php --wiki=%(db)x --type=%(type)x --maxtime=%(maxtime)x --memory-limit=%(maxmem)x --result=json"
+    "dispatcher": "sudo -u www-data php /srv/mediawiki/scripts/mwscript.php runJobs.php --wiki=%(db)x --type=%(type)x --maxtime=%(maxtime)x --memory-limit=%(maxmem)x --result=json"
 }
