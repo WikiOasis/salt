@@ -12,6 +12,12 @@ users:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICvwM20uHONQHh289mWK8VnvAod4FbuwML2gtyy8uBwj
         uid: 3001
         gid: 3001
+    tali64:
+        fullname: Tali64
+        ssh-keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIq5RurEGzZPA38t64iDxOYwL/AT2JTLcwcIqHefM8VW user@user-HP-Laptop-15-fd0xxx
+        uid: 3002
+        gid: 3002
 groups:
     ops:
         gid: 7000
@@ -20,10 +26,10 @@ groups:
         privileges: ['ALL = (ALL) NOPASSWD: ALL']
     mediawiki-admins:
         gid: 7001
-        description: elevated permissions on webservers, and deployment access on salt
-        members: []
+        description: elevated permissions on webservers
+        members: [tali64]
         privileges: ['ALL = (www-data) NOPASSWD: ALL',
-                "ALL = (ALL) /usr/bin/salt 'mw*' deploy.*",
+                'ALL = (www-data) NOPASSWD: /usr/local/bin/mwdeploy *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service php8.4-fpm *',
                 'ALL = (ALL) NOPASSWD: /bin/journalctl *']
