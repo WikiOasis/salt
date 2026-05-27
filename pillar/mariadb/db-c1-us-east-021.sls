@@ -6,7 +6,7 @@ mariadb:
   max_allowed_packet: 1G
   thread_stack: 192K
   thread_cache_size: 8
-  max_connections: 100
+  max_connections: 1000
   table_cache: 64
   expire_logs_days: 10
   innodb:
