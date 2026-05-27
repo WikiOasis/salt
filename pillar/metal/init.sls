@@ -1,6 +1,3 @@
-server_groups:
-  - ops
-
 # HTTP proxy for use during initial VM provisioning when IPv6 may be unavailable.
 # Set Acquire::http::Proxy to this value in /etc/apt/apt.conf.d/99proxy on the VM.
 # Salt enforces that file absent once it manages the host.
