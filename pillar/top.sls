@@ -4,6 +4,9 @@ base:
       - users
       - users.groups
       - private
+   'apps*':
+      - php
+      - private
    'db*':
       - mariadb
       - private
