@@ -71,6 +71,16 @@ nginx:
     - require:
       - pkg: nginx
 
+/etc/nginx/conf.d/safety.conf:
+  file.managed:
+    - source: salt://nginx/files/safety.conf.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: nginx
+
 /etc/nginx/sites-enabled/default:
   file.absent:
     - require:
@@ -85,6 +95,7 @@ nginx_service:
       - file: /etc/nginx/snippets/mediawiki-common.conf
       - file: /etc/nginx/conf.d/mediawiki-vhosts.conf
       - file: /etc/nginx/conf.d/phorge.conf
+      - file: /etc/nginx/conf.d/safety.conf
     - require:
       - pkg: nginx
       - file: /etc/nginx/sites-enabled/default
