@@ -2,9 +2,12 @@
 {%- set dest = backup.get('destination', {}) %}
 {%- if backup and dest.get('host') %}
 
-mariadb-backup:
+mariadb_backup_pkgs:
   pkg.installed:
-    - name: mariadb-backup
+    - pkgs:
+      - mariadb-backup
+      - jq
+      - curl
 
 /etc/mariadb-backup:
   file.directory:
@@ -74,6 +77,7 @@ mariadb-binlog-stream:
       - file: /usr/local/bin/mariadb-binlog-stream.sh
       - file: /var/backups/mariadb/binlogs
       - pkg: install_mariadb
+      - pkg: mariadb_backup_pkgs
     - watch:
       - file: /etc/systemd/system/mariadb-binlog-stream.service
       - file: /usr/local/bin/mariadb-binlog-stream.sh
