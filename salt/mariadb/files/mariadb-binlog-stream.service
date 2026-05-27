@@ -5,6 +5,7 @@ Requires=mariadb.service
 
 [Service]
 Type=simple
+ExecStartPre=/bin/bash -c "mysql -e \"SELECT id FROM information_schema.processlist WHERE command='Binlog Dump'\" --skip-column-names | xargs -r -I{} mysql -e \"KILL CONNECTION {};\""
 ExecStart=/usr/local/bin/mariadb-binlog-stream.sh
 Restart=always
 RestartSec=10
