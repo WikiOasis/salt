@@ -24,6 +24,9 @@ import yaml
 CONFIG_PATH = "/etc/mwdeploy/config.yaml"
 ROLLBACK_BASE = "/tmp/mwdeploy-rollback"
 
+# Built once from config, used by all SSH/rsync calls
+_SSH_OPTS: list[str] = []
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -219,8 +222,7 @@ def canary_check(host: str, vhost: str, log, force: bool = False, retries: int =
 
 def _haproxy_cmd(proxy_host: str, deploy_user: str, socket: str, command: str, log):
     remote = f"printf '{command}\\n' | socat stdio {socket}"
-    result = run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
-                  f"{deploy_user}@{proxy_host}", remote])
+    result = run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{proxy_host}", remote])
     if result.returncode != 0:
         raise RuntimeError(f"HAProxy command on {proxy_host} failed: {result.stderr.strip()}")
     return result.stdout
@@ -278,10 +280,11 @@ def rsync_local(src: str, dst: str, log, extra_excludes=None):
 def rsync_remote(src: str, dst_host: str, dst_path: str, deploy_user: str, log, extra_excludes=None):
     """Rsync src/ to deploy_user@dst_host:dst_path/ using sudo rsync on target."""
     log.info("Remote rsync: %s → %s:%s", src, dst_host, dst_path)
+    ssh_cmd = "ssh " + " ".join(_SSH_OPTS)
     cmd = _rsync_base(src, extra_excludes or [])
     cmd += [
         "--rsync-path=sudo rsync",
-        "-e", "ssh -o StrictHostKeyChecking=no -o BatchMode=yes",
+        "-e", ssh_cmd,
         src.rstrip("/") + "/",
         f"{deploy_user}@{dst_host}:{dst_path.rstrip('/')}/",
     ]
@@ -297,8 +300,7 @@ def save_rollback(dst_host: str, deploy_user: str, prod_path: str, log) -> str |
     snap = f"{ROLLBACK_BASE}-{ts}"
     log.info("Saving rollback snapshot on %s: %s", dst_host, snap)
     remote_cmd = f"rsync -a --exclude cache/ --exclude cw_cache/ {prod_path.rstrip('/')}/ {snap}/"
-    result = run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
-                  f"{deploy_user}@{dst_host}", remote_cmd])
+    result = run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{dst_host}", remote_cmd])
     if result.returncode != 0:
         log.warning("Could not save rollback snapshot on %s: %s", dst_host, result.stderr.strip())
         return None
@@ -308,8 +310,7 @@ def save_rollback(dst_host: str, deploy_user: str, prod_path: str, log) -> str |
 def do_rollback(dst_host: str, deploy_user: str, snap: str, prod_path: str, log) -> bool:
     log.warning("Rolling back %s from %s", dst_host, snap)
     remote_cmd = f"sudo rsync -a --delete {snap}/ {prod_path.rstrip('/')}/"
-    result = run(["ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
-                  f"{deploy_user}@{dst_host}", remote_cmd])
+    result = run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{dst_host}", remote_cmd])
     if result.returncode != 0:
         log.error("Rollback failed on %s: %s", dst_host, result.stderr.strip())
         return False
@@ -469,7 +470,15 @@ def main():
     cfg = load_config()
     log = setup_logging(cfg, args.no_log)
 
+    # Build SSH options once; all SSH/rsync calls share them
+    global _SSH_OPTS
     deploy_user = cfg["deploy_user"]
+    ssh_identity = cfg.get("ssh_identity", f"/home/{deploy_user}/.ssh/id_ed25519")
+    _SSH_OPTS = [
+        "-i", ssh_identity,
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "BatchMode=yes",
+    ]
     staging_path = cfg["staging_path"]
     prod_path = cfg["prod_path"]
     canary_vhost = cfg["canary_vhost"]

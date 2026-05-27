@@ -3,6 +3,7 @@
 {%- set webhooks = mw.get('webhooks', {}) %}
 
 deploy_user: {{ mw.get('deploy_user', 'mwdeploy') }}
+ssh_identity: {{ mw.get('ssh_identity', '/home/' ~ mw.get('deploy_user', 'mwdeploy') ~ '/.ssh/id_ed25519') }}
 staging_path: {{ mw.get('staging_path', '/srv/mediawiki-staging') }}
 prod_path: {{ mw.get('prod_path', '/srv/mediawiki') }}
 canary_vhost: {{ mw.get('canary_vhost', 'test.wikioasis.org') }}
