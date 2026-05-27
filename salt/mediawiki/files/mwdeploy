@@ -325,8 +325,12 @@ def _run_check(cmd: list, error_prefix: str = "Command failed", **kwargs):
 
 def git_pull(path: str, log: logging.Logger) -> subprocess.CompletedProcess:
     log.info("git pull  %s", path)
+    # safe.directory=* silences the dubious-ownership error when mwdeploy
+    # runs as root (sudo) but the repo is owned by www-data.
     r = _run_check(
-        ["sudo", "-u", "www-data", "git", "-C", path, "pull", "--ff-only"],
+        ["sudo", "-u", "www-data", "git",
+         "-c", "safe.directory=*",
+         "-C", path, "pull", "--ff-only"],
         error_prefix=f"git pull failed in {path}",
     )
     out = (r.stdout or r.stderr or "").strip()
@@ -483,6 +487,77 @@ def rsync_remote(src: str, host: str, dst: str, deploy_user: str,
     )
 
 
+def rsync_local_path(src: str, dst: str, log: logging.Logger):
+    """Rsync an exact subdirectory without staging-level cache excludes."""
+    log.info("Local rsync  %s → %s", src, dst)
+    _run_check(
+        ["rsync", "-az", "--checksum", "--delete",
+         src.rstrip("/") + "/", dst.rstrip("/") + "/"],
+        error_prefix=f"Local rsync failed: {src}",
+    )
+
+
+def rsync_remote_path(src: str, host: str, dst: str, deploy_user: str,
+                      log: logging.Logger):
+    """Rsync an exact subdirectory to a remote host."""
+    log.info("Remote rsync  %s → %s:%s", src, host, dst)
+    ssh_cmd = "ssh " + " ".join(_SSH_OPTS)
+    _run_check(
+        ["rsync", "-az", "--checksum", "--delete",
+         "--rsync-path=sudo rsync",
+         "-e", ssh_cmd,
+         src.rstrip("/") + "/",
+         f"{deploy_user}@{host}:{dst.rstrip('/')}/"],
+        error_prefix=f"Remote rsync to {host}:{dst} failed",
+    )
+
+
+def _build_rsync_targets(args, staging_path: str, prod_path: str,
+                         versions: list[str], extensions: list[str],
+                         skins: list[str]) -> list[tuple[str, str]]:
+    """
+    Return (src, dst) path pairs for the local staging→prod rsync and the
+    remote rsyncs.  When --rsync is combined with specific content flags only
+    the affected subdirectories are synced; otherwise the full tree is used.
+    """
+    if not args.rsync:
+        # git-pull mode always syncs the whole tree (all dirs may have changed)
+        return [(staging_path, prod_path)]
+
+    if args.core:
+        # --core means the whole root
+        return [(staging_path, prod_path)]
+
+    targets: list[tuple[str, str]] = []
+
+    if args.config:
+        targets.append((
+            os.path.join(staging_path, "config"),
+            os.path.join(prod_path,    "config"),
+        ))
+
+    for ver in versions:
+        vp_src = os.path.join(staging_path, "versions", ver)
+        vp_dst = os.path.join(prod_path,    "versions", ver)
+        if args.mediawiki:
+            # whole version dir (includes extensions/ and skins/)
+            targets.append((vp_src, vp_dst))
+        else:
+            for ext in extensions:
+                targets.append((
+                    os.path.join(vp_src, "extensions", ext),
+                    os.path.join(vp_dst, "extensions", ext),
+                ))
+            for skin in skins:
+                targets.append((
+                    os.path.join(vp_src, "skins", skin),
+                    os.path.join(vp_dst, "skins", skin),
+                ))
+
+    # Fall back to full sync if no specific targets were identified
+    return targets or [(staging_path, prod_path)]
+
+
 # ---------------------------------------------------------------------------
 # Rollback
 # ---------------------------------------------------------------------------
@@ -556,7 +631,8 @@ def _fmt_elapsed(seconds: float) -> str:
 
 def _deploy_server(server: str, cfg: dict, args,
                    log: logging.Logger, state: DeployState,
-                   prompter: Prompter) -> bool:
+                   prompter: Prompter,
+                   rsync_targets: list[tuple[str, str]] | None = None) -> bool:
 
     if prompter.is_aborted():
         state.update(server, status=S_SKIPPED,
@@ -596,12 +672,19 @@ def _deploy_server(server: str, cfg: dict, args,
         state.update(server, line="Depooled from HAProxy")
         steps_done += 1
 
-    src = prod_path if args.provision else staging_path
     state.update(server, steps_done=steps_done, step="rsync",
-                 line=f"rsyncing {src} → {prod_path}…")
+                 line="Syncing files…")
     try:
-        rsync_remote(src, server, prod_path, deploy_user, log,
-                     provision=args.provision)
+        if args.provision or not rsync_targets:
+            src = prod_path if args.provision else cfg["staging_path"]
+            rsync_remote(src, server, prod_path, deploy_user, log,
+                         provision=args.provision)
+        else:
+            for i, (t_src, t_dst) in enumerate(rsync_targets, 1):
+                lbl = os.path.relpath(t_src, cfg["staging_path"])
+                state.update(server,
+                             line=f"rsync {lbl}  ({i}/{len(rsync_targets)})…")
+                rsync_remote_path(t_src, server, t_dst, deploy_user, log)
         steps_done += 1
         state.update(server, steps_done=steps_done, line="Rsync complete")
     except RuntimeError as e:
@@ -819,10 +902,17 @@ class Dashboard:
 
         # ── Header ────────────────────────────────────────────────────
         if done or (all_mw_done and mw_servers):
-            n_fail     = sum(1 for st in mw_statuses if st == S_FAILED)
-            title      = f"mwdeploy — {n_fail} failure(s)" if n_fail else "mwdeploy — complete"
-            title_attr = (curses.color_pair(_C_FAIL) if n_fail
-                          else curses.color_pair(_C_DONE)) | curses.A_BOLD
+            n_fail_mw   = sum(1 for st in mw_statuses if st == S_FAILED)
+            prep_failed = staging_st == S_FAILED
+            if prep_failed:
+                title      = "mwdeploy — preparation failed"
+                title_attr = curses.color_pair(_C_FAIL) | curses.A_BOLD
+            elif n_fail_mw:
+                title      = f"mwdeploy — {n_fail_mw} failure(s)"
+                title_attr = curses.color_pair(_C_FAIL) | curses.A_BOLD
+            else:
+                title      = "mwdeploy — complete"
+                title_attr = curses.color_pair(_C_DONE) | curses.A_BOLD
         else:
             title      = "mwdeploy"
             title_attr = curses.color_pair(_C_NAME) | curses.A_BOLD
@@ -933,7 +1023,8 @@ class Dashboard:
                     row += 1   # blank line between servers
 
         # ── Section 3: Summary ────────────────────────────────────────
-        if (done or all_mw_done) and mw_servers and row < h - 2:
+        if (done or all_mw_done) and mw_servers \
+                and staging_st != S_FAILED and row < h - 2:
             self._put(scr, row, 0, "─" * (w - 1), curses.color_pair(_C_DIM))
             row += 1
             if row < h - 2:
@@ -1221,8 +1312,10 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
     parallel       = max(1, args.parallel or 1)
     target_servers = resolve_servers(args.servers, cfg.get("mw_servers", []))
 
+    rsync_targets: list[tuple[str, str]] | None = None   # set after version resolution
+
     def _run_one(server):
-        return _deploy_server(server, cfg, args, log, state, prompter)
+        return _deploy_server(server, cfg, args, log, state, prompter, rsync_targets)
 
     def _run_all(servers):
         if parallel <= 1:
@@ -1291,6 +1384,14 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
             state.update(STAGING_KEY, line=f"Extensions: {', '.join(extensions)}")
         if skins:
             state.update(STAGING_KEY, line=f"Skins: {', '.join(skins)}")
+
+        rsync_targets = _build_rsync_targets(
+            args, staging_path, prod_path, versions, extensions, skins
+        )
+        if rsync_targets != [(staging_path, prod_path)]:
+            labels = [os.path.relpath(s, staging_path) for s, _ in rsync_targets]
+            state.update(STAGING_KEY,
+                         line=f"Targeted rsync: {', '.join(labels)}")
 
         # ── Compute staging step list ───────────────────────────────────
         staging_steps: list[str] = []
@@ -1366,18 +1467,34 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
                          line="--rsync: skipping git pulls")
 
         # ── Phase 2: local rsync ────────────────────────────────────────
-        state.update(STAGING_KEY, step="local rsync",
-                     line=f"Syncing {staging_path} → {prod_path}…")
-        try:
-            rsync_local(staging_path, prod_path, log)
-            staging_done += 1
-            state.update(STAGING_KEY, steps_done=staging_done,
-                         line="Local rsync complete")
-        except RuntimeError as e:
-            log.error("Local rsync failed: %s", e)
-            state.update(STAGING_KEY, status=S_FAILED,
-                         line=f"Local rsync FAILED: {e}")
-            return
+        is_full_sync = rsync_targets == [(staging_path, prod_path)]
+        if is_full_sync:
+            state.update(STAGING_KEY, step="local rsync",
+                         line=f"Syncing {staging_path} → {prod_path}…")
+            try:
+                rsync_local(staging_path, prod_path, log)
+            except RuntimeError as e:
+                log.error("Local rsync failed: %s", e)
+                state.update(STAGING_KEY, status=S_FAILED,
+                             line=f"Local rsync FAILED: {e}")
+                return
+        else:
+            state.update(STAGING_KEY, step="local rsync",
+                         line=f"Targeted rsync: {len(rsync_targets)} path(s)…")
+            for i, (t_src, t_dst) in enumerate(rsync_targets, 1):
+                lbl = os.path.relpath(t_src, staging_path)
+                state.update(STAGING_KEY,
+                             line=f"rsync {lbl}  ({i}/{len(rsync_targets)})…")
+                try:
+                    rsync_local_path(t_src, t_dst, log)
+                except RuntimeError as e:
+                    log.error("Local rsync failed for %s: %s", lbl, e)
+                    state.update(STAGING_KEY, status=S_FAILED,
+                                 line=f"Local rsync FAILED {lbl}: {e}")
+                    return
+        staging_done += 1
+        state.update(STAGING_KEY, steps_done=staging_done,
+                     line="Local rsync complete")
 
         # ── Phase 3: canary on staging ──────────────────────────────────
         state.update(STAGING_KEY, step="canary",
