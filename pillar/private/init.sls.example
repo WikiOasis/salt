@@ -21,3 +21,20 @@ mediawiki:
 
 sentry_relay:
   dsn: CHANGE_ME
+
+mariadb:
+  backup:
+    # MariaDB user Salt will create on each db* server for backup operations
+    user: mariadb_backup
+    password: CHANGE_ME
+    destination:
+      # IP or hostname of the external backup server
+      host: CHANGE_ME
+      user: mariadb-backup
+      # Absolute path on the backup server; subdirs per host are created automatically
+      path: /mnt/backups/mariadb
+    # Private key whose public half is in authorized_keys on the backup server
+    ssh_private_key: |
+      -----BEGIN OPENSSH PRIVATE KEY-----
+      CHANGE_ME
+      -----END OPENSSH PRIVATE KEY-----

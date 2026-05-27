@@ -1,0 +1,16 @@
+#!/bin/bash
+# Rsyncs locally-streamed binlog files to the remote backup server.
+# Run every 5 minutes via cron.
+{%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
+{%- set dest = backup.get('destination', {}) %}
+BACKUP_DIR=/var/backups/mariadb/binlogs
+REMOTE_USER="{{ dest.get('user', '') }}"
+REMOTE_HOST="{{ dest.get('host', '') }}"
+REMOTE_PATH="{{ dest.get('path', '/backup/mariadb') }}"
+SSH_KEY=/etc/mariadb-backup/ssh_key
+HOST=$(hostname -s)
+
+rsync -az \
+    -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes" \
+    "$BACKUP_DIR/" \
+    "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH/$HOST/binlogs/"

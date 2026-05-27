@@ -1,0 +1,13 @@
+[Unit]
+Description=MariaDB binlog streaming to local backup directory
+After=mariadb.service
+Requires=mariadb.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mariadb-binlog-stream.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

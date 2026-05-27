@@ -10,6 +10,7 @@ base:
     - mariadb
     - mariadb.monitoring_user
     - mariadb.prometheus_user
+    - mariadb.backup
     - monitoring.mysqld_exporter
   'metal*':
     - metal

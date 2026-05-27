@@ -70,10 +70,16 @@ table_cache             = {{ cfg.get('table_cache', 64) }}
 # The following can be used as easy to replay backup logs or for replication.
 # note: if you are setting up a replica, see README.Debian about other
 #       settings you may need to change.
+{%- if cfg.get('server_id') %}
+server-id               = {{ cfg.get('server_id') }}
+log_bin                 = /var/log/mysql/mysql-bin.log
+binlog_format           = ROW
+max_binlog_size         = 100M
+{%- else %}
 #server-id              = 1
 #log_bin                = /var/log/mysql/mysql-bin.log
+{%- endif %}
 expire_logs_days        = {{ cfg.get('expire_logs_days', 10) }}
-#max_binlog_size        = 100M
 
 #
 # * SSL/TLS
