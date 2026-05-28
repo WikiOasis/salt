@@ -8,6 +8,13 @@ map $http_upgrade $connection_upgrade {
   ''      close;
 }
 
+map $http_origin $cors_origin {
+  default "";
+  "~^https://[a-zA-Z0-9][a-zA-Z0-9\-]*\.wikioasis\.org$"  $http_origin;
+  "~^https://[a-zA-Z0-9][a-zA-Z0-9\-]*\.betaoasis\.xyz$"  $http_origin;
+  "~^https://[a-zA-Z0-9][a-zA-Z0-9\-]*\.skywiki\.org$"    $http_origin;
+}
+
 server {
   server_name safety.wikioasis.org;
   root        /srv/TSPortal/public;
