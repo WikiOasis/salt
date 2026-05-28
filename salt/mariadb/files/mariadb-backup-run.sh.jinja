@@ -67,12 +67,11 @@ run_full() {
           mkdir -p '$REMOTE_PATH/$HOST/base'"
 
     mariabackup --backup --stream=xbstream \
-        --extra-lsndir="$STATE_DIR" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/base/'"
 
-    # --extra-lsndir writes xtrabackup_checkpoints locally so no remote fetch needed
+    $SSH "cat '$REMOTE_PATH/$HOST/base/xtrabackup_checkpoints'" > "$CHECKPOINTS"
 
     local now; now=$(date +%s)
     echo "$now" > "$LAST_FULL"
@@ -106,7 +105,6 @@ run_incremental() {
 
     if ! { mariabackup --backup --stream=xbstream \
         --incremental-lsn="$to_lsn" \
-        --extra-lsndir="$STATE_DIR" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/incremental/$DATE/'"; }; then
@@ -117,7 +115,7 @@ run_incremental() {
         return
     fi
 
-    # --extra-lsndir updates xtrabackup_checkpoints locally for the next incremental
+    $SSH "cat '$REMOTE_PATH/$HOST/incremental/$DATE/xtrabackup_checkpoints'" > "$CHECKPOINTS"
 
     local now; now=$(date +%s)
     echo "$now" > "$LAST_BACKUP"
