@@ -10,7 +10,7 @@
 {%- set discord = salt['pillar.get']('notifications:discord_webhook_url', '') %}
 {%- set slack = salt['pillar.get']('notifications:slack_webhook_url', '') %}
 set -euo pipefail
-ulimit -n 6553
+ulimit -n 65536
 MODE="${1:-incremental}"
 STATE_DIR=/var/backups/mariadb
 CHECKPOINTS="$STATE_DIR/xtrabackup_checkpoints"
