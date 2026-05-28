@@ -367,24 +367,6 @@ def l10n_rebuild(host: str, cfg: dict, log: logging.Logger):
     log.info("L10n rebuild complete on %s", host)
 
 
-def chown_prod(host: str, cfg: dict, log: logging.Logger):
-    prod_path   = cfg["prod_path"]
-    deploy_user = cfg["deploy_user"]
-    cmd = f"sudo chown -hR www-data:mediawiki-admins {prod_path}"
-
-    log.info("chown -hR www-data:mediawiki-admins %s on %s", prod_path, host)
-    if host == STAGING_KEY:
-        r = _run(["bash", "-c", cmd])
-    else:
-        r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", cmd])
-
-    if r.returncode != 0:
-        raise RuntimeError(
-            f"chown failed on {host}\n"
-            f"stdout: {r.stdout.strip()}\nstderr: {r.stderr.strip()}"
-        )
-
-
 # ---------------------------------------------------------------------------
 # Patch application
 # ---------------------------------------------------------------------------
@@ -541,6 +523,7 @@ def rsync_remote(src: str, host: str, dst: str, deploy_user: str,
     _run_check(
         _rsync_base(excludes) + [
             "--rsync-path=sudo rsync",
+            "--chown=www-data:mediawiki-admins",
             "-e", ssh_cmd,
             src.rstrip("/") + "/",
             f"{deploy_user}@{host}:{dst.rstrip('/')}/",
@@ -567,6 +550,7 @@ def rsync_remote_path(src: str, host: str, dst: str, deploy_user: str,
     _run_check(
         ["rsync", "-az", "--delete",
          "--rsync-path=sudo rsync",
+         "--chown=www-data:mediawiki-admins",
          "-e", ssh_cmd,
          src.rstrip("/") + "/",
          f"{deploy_user}@{host}:{dst.rstrip('/')}/"],
@@ -673,7 +657,7 @@ def _deploy_server(server: str, cfg: dict, args,
     step_names: list[str] = []
     if args.rollout:
         step_names += ["depool"]
-    step_names += ["rsync", "chown"]
+    step_names += ["rsync"]
     if args.l10n:
         step_names += ["l10n"]
     step_names += ["canary"]
@@ -731,22 +715,6 @@ def _deploy_server(server: str, cfg: dict, args,
         if args.rollout:
             _repool_all(cfg, server, log)
             state.update(server, line="Repooled after rsync failure")
-        if not args.force:
-            prompter.abort()
-        return False
-
-    state.update(server, steps_done=steps_done, step="chown",
-                 line="Setting file ownership…")
-    try:
-        chown_prod(server, cfg, log)
-        steps_done += 1
-        state.update(server, steps_done=steps_done, line="chown complete")
-    except RuntimeError as e:
-        log.error("chown failed for %s: %s", server, e)
-        state.update(server, status=S_FAILED, line=f"chown FAILED: {e}")
-        if args.rollout:
-            _repool_all(cfg, server, log)
-            state.update(server, line="Repooled after chown failure")
         if not args.force:
             prompter.abort()
         return False
@@ -1480,7 +1448,7 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
         for ver in versions:
             for pfile in patches:
                 staging_steps.append(f"patch {os.path.basename(pfile)} ({ver})")
-        staging_steps += ["local rsync", "chown"]
+        staging_steps += ["local rsync"]
         if args.l10n:
             staging_steps += ["l10n rebuild"]
         staging_steps += ["canary"]
@@ -1610,21 +1578,7 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
         state.update(STAGING_KEY, steps_done=staging_done,
                      line="Local rsync complete")
 
-        # ── Phase 2.5: chown prod on staging ───────────────────────────
-        state.update(STAGING_KEY, step="chown",
-                     line=f"Setting file ownership on {prod_path}…")
-        try:
-            chown_prod(STAGING_KEY, cfg, log)
-            staging_done += 1
-            state.update(STAGING_KEY, steps_done=staging_done,
-                         line="chown complete")
-        except RuntimeError as e:
-            log.error("chown failed on staging: %s", e)
-            state.update(STAGING_KEY, status=S_FAILED,
-                         line=f"chown FAILED: {e}")
-            return
-
-        # ── Phase 2.75: l10n rebuild on staging ────────────────────────
+        # ── Phase 2.5: l10n rebuild on staging ─────────────────────────
         if args.l10n:
             state.update(STAGING_KEY, step="l10n rebuild",
                          line="Rebuilding localisation cache on staging…")
