@@ -88,14 +88,14 @@ run_incremental() {
     if [ ! -f "$CHECKPOINTS" ]; then
         log "No checkpoints file found; running full backup first"
         run_full
-        START=$(date +%s)
-    else
-        local full_age=$(( ($(date +%s) - $(cat "$LAST_FULL")) / 86400 ))
-        if [ "$full_age" -ge 7 ]; then
-            log "Full backup is ${full_age}d old (weekly run missed); running full backup first"
-            run_full
-            START=$(date +%s)
-        fi
+        return
+    fi
+
+    local full_age=$(( ($(date +%s) - $(cat "$LAST_FULL")) / 86400 ))
+    if [ "$full_age" -ge 7 ]; then
+        log "Full backup is ${full_age}d old (weekly run missed); running full backup first"
+        run_full
+        return
     fi
 
     local to_lsn; to_lsn=$(awk '/^to_lsn/{print $3}' "$CHECKPOINTS")
