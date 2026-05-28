@@ -252,8 +252,7 @@ class _WebhookHandler(logging.Handler):
         if self._slack:   self._post(self._slack,   {"text":    msg})
 
 
-def _setup_logging(cfg: dict, no_log: bool,
-                   suppress_stdout: bool = False) -> logging.Logger:
+def _setup_logging(cfg: dict, no_log: bool, suppress_stdout: bool = False) -> logging.Logger:
     log = logging.getLogger("mwdeploy")
     log.setLevel(logging.DEBUG)
     fmt = logging.Formatter(
@@ -366,6 +365,24 @@ def l10n_rebuild(host: str, cfg: dict, log: logging.Logger):
             f"stdout: {r.stdout.strip()}\nstderr: {r.stderr.strip()}"
         )
     log.info("L10n rebuild complete on %s", host)
+
+
+def chown_prod(host: str, cfg: dict, log: logging.Logger):
+    prod_path   = cfg["prod_path"]
+    deploy_user = cfg["deploy_user"]
+    cmd = f"sudo chown -hR www-data:mediawiki-admins {prod_path}"
+
+    log.info("chown -hR www-data:mediawiki-admins %s on %s", prod_path, host)
+    if host == STAGING_KEY:
+        r = _run(["bash", "-c", cmd])
+    else:
+        r = _run(["ssh"] + _SSH_OPTS + [f"{deploy_user}@{host}", cmd])
+
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"chown failed on {host}\n"
+            f"stdout: {r.stdout.strip()}\nstderr: {r.stderr.strip()}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +518,7 @@ def _repool_all(cfg: dict, server: str, log: logging.Logger):
 # ---------------------------------------------------------------------------
 
 def _rsync_base(extra_excludes: list[str]) -> list[str]:
-    cmd = ["rsync", "-az", "--checksum", "--delete"]
+    cmd = ["rsync", "-az", "--delete"]
     for ex in ["cache/"] + extra_excludes:
         cmd += ["--exclude", ex]
     return cmd
@@ -536,7 +553,7 @@ def rsync_local_path(src: str, dst: str, log: logging.Logger):
     """Rsync an exact subdirectory without staging-level cache excludes."""
     log.info("Local rsync  %s → %s", src, dst)
     _run_check(
-        ["rsync", "-az", "--checksum", "--delete",
+        ["rsync", "-a", "--delete",
          src.rstrip("/") + "/", dst.rstrip("/") + "/"],
         error_prefix=f"Local rsync failed: {src}",
     )
@@ -548,7 +565,7 @@ def rsync_remote_path(src: str, host: str, dst: str, deploy_user: str,
     log.info("Remote rsync  %s → %s:%s", src, host, dst)
     ssh_cmd = "ssh " + " ".join(_SSH_OPTS)
     _run_check(
-        ["rsync", "-az", "--checksum", "--delete",
+        ["rsync", "-az", "--delete",
          "--rsync-path=sudo rsync",
          "-e", ssh_cmd,
          src.rstrip("/") + "/",
@@ -562,15 +579,10 @@ def _build_rsync_targets(args, staging_path: str, prod_path: str,
                          skins: list[str]) -> list[tuple[str, str]]:
     """
     Return (src, dst) path pairs for the local staging→prod rsync and the
-    remote rsyncs.  When --rsync is combined with specific content flags only
-    the affected subdirectories are synced; otherwise the full tree is used.
+    remote rsyncs.  In git-pull mode only the affected subdirectories are
+    synced; --rsync always syncs the full tree.
     """
-    if not args.rsync:
-        # git-pull mode always syncs the whole tree (all dirs may have changed)
-        return [(staging_path, prod_path)]
-
-    if args.core:
-        # --core means the whole root
+    if args.rsync or args.core:
         return [(staging_path, prod_path)]
 
     targets: list[tuple[str, str]] = []
@@ -661,7 +673,7 @@ def _deploy_server(server: str, cfg: dict, args,
     step_names: list[str] = []
     if args.rollout:
         step_names += ["depool"]
-    step_names += ["rsync"]
+    step_names += ["rsync", "chown"]
     if args.l10n:
         step_names += ["l10n"]
     step_names += ["canary"]
@@ -683,16 +695,34 @@ def _deploy_server(server: str, cfg: dict, args,
     state.update(server, steps_done=steps_done, step="rsync",
                  line="Syncing files…")
     try:
-        if args.provision or not rsync_targets:
+        is_full_sync = (
+            args.provision
+            or not rsync_targets
+            or rsync_targets == [(cfg["staging_path"], prod_path)]
+        )
+        if is_full_sync:
             src = prod_path if args.provision else cfg["staging_path"]
             rsync_remote(src, server, prod_path, deploy_user, log,
                          provision=args.provision)
         else:
-            for i, (t_src, t_dst) in enumerate(rsync_targets, 1):
+            n = len(rsync_targets)
+            if n == 1:
+                t_src, t_dst = rsync_targets[0]
                 lbl = os.path.relpath(t_src, cfg["staging_path"])
-                state.update(server,
-                             line=f"rsync {lbl}  ({i}/{len(rsync_targets)})…")
+                state.update(server, line=f"rsync {lbl}…")
                 rsync_remote_path(t_src, server, t_dst, deploy_user, log)
+            else:
+                state.update(server, line=f"rsync {n} paths in parallel…")
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, n)) as pool:
+                    futs = {
+                        pool.submit(rsync_remote_path, t_src, server, t_dst, deploy_user, log): (i, t_src)
+                        for i, (t_src, t_dst) in enumerate(rsync_targets, 1)
+                    }
+                    for fut in concurrent.futures.as_completed(futs):
+                        i, t_src = futs[fut]
+                        lbl = os.path.relpath(t_src, cfg["staging_path"])
+                        fut.result()  # propagates RuntimeError on failure
+                        state.update(server, line=f"rsync {lbl} done  ({i}/{n})")
         steps_done += 1
         state.update(server, steps_done=steps_done, line="Rsync complete")
     except RuntimeError as e:
@@ -701,6 +731,22 @@ def _deploy_server(server: str, cfg: dict, args,
         if args.rollout:
             _repool_all(cfg, server, log)
             state.update(server, line="Repooled after rsync failure")
+        if not args.force:
+            prompter.abort()
+        return False
+
+    state.update(server, steps_done=steps_done, step="chown",
+                 line="Setting file ownership…")
+    try:
+        chown_prod(server, cfg, log)
+        steps_done += 1
+        state.update(server, steps_done=steps_done, line="chown complete")
+    except RuntimeError as e:
+        log.error("chown failed for %s: %s", server, e)
+        state.update(server, status=S_FAILED, line=f"chown FAILED: {e}")
+        if args.rollout:
+            _repool_all(cfg, server, log)
+            state.update(server, line="Repooled after chown failure")
         if not args.force:
             prompter.abort()
         return False
@@ -1434,7 +1480,7 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
         for ver in versions:
             for pfile in patches:
                 staging_steps.append(f"patch {os.path.basename(pfile)} ({ver})")
-        staging_steps += ["local rsync"]
+        staging_steps += ["local rsync", "chown"]
         if args.l10n:
             staging_steps += ["l10n rebuild"]
         staging_steps += ["canary"]
@@ -1564,7 +1610,21 @@ def _deploy_thread(args, cfg: dict, log: logging.Logger,
         state.update(STAGING_KEY, steps_done=staging_done,
                      line="Local rsync complete")
 
-        # ── Phase 2.5: l10n rebuild on staging ─────────────────────────
+        # ── Phase 2.5: chown prod on staging ───────────────────────────
+        state.update(STAGING_KEY, step="chown",
+                     line=f"Setting file ownership on {prod_path}…")
+        try:
+            chown_prod(STAGING_KEY, cfg, log)
+            staging_done += 1
+            state.update(STAGING_KEY, steps_done=staging_done,
+                         line="chown complete")
+        except RuntimeError as e:
+            log.error("chown failed on staging: %s", e)
+            state.update(STAGING_KEY, status=S_FAILED,
+                         line=f"chown FAILED: {e}")
+            return
+
+        # ── Phase 2.75: l10n rebuild on staging ────────────────────────
         if args.l10n:
             state.update(STAGING_KEY, step="l10n rebuild",
                          line="Rebuilding localisation cache on staging…")
@@ -1632,6 +1692,9 @@ def main():
         "-i", ssh_identity,
         "-o", "StrictHostKeyChecking=no",
         "-o", "BatchMode=yes",
+        "-o", "ControlMaster=auto",
+        "-o", "ControlPath=/tmp/mwdeploy-ssh-%r@%h:%p",
+        "-o", "ControlPersist=60s",
     ]
 
     deploy_flags = any([
