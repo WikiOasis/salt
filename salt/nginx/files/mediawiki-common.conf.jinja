@@ -12,6 +12,7 @@ proxy_hide_header Referrer-Policy;
 add_header Referrer-Policy strict-origin-when-cross-origin;
 add_header X-Permitted-Cross-Domain-Policies "none";
 add_header Cross-Origin-Opener-Policy "same-origin";
+add_header Access-Control-Allow-Origin $cors_origin always;
 {% if csp %}
 add_header Content-Security-Policy "{{ csp }}" always;
 {% endif %}
