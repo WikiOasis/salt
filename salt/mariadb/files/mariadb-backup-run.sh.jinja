@@ -10,7 +10,6 @@
 {%- set discord = salt['pillar.get']('notifications:discord_webhook_url', '') %}
 {%- set slack = salt['pillar.get']('notifications:slack_webhook_url', '') %}
 set -euo pipefail
-ulimit -n 65536
 
 MODE="${1:-incremental}"
 STATE_DIR=/var/backups/mariadb
@@ -69,7 +68,7 @@ run_full() {
 
     mariabackup --backup --stream=xbstream \
         --extra-lsndir="$STATE_DIR" \
-        --innodb-open-files=1000 \
+        --open-files-limit=65536 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/base/'"
 
@@ -105,12 +104,18 @@ run_incremental() {
     log "Starting streamed incremental backup (from LSN ${to_lsn})"
     $SSH "mkdir -p '$REMOTE_PATH/$HOST/incremental/$DATE'"
 
-    mariabackup --backup --stream=xbstream \
+    if ! { mariabackup --backup --stream=xbstream \
         --incremental-lsn="$to_lsn" \
         --extra-lsndir="$STATE_DIR" \
-        --innodb-open-files=1000 \
+        --open-files-limit=65536 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
-    | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/incremental/$DATE/'"
+    | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/incremental/$DATE/'"; }; then
+        log "Incremental backup failed (LSN ${to_lsn} incompatible with current server state); falling back to full backup"
+        rm -f "$CHECKPOINTS"
+        $SSH "rm -rf '$REMOTE_PATH/$HOST/incremental/$DATE'"
+        run_full
+        return
+    fi
 
     # --extra-lsndir updates xtrabackup_checkpoints locally for the next incremental
 
