@@ -69,6 +69,7 @@ run_full() {
 
     mariabackup --backup --stream=xbstream \
         --extra-lsndir="$STATE_DIR" \
+        --innodb-open-files=1000 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/base/'"
 
@@ -107,6 +108,7 @@ run_incremental() {
     mariabackup --backup --stream=xbstream \
         --incremental-lsn="$to_lsn" \
         --extra-lsndir="$STATE_DIR" \
+        --innodb-open-files=1000 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/incremental/$DATE/'"
 
