@@ -10,4 +10,4 @@ monitoring:
     admin_user: admin
 
   prometheus:
-    retention: 15d
+    retention: 30d
