@@ -18,6 +18,12 @@ haproxy:
     - hostname: grafana.wikioasis.org
       backend: grafana
       active: true
+    - hostname: zep.wikioasis.org
+      backend: zep
+      active: true
+    - hostname: zep-api.wikioasis.org
+      backend: zep-api
+      active: true
 
   frontends:
     http:
@@ -113,6 +119,28 @@ haproxy:
         - name: staging-us-east-021
           host: staging-us-east-021.ovvin.wonet
           port: 80
+          check: true
+          weight: 1
+          depooled: false
+    zep:
+      balance: roundrobin
+      options:
+        - forwardfor
+      servers:
+        - name: apps-us-east-021
+          host: apps-us-east-021.ovvin.wonet
+          port: 3001
+          check: true
+          weight: 1
+          depooled: false
+    zep-api:
+      balance: roundrobin
+      options:
+        - forwardfor
+      servers:
+        - name: apps-us-east-021
+          host: apps-us-east-021.ovvin.wonet
+          port: 3002
           check: true
           weight: 1
           depooled: false
