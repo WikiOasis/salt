@@ -11,6 +11,11 @@ ip_forwarding:
     vm_ip: 10.0.2.2
     vm_port: 80
     proto: tcp
+  - host_port: 1234
+    vm_dns: apps-us-east-021.ovvin.wonet
+    vm_ip: 10.0.2.70
+    vm_port: 1234
+    proto: tcp
   - host_port: 33060
     vm_dns: db-c1-us-east-021.ovvin.wonet
     vm_ip: 10.0.2.20
