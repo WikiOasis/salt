@@ -6,18 +6,9 @@
 {
     "groups": {
         "basic": {
-            // Number of runner processes in this group
-            "runners": 4,
-            // Job types to include ("*" means "all")
+            "runners": 6,
             "include": [
                 "*"
-            ],
-            // Job types to exempt (useful when combined with "*")
-            "exclude": [
-                "AssembleUploadChunks",
-                "PublishStashedFile",
-                "uploadFromUrl",
-                "webVideoTranscode"
             ],
             "low-priority": [
                 "htmlCacheUpdate",
