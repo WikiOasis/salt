@@ -1,23 +1,27 @@
-opensearch_apt_key:
-  cmd.run:
-    - name: curl -fsSL https://artifacts.opensearch.org/publickeys/opensearch.pgp | gpg --dearmor -o /usr/share/keyrings/opensearch-keyring.gpg
-    - creates: /usr/share/keyrings/opensearch-keyring.gpg
+# OpenSearch's apt repo signing key uses SHA1 binding signatures, which sqv
+# (used by apt on Ubuntu 24.04+) hard-rejects since 2026-02-01. For this
+# internal cluster we bypass key verification with trusted=yes. Installation
+# uses cmd.run so we can pass DISABLE_INSTALL_DEMO_CONFIG=true — required by
+# the OpenSearch 2.12+ postinst to skip the demo TLS setup (moot here since
+# the security plugin is disabled in opensearch.yml).
 
 opensearch_apt_repo:
   file.managed:
     - name: /etc/apt/sources.list.d/opensearch.list
     - contents: |
-        deb [signed-by=/usr/share/keyrings/opensearch-keyring.gpg arch=amd64] https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main
+        deb [trusted=yes arch=amd64] https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main
     - user: root
     - group: root
     - mode: '0644'
-    - require:
-      - cmd: opensearch_apt_key
 
 opensearch_pkg:
-  pkg.installed:
-    - name: opensearch
-    - refresh: True
+  cmd.run:
+    - name: >
+        apt-get update &&
+        DISABLE_INSTALL_DEMO_CONFIG=true
+        DISABLE_PERFORMANCE_ANALYZER_AGENT_CLI=true
+        apt-get install -y opensearch
+    - unless: dpkg -l opensearch 2>/dev/null | grep -q '^ii'
     - require:
       - file: opensearch_apt_repo
 
@@ -29,7 +33,7 @@ opensearch_pkg:
     - group: opensearch
     - mode: '0660'
     - require:
-      - pkg: opensearch_pkg
+      - cmd: opensearch_pkg
 
 /etc/opensearch/jvm.options.d/heap.options:
   file.managed:
@@ -39,7 +43,7 @@ opensearch_pkg:
     - group: opensearch
     - mode: '0660'
     - require:
-      - pkg: opensearch_pkg
+      - cmd: opensearch_pkg
 
 opensearch:
   service.running:
@@ -48,4 +52,4 @@ opensearch:
       - file: /etc/opensearch/opensearch.yml
       - file: /etc/opensearch/jvm.options.d/heap.options
     - require:
-      - pkg: opensearch_pkg
+      - cmd: opensearch_pkg
