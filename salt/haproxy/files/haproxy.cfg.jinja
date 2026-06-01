@@ -57,6 +57,9 @@ backend {{ name }}
 {%- for option in backend.get('options', []) %}
     option {{ option }}
 {%- endfor %}
+{%- if backend.get('http_check') %}
+    http-check {{ backend.http_check }}
+{%- endif %}
 {%- for server in backend.get('servers', []) %}
     server {{ server.name }} {{ server.host }}:{{ server.port }}{% if server.get('check', false) %} check{% endif %}{% if server.get('weight') %} weight {{ server.weight }}{% endif %}{% if server.get('maxconn') %} maxconn {{ server.maxconn }}{% endif %}
 

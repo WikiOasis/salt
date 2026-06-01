@@ -43,6 +43,8 @@ base:
       - mediawiki
       - mediawiki.jobrunner
 
+   'opensearch*':
+      - opensearch
    'redis*':
       - redis
    'redis-us-east-011*':

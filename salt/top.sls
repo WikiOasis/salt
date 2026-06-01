@@ -58,6 +58,10 @@ base:
     - monitoring.nrpe_php
     - monitoring.phpfpm_exporter
 
+  'opensearch*':
+    - opensearch
+    - monitoring.nrpe_opensearch
+    - monitoring.opensearch_exporter
   'redis*':
     - redis
     - monitoring.nrpe_redis

@@ -38,7 +38,7 @@ dns_hosts:
     mac: bc:24:11:f7:31:4d
   opensearch-us-east-012.ovvin.wonet:
     ip: 10.0.1.51
-    mac: bc:24:11:c9:04:47
+    mac: bc:24:11:ch9:04:47
   mw-us-east-011.ovvin.wonet:
     ip: 10.0.1.60
     mac: bc:24:11:ac:18:e0

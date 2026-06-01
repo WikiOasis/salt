@@ -398,7 +398,7 @@ def canary_check(host: str, vhost: str, log: logging.Logger,
         f' -w "%{{http_code}}"'
         f' "http://127.0.0.1/wiki/Main_Page" 2>&1);'
         f' echo "HTTP_CODE=$code";'
-        f' grep -qi mediawiki /tmp/mwdeploy-canary'
+        f' grep -qi wikioasis /tmp/mwdeploy-canary'
         f' && echo "HAS_MW=1" || echo "HAS_MW=0";'
         f' rm -f /tmp/mwdeploy-canary'
     )
@@ -423,7 +423,7 @@ def canary_check(host: str, vhost: str, log: logging.Logger,
             if code == "200" and has_mw:
                 log.info("Canary OK  %s  (HTTP 200)", host)
                 return True
-            reason = f"HTTP {code}" if code != "200" else "no MediaWiki content"
+            reason = f"HTTP {code}" if code != "200" else "no wikioasis content"
             log.warning("Canary attempt %d/%d failed on %s: %s",
                         attempt, retries, host, reason)
         except Exception as e:

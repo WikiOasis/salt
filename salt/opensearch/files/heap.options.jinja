@@ -1,0 +1,4 @@
+{%- set cfg = salt['pillar.get']('opensearch', {}) %}
+{%- set heap = cfg.get('heap_size', '1g') %}
+-Xms{{ heap }}
+-Xmx{{ heap }}

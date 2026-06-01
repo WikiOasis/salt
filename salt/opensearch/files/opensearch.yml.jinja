@@ -1,0 +1,29 @@
+{%- set cfg = salt['pillar.get']('opensearch', {}) %}
+{%- set node_name = grains['id'].split('.')[0] %}
+
+cluster.name: {{ cfg.get('cluster_name', 'wikioasis-search') }}
+node.name: {{ node_name }}
+
+network.host:
+  - _site_
+  - _local_
+
+http.port: {{ cfg.get('http_port', 9200) }}
+transport.port: {{ cfg.get('transport_port', 9300) }}
+
+node.roles:
+  - cluster_manager
+  - data
+  - ingest
+
+discovery.seed_hosts:
+{%- for node in cfg.get('nodes', []) %}
+  - {{ node.host }}
+{%- endfor %}
+
+cluster.initial_cluster_manager_nodes:
+{%- for node in cfg.get('nodes', []) %}
+  - {{ node.name }}
+{%- endfor %}
+
+plugins.security.disabled: true

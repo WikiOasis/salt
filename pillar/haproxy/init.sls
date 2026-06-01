@@ -64,6 +64,8 @@ haproxy:
       balance: roundrobin
       options:
         - forwardfor
+        - httpchk GET /wiki/Main_Page HTTP/1.1\r\nHost:\ wikioasis.org
+      http_check: expect str wikioasis
       servers:
         - name: mw-us-east-011
           host: mw-us-east-011.ovvin.wonet
