@@ -33,6 +33,12 @@ dns_hosts:
   redis-us-east-012.ovvin.wonet:
     ip: 10.0.1.41
     mac: bc:24:11:68:d8:67
+  opensearch-us-east-011.ovvin.wonet:
+    ip: 10.0.1.50
+    mac: bc:24:11:f7:31:4d
+  opensearch-us-east-012.ovvin.wonet:
+    ip: 10.0.1.51
+    mac: bc:24:11:c9:04:47
   mw-us-east-011.ovvin.wonet:
     ip: 10.0.1.60
     mac: bc:24:11:ac:18:e0
@@ -101,6 +107,12 @@ proxmox:
     redis-us-east-012.ovvin.wonet:
       metal_host: metal-us-east-01
       vmid: 141
+    opensearch-us-east-011.ovvin.wonet:
+      metal_host: metal-us-east-01
+      vmid: 150
+    opensearch-us-east-012.ovvin.wonet:
+      metal_host: metal-us-east-01
+      vmid: 151
     mw-us-east-011.ovvin.wonet:
       metal_host: metal-us-east-01
       vmid: 160
