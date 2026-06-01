@@ -42,12 +42,13 @@ prometheus_package:
 # Adding a host to dns_hosts pillar and re-applying this state is all that is
 # needed to register it as a new scrape target.
 {%- for job, prefix, port in [
-    ('node',    None,          9100),
-    ('mysqld',  'db',          9104),
-    ('haproxy', 'proxy',       9101),
-    ('redis',   'redis',       9121),
-    ('statsd',  'monitoring',  9102),
-    ('phpfpm',  'apps/mw',     9253),
+    ('node',       None,          9100),
+    ('mysqld',     'db',          9104),
+    ('haproxy',    'proxy',       9101),
+    ('redis',      'redis',       9121),
+    ('statsd',     'monitoring',  9102),
+    ('phpfpm',     'apps/mw',     9253),
+    ('opensearch', 'opensearch',  9114),
 ] %}
 /etc/prometheus/file_sd/{{ job }}.json:
   file.managed:
@@ -66,7 +67,7 @@ prometheus:
     - watch:
       - file: /etc/prometheus/prometheus.yml
       - file: /etc/default/prometheus
-{%- for job in ['node', 'mysqld', 'haproxy', 'redis', 'statsd', 'phpfpm'] %}
+{%- for job in ['node', 'mysqld', 'haproxy', 'redis', 'statsd', 'phpfpm', 'opensearch'] %}
       - file: /etc/prometheus/file_sd/{{ job }}.json
 {%- endfor %}
     - require:
