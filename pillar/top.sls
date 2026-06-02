@@ -35,6 +35,7 @@ base:
       - mediawiki
    'monitoring*':
       - monitoring
+      - metal
       - private
    'task*':
       - users.servers.mediawiki
