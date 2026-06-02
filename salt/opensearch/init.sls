@@ -1,29 +1,24 @@
 # OpenSearch's apt repo signing key uses SHA1 binding signatures, which sqv
 # (used by apt on Debian 13 / Ubuntu 24.04+) hard-rejects since 2026-02-01.
 # For this internal cluster we bypass key verification with trusted=yes.
-#
-# OpenSearch 2.12+ postinst requires OPENSEARCH_INITIAL_ADMIN_PASSWORD; it is
-# passed via Salt's env: so it reaches the dpkg maintainer script. The security
-# plugin is then disabled in opensearch.yml, so the password is never active.
 
 opensearch_apt_repo:
   file.managed:
     - name: /etc/apt/sources.list.d/opensearch.list
     - contents: |
-        deb [trusted=yes arch=amd64] https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main
+        deb [trusted=yes arch=amd64] https://artifacts.opensearch.org/releases/bundle/opensearch/1.x/apt stable main
     - user: root
     - group: root
     - mode: '0644'
 
 opensearch_pkg:
   cmd.run:
-    - name: apt-get update && apt-get install -y opensearch
+    - name: apt-get update && apt-get install -y --allow-downgrades opensearch=1.3.*
     - env:
       - DEBIAN_FRONTEND: noninteractive
       - DISABLE_INSTALL_DEMO_CONFIG: "true"
       - DISABLE_PERFORMANCE_ANALYZER_AGENT_CLI: "true"
-      - OPENSEARCH_INITIAL_ADMIN_PASSWORD: "{{ salt['pillar.get']('opensearch:initial_admin_password') }}"
-    - unless: dpkg -l opensearch 2>/dev/null | grep -q '^ii'
+    - unless: "dpkg-query -W -f='${Version}' opensearch 2>/dev/null | grep -q '^1\\.3\\.'"
     - require:
       - file: opensearch_apt_repo
 
