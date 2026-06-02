@@ -75,6 +75,9 @@ dns_hosts:
   apps-us-east-021.ovvin.wonet:
     ip: 10.0.2.70
     mac: bc:24:11:62:c2:3d
+  redis-us-east-021.ovvin.wonet:
+    ip: 10.0.2.90
+    mac: bc:24:11:a0:16:0d
 
 proxmox:
   public_bridge: "vmbr0"
