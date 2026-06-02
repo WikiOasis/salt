@@ -12,7 +12,7 @@ http.port: {{ cfg.get('http_port', 9200) }}
 transport.port: {{ cfg.get('transport_port', 9300) }}
 
 node.roles:
-  - cluster_manager
+  - master
   - data
   - ingest
 
@@ -21,7 +21,7 @@ discovery.seed_hosts:
   - {{ node.host }}
 {%- endfor %}
 
-cluster.initial_cluster_manager_nodes:
+cluster.initial_master_nodes:
 {%- for node in cfg.get('nodes', []) %}
   - {{ node.name }}
 {%- endfor %}
