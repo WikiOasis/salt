@@ -5,7 +5,7 @@ opensearch_exporter_pkg:
 /etc/default/prometheus-elasticsearch-exporter:
   file.managed:
     - contents: |
-        ARGS="--es.uri=http://localhost:9200 --es.all=false"
+        ARGS="--es.uri=http://localhost:9200"
     - user: root
     - group: root
     - mode: '0644'
