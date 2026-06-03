@@ -67,7 +67,7 @@ haproxy:
         - httpchk
       http_checks:
         - send meth GET uri /wiki/Main_Page ver HTTP/1.1 hdr Host wikioasis.org
-        - expect str wikioasis
+        - expect string wikioasis
       servers:
         - name: mw-us-east-011
           host: mw-us-east-011.ovvin.wonet
