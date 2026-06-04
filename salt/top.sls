@@ -52,6 +52,7 @@ base:
   'task*':
     - php
     - nginx
+    - sentry_relay
     - mediawiki.target
     - mediawiki.jobrunner
     - monitoring.nrpe_nginx
