@@ -1,10 +1,15 @@
 #!/bin/sh
 # Custom WikiOasis MOTD generator — managed by Salt (salt/motd). Do not edit.
 #
-# Prints the WikiOasis ANSI logo, a welcome banner, and live system stats.
-# Invoked at login by /etc/profile.d/zz-wikioasis-motd.sh (Debian's pam_motd
-# does not run /etc/update-motd.d, so we render the banner from profile.d).
-# Safe to run by hand to preview the banner.
+# Prints the active WikiOasis ANSI logo on the left with a welcome banner and
+# live system stats on the right. Invoked at login by
+# /etc/profile.d/zz-wikioasis-motd.sh (Debian's pam_motd does not run
+# /etc/update-motd.d, so we render the banner from profile.d). The logo variant
+# is chosen by the /etc/wikioasis/logo.ansi symlink (blue / pride), managed by
+# the motd state. Safe to run by hand to preview the banner.
+
+LOGO=/etc/wikioasis/logo.ansi
+GAP='   '   # space between the logo and the text column
 
 # ANSI colours (interpreted by printf's format string).
 RESET='\033[0m'
@@ -13,16 +18,8 @@ NAME='\033[1;97m'              # bold white
 LABEL='\033[38;2;0;147;212m'
 VALUE='\033[0;37m'
 
-# Pre-rendered ANSI logo (deployed by the motd state).
-if [ -r /etc/wikioasis/logo.ansi ]; then
-    cat /etc/wikioasis/logo.ansi
-fi
-
 host=$(hostname -f 2>/dev/null || hostname)
 who=$(id -un)
-
-printf '\n'
-printf "${BRAND}Welcome to ${NAME}%s${BRAND}, ${NAME}%s${RESET}\n\n" "$host" "$who"
 
 # Load average (1/5/15 min).
 load=$(cut -d' ' -f1-3 /proc/loadavg)
@@ -37,8 +34,34 @@ disk=$(df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}')
 up=$(uptime -p 2>/dev/null | sed 's/^up //')
 [ -n "$up" ] || up=$(uptime | sed 's/.*up *//; s/, *[0-9]* user.*//')
 
-printf "${LABEL}  Load average ${VALUE}%s${RESET}\n" "$load"
-printf "${LABEL}  Memory       ${VALUE}%s${RESET}\n" "$mem"
-printf "${LABEL}  Disk (/)     ${VALUE}%s${RESET}\n" "$disk"
-printf "${LABEL}  Uptime       ${VALUE}%s${RESET}\n" "$up"
+# Build the text column (real escape bytes via printf, one line per entry).
+welcome=$(printf "${BRAND}Welcome to ${NAME}%s${BRAND}, ${NAME}%s${RESET}" "$host" "$who")
+l_load=$(printf "${LABEL}%-13s${VALUE}%s${RESET}" "Load average" "$load")
+l_mem=$(printf  "${LABEL}%-13s${VALUE}%s${RESET}" "Memory" "$mem")
+l_disk=$(printf "${LABEL}%-13s${VALUE}%s${RESET}" "Disk (/)" "$disk")
+l_up=$(printf   "${LABEL}%-13s${VALUE}%s${RESET}" "Uptime" "$up")
+MOTD_TXT=$(printf '%s\n' "$welcome" "" "$l_load" "$l_mem" "$l_disk" "$l_up")
+export MOTD_TXT
+
+printf '\n'
+if [ -r "$LOGO" ]; then
+    # Merge the fixed-width logo (left) with the text column (right),
+    # vertically centring the text against the logo. Passing the text via the
+    # environment avoids awk's -v backslash processing mangling the escapes.
+    awk -v gap="$GAP" '
+        BEGIN { n = split(ENVIRON["MOTD_TXT"], T, "\n") }
+        { img[NR] = $0 }
+        END {
+            start = int((NR - n) / 2); if (start < 0) start = 0
+            for (i = 1; i <= NR; i++) {
+                idx = i - start
+                if (idx >= 1 && idx <= n) printf "%s%s%s\n", img[i], gap, T[idx]
+                else print img[i]
+            }
+        }
+    ' "$LOGO"
+else
+    # No logo available — just print the text column.
+    printf '%s\n' "$MOTD_TXT"
+fi
 printf '\n'
