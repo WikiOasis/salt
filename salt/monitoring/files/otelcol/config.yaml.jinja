@@ -1,0 +1,102 @@
+{#- Parse each Sentry DSN into host / public key / project id.
+    DSN form: https://<public_key>@<host>/<project_id> -#}
+{%- set j_dsn = salt['pillar.get']('sentry_logging:journald_dsn', '') %}
+{%- set n_dsn = salt['pillar.get']('sentry_logging:nginx_dsn', '') %}
+{%- set j_key  = j_dsn.split('//')[1].split('@')[0] if '@' in j_dsn else '' %}
+{%- set j_host = j_dsn.split('@')[1].split('/')[0] if '@' in j_dsn else '' %}
+{%- set j_proj = j_dsn.split('/')[-1] if j_dsn else '' %}
+{%- set n_key  = n_dsn.split('//')[1].split('@')[0] if '@' in n_dsn else '' %}
+{%- set n_host = n_dsn.split('@')[1].split('/')[0] if '@' in n_dsn else '' %}
+{%- set n_proj = n_dsn.split('/')[-1] if n_dsn else '' %}
+# Managed by Salt (monitoring.otelcol) -- do not edit by hand.
+#
+# Scrapes journald (all units) and nginx logs and pushes them straight to Sentry
+# over OTLP/HTTP. journald and nginx go to separate Sentry projects (DSNs), and
+# each log record is tagged with the originating systemd unit / system.
+
+extensions:
+  # Persist read offsets so a restart doesn't replay or drop logs.
+  file_storage/checkpoints:
+    directory: /var/lib/otelcol
+    create_directory: true
+
+receivers:
+  journald:
+    storage: file_storage/checkpoints
+    start_at: end
+
+  filelog/nginx:
+    include:
+      - /var/log/nginx/*.log
+    start_at: end
+    storage: file_storage/checkpoints
+    include_file_name: true
+    include_file_path: true
+
+processors:
+  batch: {}
+
+  # journald body is the full structured entry (map of journal fields). Lift the
+  # unit into a tag, map PRIORITY to OTLP severity, then reduce body to MESSAGE.
+  transform/journald:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["source"], "journald")
+          - set(attributes["unit"], body["_SYSTEMD_UNIT"])
+          - set(attributes["syslog_identifier"], body["SYSLOG_IDENTIFIER"])
+          - set(severity_number, SEVERITY_NUMBER_ERROR) where Int(body["PRIORITY"]) <= 3
+          - set(severity_number, SEVERITY_NUMBER_WARN)  where Int(body["PRIORITY"]) == 4
+          - set(severity_number, SEVERITY_NUMBER_INFO)  where Int(body["PRIORITY"]) >= 5 and Int(body["PRIORITY"]) <= 6
+          - set(severity_number, SEVERITY_NUMBER_DEBUG) where Int(body["PRIORITY"]) >= 7
+          - set(body, body["MESSAGE"])
+
+  transform/nginx:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["source"], "nginx")
+          - set(attributes["system"], "nginx")
+          - set(attributes["logfile"], attributes["log.file.name"])
+          - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMatch(attributes["log.file.name"], ".*error.*")
+          - set(severity_number, SEVERITY_NUMBER_INFO)  where not IsMatch(attributes["log.file.name"], ".*error.*")
+
+  resource/journald:
+    attributes:
+      - key: service.name
+        value: journald
+        action: upsert
+  resource/nginx:
+    attributes:
+      - key: service.name
+        value: nginx
+        action: upsert
+
+exporters:
+  otlphttp/journald:
+    logs_endpoint: https://{{ j_host }}/api/{{ j_proj }}/integration/otlp/v1/logs
+    headers:
+      x-sentry-auth: "sentry sentry_key={{ j_key }}"
+    compression: gzip
+    encoding: proto
+
+  otlphttp/nginx:
+    logs_endpoint: https://{{ n_host }}/api/{{ n_proj }}/integration/otlp/v1/logs
+    headers:
+      x-sentry-auth: "sentry sentry_key={{ n_key }}"
+    compression: gzip
+    encoding: proto
+
+service:
+  extensions: [file_storage/checkpoints]
+  pipelines:
+    logs/journald:
+      receivers: [journald]
+      processors: [transform/journald, resource/journald, batch]
+      exporters: [otlphttp/journald]
+    logs/nginx:
+      receivers: [filelog/nginx]
+      processors: [transform/nginx, resource/nginx, batch]
+      exporters: [otlphttp/nginx]

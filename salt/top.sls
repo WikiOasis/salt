@@ -2,12 +2,11 @@ base:
   '*':
     - base
     - users
-    - sentry_relay
     - monitoring.nrpe
     - monitoring.nrpe_common
     - monitoring.nrpe_salt
     - monitoring.node_exporter
-    - monitoring.vector
+    - monitoring.otelcol
   'apps*':
     - php
     - nginx
@@ -46,6 +45,7 @@ base:
     - match: compound
     - php
     - nginx
+    - sentry_relay
     - monitoring.nrpe_nginx
     - monitoring.nrpe_php
     - monitoring.nrpe_mediawiki
@@ -53,6 +53,7 @@ base:
   'task*':
     - php
     - nginx
+    - sentry_relay
     - mediawiki.target
     - mediawiki.jobrunner
     - monitoring.nrpe_nginx
