@@ -1,9 +1,10 @@
 #!/bin/sh
-# Custom WikiOasis MOTD — managed by Salt (salt/motd). Do not edit by hand.
+# Custom WikiOasis MOTD generator — managed by Salt (salt/motd). Do not edit.
 #
-# Debian's pam_motd runs every executable in /etc/update-motd.d/ at login and
-# concatenates their stdout into /run/motd.dynamic. This script prints the
-# WikiOasis ANSI logo, a welcome banner, and live system stats.
+# Prints the WikiOasis ANSI logo, a welcome banner, and live system stats.
+# Invoked at login by /etc/profile.d/zz-wikioasis-motd.sh (Debian's pam_motd
+# does not run /etc/update-motd.d, so we render the banner from profile.d).
+# Safe to run by hand to preview the banner.
 
 # ANSI colours (interpreted by printf's format string).
 RESET='\033[0m'
