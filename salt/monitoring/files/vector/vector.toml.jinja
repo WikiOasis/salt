@@ -1,0 +1,132 @@
+{#- DSNs come from pillar; nginx and journald deliberately use different Sentry projects. -#}
+{%- set j_dsn = salt['pillar.get']('sentry_logging:journald_dsn', '') %}
+{%- set n_dsn = salt['pillar.get']('sentry_logging:nginx_dsn', '') %}
+{%- set j_key = j_dsn.split('//')[1].split('@')[0] if '@' in j_dsn else '' %}
+{%- set j_proj = j_dsn.split('/')[-1] if j_dsn else '' %}
+{%- set n_key = n_dsn.split('//')[1].split('@')[0] if '@' in n_dsn else '' %}
+{%- set n_proj = n_dsn.split('/')[-1] if n_dsn else '' %}
+# Managed by Salt (monitoring.vector) -- do not edit by hand.
+#
+# Ships journald (all units) and nginx logs to Sentry as events, routed through
+# the local sentry-relay (proxy mode) on 127.0.0.1:3030. journald and nginx go
+# to separate Sentry projects/DSNs, and every event carries a tag identifying the
+# originating systemd unit (journald) or system (nginx).
+
+data_dir = "/var/lib/vector"
+
+# ── Sources ────────────────────────────────────────────────────────────────────
+
+[sources.journald]
+type = "journald"
+current_boot_only = true
+# Don't re-ingest Vector's own logs, which would create a delivery feedback loop.
+exclude_matches._SYSTEMD_UNIT = ["vector.service"]
+
+[sources.nginx]
+type = "file"
+include = ["/var/log/nginx/*.log"]
+ignore_older_secs = 600
+
+# ── Transforms: shape each log line into a Sentry "store" event payload ─────────
+
+[transforms.journald_sentry]
+type = "remap"
+inputs = ["journald"]
+source = '''
+  priority = to_int(.PRIORITY) ?? 6
+  level = "info"
+  if priority <= 3 {
+      level = "error"
+  } else if priority == 4 {
+      level = "warning"
+  } else if priority >= 7 {
+      level = "debug"
+  }
+
+  unit = "unknown"
+  if exists(."_SYSTEMD_UNIT") {
+      unit = to_string(."_SYSTEMD_UNIT") ?? "unknown"
+  }
+  host = to_string(.host) ?? "unknown"
+
+  event = {
+      "event_id": replace(uuid_v4(), "-", ""),
+      "timestamp": format_timestamp!(.timestamp, "%Y-%m-%dT%H:%M:%S%.6fZ"),
+      "platform": "other",
+      "logger": "journald",
+      "level": level,
+      "server_name": host,
+      "message": { "formatted": to_string(.message) ?? "" },
+      "tags": {
+          "source": "journald",
+          "unit": unit,
+          "host": host
+      }
+  }
+
+  . = { "message": encode_json(event) }
+'''
+
+[transforms.nginx_sentry]
+type = "remap"
+inputs = ["nginx"]
+source = '''
+  file = to_string(.file) ?? ""
+  level = "info"
+  if contains(file, "error") ?? false {
+      level = "error"
+  }
+  host = to_string(.host) ?? "unknown"
+
+  event = {
+      "event_id": replace(uuid_v4(), "-", ""),
+      "timestamp": format_timestamp!(.timestamp, "%Y-%m-%dT%H:%M:%S%.6fZ"),
+      "platform": "other",
+      "logger": "nginx",
+      "level": level,
+      "server_name": host,
+      "message": { "formatted": to_string(.message) ?? "" },
+      "tags": {
+          "source": "nginx",
+          "system": "nginx",
+          "logfile": file,
+          "host": host
+      }
+  }
+
+  . = { "message": encode_json(event) }
+'''
+
+# ── Sinks: POST one event per request to the relay's Sentry store endpoint ──────
+
+[sinks.sentry_journald]
+type = "http"
+inputs = ["journald_sentry"]
+uri = "http://127.0.0.1:3030/api/{{ j_proj }}/store/"
+encoding.codec = "text"
+
+[sinks.sentry_journald.request]
+method = "post"
+
+[sinks.sentry_journald.request.headers]
+"Content-Type" = "application/json"
+"X-Sentry-Auth" = "Sentry sentry_version=7, sentry_client=vector/0.56.0, sentry_key={{ j_key }}"
+
+[sinks.sentry_journald.batch]
+max_events = 1
+
+[sinks.sentry_nginx]
+type = "http"
+inputs = ["nginx_sentry"]
+uri = "http://127.0.0.1:3030/api/{{ n_proj }}/store/"
+encoding.codec = "text"
+
+[sinks.sentry_nginx.request]
+method = "post"
+
+[sinks.sentry_nginx.request.headers]
+"Content-Type" = "application/json"
+"X-Sentry-Auth" = "Sentry sentry_version=7, sentry_client=vector/0.56.0, sentry_key={{ n_key }}"
+
+[sinks.sentry_nginx.batch]
+max_events = 1

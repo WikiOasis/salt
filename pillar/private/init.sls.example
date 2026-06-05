@@ -22,6 +22,10 @@ mediawiki:
 sentry_relay:
   dsn: CHANGE_ME
 
+sentry_logging:
+  journald_dsn: CHANGE_ME
+  nginx_dsn: CHANGE_ME
+
 mariadb:
   backup:
     # MariaDB user Salt will create on each db* server for backup operations
