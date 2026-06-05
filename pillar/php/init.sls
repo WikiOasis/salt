@@ -25,6 +25,7 @@ php:
     pm_max_spare_servers: 8
     pm_max_requests: 500
     request_terminate_timeout: 60
+    memory_limit: 300M
   monitoring:
     queue_warn: 5
     queue_crit: 10
