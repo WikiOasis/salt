@@ -1,0 +1,43 @@
+#!/bin/sh
+# Custom WikiOasis MOTD — managed by Salt (salt/motd). Do not edit by hand.
+#
+# Debian's pam_motd runs every executable in /etc/update-motd.d/ at login and
+# concatenates their stdout into /run/motd.dynamic. This script prints the
+# WikiOasis ANSI logo, a welcome banner, and live system stats.
+
+# ANSI colours (interpreted by printf's format string).
+RESET='\033[0m'
+BRAND='\033[38;2;0;147;212m'   # WikiOasis blue (#0093D4)
+NAME='\033[1;97m'              # bold white
+LABEL='\033[38;2;0;147;212m'
+VALUE='\033[0;37m'
+
+# Pre-rendered ANSI logo (deployed by the motd state).
+if [ -r /etc/wikioasis/logo.ansi ]; then
+    cat /etc/wikioasis/logo.ansi
+fi
+
+host=$(hostname -f 2>/dev/null || hostname)
+who=$(id -un)
+
+printf '\n'
+printf "${BRAND}Welcome to ${NAME}%s${BRAND}, ${NAME}%s${RESET}\n\n" "$host" "$who"
+
+# Load average (1/5/15 min).
+load=$(cut -d' ' -f1-3 /proc/loadavg)
+
+# Memory: used / total.
+mem=$(free -h | awk '/^Mem:/ {print $3 " / " $2}')
+
+# Root filesystem: used / total (percent).
+disk=$(df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}')
+
+# Uptime, human readable.
+up=$(uptime -p 2>/dev/null | sed 's/^up //')
+[ -n "$up" ] || up=$(uptime | sed 's/.*up *//; s/, *[0-9]* user.*//')
+
+printf "${LABEL}  Load average ${VALUE}%s${RESET}\n" "$load"
+printf "${LABEL}  Memory       ${VALUE}%s${RESET}\n" "$mem"
+printf "${LABEL}  Disk (/)     ${VALUE}%s${RESET}\n" "$disk"
+printf "${LABEL}  Uptime       ${VALUE}%s${RESET}\n" "$up"
+printf '\n'

@@ -3,6 +3,7 @@ base:
     - base
     - users
     - snoopy
+    - motd
     - monitoring.nrpe
     - monitoring.nrpe_common
     - monitoring.nrpe_salt
