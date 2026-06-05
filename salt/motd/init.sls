@@ -32,9 +32,11 @@ motd_logo_pride:
     - mode: '0644'
 
 # Active variant — swap by setting pillar motd:theme to blue|pride.
+# force: replace the plain file left by the earlier file.managed version.
 /etc/wikioasis/logo.ansi:
   file.symlink:
     - target: /etc/wikioasis/logo-{{ theme }}.ansi
+    - force: True
     - require:
       - file: motd_logo_blue
       - file: motd_logo_pride
