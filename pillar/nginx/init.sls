@@ -12,7 +12,7 @@ nginx:
     frame-ancestors 'self';
     form-action 'self' http://127.0.0.1:300 http://localhost:3000 https://*.betaoasis.xyz https://*.wikioasis.org;
     base-uri 'self';
-    report-uri https://wikioasis.report-uri.com/r/d/csp/reportOnly;
+    report-uri https://o4510539352375296.ingest.us.sentry.io/api/4511185700454400/security/?sentry_key=8d12d310c7d40b6b4d8c8989e36a7b5a;
 
   server_blocks:
     - listen:
