@@ -44,6 +44,7 @@ processors:
       - context: log
         statements:
           - set(attributes["source"], "journald")
+          - set(attributes["server"], "{{ grains['id'] }}")
           - set(attributes["unit"], body["_SYSTEMD_UNIT"])
           - set(attributes["syslog_identifier"], body["SYSLOG_IDENTIFIER"])
           - set(severity_number, SEVERITY_NUMBER_ERROR) where Int(body["PRIORITY"]) <= 3
@@ -58,6 +59,7 @@ processors:
       - context: log
         statements:
           - set(attributes["source"], "nginx")
+          - set(attributes["server"], "{{ grains['id'] }}")
           - set(attributes["system"], "nginx")
           - set(attributes["logfile"], attributes["log.file.name"])
           - set(severity_number, SEVERITY_NUMBER_ERROR) where IsMatch(attributes["log.file.name"], ".*error.*")
