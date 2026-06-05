@@ -1,0 +1,26 @@
+# Managed by Salt (nginx state). nginx logs are shipped to Sentry via the
+# OpenTelemetry collector, so only a small window is kept on disk.
+#
+# access.log gets a postrotate "seed": the most recent 500 lines of the
+# just-rotated file are written back into the fresh access.log. This keeps the
+# Icinga check_nginx_errors plugin (which evaluates `tail -n 500 access.log`)
+# meaningful across rotations instead of degrading to "No requests".
+/var/log/nginx/*.log {
+        daily
+        missingok
+        rotate 3
+        maxsize 50M
+        compress
+        delaycompress
+        notifempty
+        create 0640 www-data adm
+        sharedscripts
+        postrotate
+                if [ -f /run/nginx.pid ]; then
+                        kill -USR1 "$(cat /run/nginx.pid)"
+                fi
+                if [ -f /var/log/nginx/access.log.1 ]; then
+                        tail -n 500 /var/log/nginx/access.log.1 >> /var/log/nginx/access.log
+                fi
+        endscript
+}

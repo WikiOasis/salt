@@ -1,4 +1,4 @@
-{% set password = salt['pillar.get']('monitoring:monitoring_db_password') %}
+{%- set password = salt['pillar.get']('monitoring:monitoring_db_password') %}
 
 icinga_monitor_user:
   cmd.run:
@@ -14,6 +14,6 @@ icinga_monitor_grant:
   cmd.run:
     - name: >
         mysql -e
-        "GRANT USAGE ON *.* TO 'icinga_monitor'@'%';"
+        "GRANT USAGE, SLAVE MONITOR ON *.* TO 'icinga_monitor'@'%';"
     - require:
       - cmd: icinga_monitor_user

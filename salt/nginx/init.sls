@@ -1,6 +1,22 @@
 nginx:
   pkg.installed: []
 
+logrotate_pkg:
+  pkg.installed:
+    - name: logrotate
+
+# Logs ship to Sentry (see monitoring.otelcol), so keep little on disk. The
+# access.log postrotate seed preserves the last 500 lines for check_nginx_errors.
+/etc/logrotate.d/nginx:
+  file.managed:
+    - source: salt://nginx/files/logrotate-nginx
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: nginx
+      - pkg: logrotate_pkg
+
 /etc/nginx/snippets:
   file.directory:
     - user: root

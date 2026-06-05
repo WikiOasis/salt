@@ -125,3 +125,32 @@ otelcol:
       - file: /var/lib/otelcol
       - file: /etc/systemd/system/otelcol.service
       - user: otelcol_user
+
+# ── journald retention ─────────────────────────────────────────────────────────
+# The journal is shipped to Sentry, so cap what persists locally. Tune these to
+# taste; recent logs are still kept on-disk for live on-host debugging.
+
+/etc/systemd/journald.conf.d:
+  file.directory:
+    - user: root
+    - group: root
+    - mode: '0755'
+    - makedirs: True
+
+/etc/systemd/journald.conf.d/90-sentry-retention.conf:
+  file.managed:
+    - user: root
+    - group: root
+    - mode: '0644'
+    - contents: |
+        # Managed by Salt (monitoring.otelcol). Logs are forwarded to Sentry.
+        [Journal]
+        SystemMaxUse=200M
+        MaxRetentionSec=3day
+    - require:
+      - file: /etc/systemd/journald.conf.d
+
+systemd-journald:
+  service.running:
+    - watch:
+      - file: /etc/systemd/journald.conf.d/90-sentry-retention.conf

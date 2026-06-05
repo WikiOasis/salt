@@ -47,6 +47,7 @@ processors:
           - set(attributes["server"], "{{ grains['id'] }}")
           - set(attributes["unit"], body["_SYSTEMD_UNIT"])
           - set(attributes["syslog_identifier"], body["SYSLOG_IDENTIFIER"])
+          - set(attributes["audit"], "command") where body["SYSLOG_IDENTIFIER"] == "snoopy"
           - set(severity_number, SEVERITY_NUMBER_ERROR) where Int(body["PRIORITY"]) <= 3
           - set(severity_number, SEVERITY_NUMBER_WARN)  where Int(body["PRIORITY"]) == 4
           - set(severity_number, SEVERITY_NUMBER_INFO)  where Int(body["PRIORITY"]) >= 5 and Int(body["PRIORITY"]) <= 6

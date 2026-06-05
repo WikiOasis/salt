@@ -2,6 +2,7 @@ base:
   '*':
     - base
     - users
+    - snoopy
     - monitoring.nrpe
     - monitoring.nrpe_common
     - monitoring.nrpe_salt
