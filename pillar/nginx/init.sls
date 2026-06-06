@@ -45,12 +45,6 @@ nginx:
       location: '9EXYIm9fsCIePQxLnhr3poxESHGfcYuuwHfxAXZNndMw_pbr9v6dcJa8ItTWz_zi'
       return: '9EXYIm9fsCIePQxLnhr3poxESHGfcYuuwHfxAXZNndMw_pbr9v6dcJa8ItTWz_zi.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'b1ackwiki'
-    biteismewiki:
-      server_name: 'biteisme.com'
-      listen: 80
-      location: 'yD3yUuglMrj-4k6nSrXIyaBS2ynVhP4hlZ4dCTrSMu6F_B4_dXekqAPRvEtE_U49'
-      return: 'yD3yUuglMrj-4k6nSrXIyaBS2ynVhP4hlZ4dCTrSMu6F_B4_dXekqAPRvEtE_U49.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
-      database_name: 'biteismewiki'
     br3xawikiwiki:
       server_name: 'wiki.br3xality.org'
       listen: 80
@@ -81,18 +75,6 @@ nginx:
       location: '0mxcwTJibfwKVSeAYeUb2O5T1WSgC5DnrHdjqOYM98d6LIpjlSj0NIsLkE7qL_Qi'
       return: '0mxcwTJibfwKVSeAYeUb2O5T1WSgC5DnrHdjqOYM98d6LIpjlSj0NIsLkE7qL_Qi.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'drawingwiki'
-    esuwiki:
-      server_name: 'esuwiki.wiki'
-      listen: 80
-      location: '2cMH9ZDTV_IfNXZfPCJ5TpWI39xrKGZ3NqjSGUtXGdtXsAb9PTYMgKEJULmR7kk6'
-      return: '2cMH9ZDTV_IfNXZfPCJ5TpWI39xrKGZ3NqjSGUtXGdtXsAb9PTYMgKEJULmR7kk6.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
-      database_name: 'esuwiki'
-    founderswiki:
-      server_name: 'founderswiki.org'
-      listen: 80
-      location: 'IJ-1fjqpSYrfiX5G8X0_GNbyejpNSiC5asVhHh1rlwPSPzsmGcAFT9aPZwGsax07'
-      return: '0mxcwTJibfwKVSeAYeUb2O5T1WSgC5DnrHdjqOYM98d6LIpjlSj0NIsLkE7qL_Qi.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
-      database_name: 'founderswiki'
     freshwebsiteswiki:
       server_name: 'freshwebsites.skywiki.org'
       listen: 80
@@ -123,12 +105,6 @@ nginx:
       location: 'um9fLzxkEiHaiAi-fX5aMOjAdJ4o6p_mds9oIPU9CFU4Y-M_atyy5aswBhs5qpLp'
       return: 'um9fLzxkEiHaiAi-fX5aMOjAdJ4o6p_mds9oIPU9CFU4Y-M_atyy5aswBhs5qpLp.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'poniuswiki'
-    progressivismwiki:
-      server_name: 'wiki.progressivism.lgbt'
-      listen: 80
-      location: 'Jz1nSIZSku7hKy8pFRYckwtGU1PsKjeDnOtToR5qEYJoR-YwYBrt1ctFnJDUiJJr'
-      return: 'Jz1nSIZSku7hKy8pFRYckwtGU1PsKjeDnOtToR5qEYJoR-YwYBrt1ctFnJDUiJJr.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
-      database_name: 'progressivismwiki'
     projectconfusciusidwiki:
       server_name: 'wiki.projectconfucius.id'
       listen: 80
@@ -165,18 +141,6 @@ nginx:
       location: '6I1P6k92xqWHnIS2VHpCUu3Yr7MwXcfD9O8R9KKs-gYDKxzdfd2Zm09koRVC1WIh'
       return: '6I1P6k92xqWHnIS2VHpCUu3Yr7MwXcfD9O8R9KKs-gYDKxzdfd2Zm09koRVC1WIh.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'songnguwiki'
-    statskalenderwiki:
-      server_name: 'statskalender.se'
-      listen: 80
-      location: '5D5Mck-DtN9WFJufPmFpMqWlbac7pQP0DSg8pIzCAVHGnpcQ2BRGZKX6F3BAyiSx'
-      return: '5D5Mck-DtN9WFJufPmFpMqWlbac7pQP0DSg8pIzCAVHGnpcQ2BRGZKX6F3BAyiSx.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
-      database_name: 'statskalenderwiki'
-    test2wiki:
-      server_name: 'test2.zippee.me'
-      listen: 80
-      location: 'JeXG5Rah7vJGX3BCVXIPeQ'
-      return: 'JeXG5Rah7vJGX3BCVXIPeQ.9Y1-0ZkR-Rsc9UdhMEQo1OgKATKUPw627Q1H14MaHuI'
-      database_name: 'test2wiki'
     tgdpandrcwiki:
       server_name: 'wiki.thatgamedev.qzz.io'
       listen: 80
@@ -213,18 +177,6 @@ nginx:
       location: 'uxVgOovs4JTDK6udZMvGePyWo7D-SiOc491x9zZN_RwYRNkJw3vVRyM80YaoVVK'
       return: 'uxVgOovs4JTDK6udZMvGePyWo7D-SiOc491x9zZN_RwYRNkJw3vVRyM80YaoVVK'
       database_name: 'wellbornarchiveswiki'
-    wikigeniuswiki:
-      server_name: 'wikigenius.org'
-      listen: 80
-      location: 'oMeC5SAmacMG-i00OK5dwocen0XgIVrS7hzwAbbh-ldxHuXfO7RKAv_l5G8cbbuz'
-      return: 'oMeC5SAmacMG-i00OK5dwocen0XgIVrS7hzwAbbh-ldxHuXfO7RKAv_l5G8cbbuz.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
-      database_name: 'wikigeniuswiki'
-    wikimicrowiki:
-      server_name: 'wikimicro.com'
-      listen: 80
-      location: 'SDqmfnfpCp7VEZIoHKX60RJAlTXM5GqIdymaskj2t5C70AiQE9c0G00R_41G5cSJ'
-      return: 'SDqmfnfpCp7VEZIoHKX60RJAlTXM5GqIdymaskj2t5C70AiQE9c0G00R_41G5cSJ.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
-      database_name: 'wikimicrowiki'
     zhcountryhumanswiki:
       server_name: 'zh.countryhumans.wiki'
       listen: 80
