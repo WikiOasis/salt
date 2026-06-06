@@ -97,10 +97,12 @@ remote_size() {
 #
 # The earlier "extra-lsndir is stale" problem came from reusing a *persistent*
 # lsndir: a backup that died before writing checkpoints left an old to_lsn behind,
-# so the next incremental chained from an ever-older LSN until it ballooned. We
-# avoid that by giving each run a fresh mktemp dir and refusing any to_lsn that did
-# not advance past where this backup started ($2, default 0). On any doubt we drop
-# the local checkpoints so the next run safely does a full rather than a bad chain.
+# so the next incremental chained from an ever-older LSN until it ballooned. A fresh
+# mktemp dir per run already prevents that, so the only thing we reject here is a
+# to_lsn that goes *backwards* past where this backup started ($2, default 0) —
+# a genuine anomaly. Note an idle DB legitimately reports an UNCHANGED checkpoint
+# to_lsn (InnoDB only advances it on write activity), so equal is fine and must be
+# accepted, else every backup on a quiet DB would fall back to a needless full.
 save_checkpoints() {
     local lsndir="$1" min_lsn="${2:-0}"
     # MariaDB 11.x mariabackup writes mariadb_backup_checkpoints; older builds
@@ -123,8 +125,8 @@ save_checkpoints() {
         rm -f "$CHECKPOINTS"
         return 0
     fi
-    if [ "$new_lsn" -le "$min_lsn" ]; then
-        log "WARNING: checkpoint to_lsn (${new_lsn}) did not advance past ${min_lsn} — treating as stale; NEXT RUN WILL DO A FULL"
+    if [ "$new_lsn" -lt "$min_lsn" ]; then
+        log "WARNING: checkpoint to_lsn (${new_lsn}) went BACKWARDS past ${min_lsn} — anomalous; NEXT RUN WILL DO A FULL"
         rm -f "$CHECKPOINTS"
         return 0
     fi
