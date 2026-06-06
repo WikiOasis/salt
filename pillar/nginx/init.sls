@@ -171,6 +171,12 @@ nginx:
       location: '5D5Mck-DtN9WFJufPmFpMqWlbac7pQP0DSg8pIzCAVHGnpcQ2BRGZKX6F3BAyiSx'
       return: '5D5Mck-DtN9WFJufPmFpMqWlbac7pQP0DSg8pIzCAVHGnpcQ2BRGZKX6F3BAyiSx.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'statskalenderwiki'
+    test2wiki:
+      server_name: 'test2.zippee.me'
+      listen: 80
+      location: 'JeXG5Rah7vJGX3BCVXIPeQ'
+      return: 'JeXG5Rah7vJGX3BCVXIPeQ.9Y1-0ZkR-Rsc9UdhMEQo1OgKATKUPw627Q1H14MaHuI'
+      database_name: 'test2wiki'
     tgdpandrcwiki:
       server_name: 'wiki.thatgamedev.qzz.io'
       listen: 80
