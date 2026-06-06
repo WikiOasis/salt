@@ -9,6 +9,7 @@
 # the motd state. Safe to run by hand to preview the banner.
 
 LOGO=/etc/wikioasis/logo.ansi
+JOKES=/etc/wikioasis/motd-jokes   # random prod joke pool (managed from pillar)
 GAP='   '   # space between the logo and the text column
 
 # ANSI colours (interpreted by printf's format string).
@@ -17,6 +18,7 @@ BRAND='\033[38;2;0;147;212m'   # WikiOasis blue (#0093D4)
 NAME='\033[1;97m'              # bold white
 LABEL='\033[38;2;0;147;212m'
 VALUE='\033[0;37m'
+JOKE='\033[2;3;37m'            # dim italic grey
 
 host=$(hostname -f 2>/dev/null || hostname)
 who=$(id -un)
@@ -34,6 +36,15 @@ disk=$(df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}')
 up=$(uptime -p 2>/dev/null | sed 's/^up //')
 [ -n "$up" ] || up=$(uptime | sed 's/.*up *//; s/, *[0-9]* user.*//')
 
+# Pick a random prod joke from the pool (one joke per line). Prefer shuf; fall
+# back to an awk picker if shuf is unavailable.
+joke=
+if [ -s "$JOKES" ]; then
+    joke=$(shuf -n1 "$JOKES" 2>/dev/null) || joke=$(awk '
+        BEGIN { srand() } { a[NR] = $0 }
+        END { if (NR) print a[int(rand() * NR) + 1] }' "$JOKES")
+fi
+
 # Build the text column (real escape bytes via printf, one line per entry).
 welcome=$(printf "${BRAND}Welcome to ${NAME}%s${BRAND}, ${NAME}%s${RESET}" "$host" "$who")
 l_load=$(printf "${LABEL}%-13s${VALUE}%s${RESET}" "Load average" "$load")
@@ -41,6 +52,10 @@ l_mem=$(printf  "${LABEL}%-13s${VALUE}%s${RESET}" "Memory" "$mem")
 l_disk=$(printf "${LABEL}%-13s${VALUE}%s${RESET}" "Disk (/)" "$disk")
 l_up=$(printf   "${LABEL}%-13s${VALUE}%s${RESET}" "Uptime" "$up")
 MOTD_TXT=$(printf '%s\n' "$welcome" "" "$l_load" "$l_mem" "$l_disk" "$l_up")
+if [ -n "$joke" ]; then
+    l_joke=$(printf "${JOKE}%s${RESET}" "$joke")
+    MOTD_TXT=$(printf '%s\n' "$MOTD_TXT" "" "$l_joke")
+fi
 export MOTD_TXT
 
 printf '\n'
