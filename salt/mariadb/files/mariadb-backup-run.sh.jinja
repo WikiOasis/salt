@@ -1,9 +1,19 @@
 #!/bin/bash
 # Streams full or incremental mariabackup directly to the remote backup server via SSH.
-# No backup data is written to local disk — only two small state files are kept:
+#
+# Layout on the remote (one self-contained "set" per weekly full so a set can be
+# restored to any point on its own — base + the incrementals that chain off it):
+#   $REMOTE_PATH/$HOST/sets/<SET_ID>/base/                  (the weekly full)
+#   $REMOTE_PATH/$HOST/sets/<SET_ID>/incremental/<DATE>/    (incrementals for that week)
+#   $REMOTE_PATH/$HOST/sets/latest -> <newest SET_ID>       (convenience symlink)
+# SET_ID is the timestamp of the full that opened the set (YYYYMMDD-HHMMSS).
+# Old sets beyond mariadb:backup:retain_sets (default 4) are pruned after a full.
+#
+# No backup data is written to local disk — only small state files are kept:
 #   /var/backups/mariadb/xtrabackup_checkpoints  (LSN for next incremental)
-#   /var/backups/mariadb/last_full_backup         (epoch of last full)
-#   /var/backups/mariadb/last_backup              (epoch of last backup of any kind)
+#   /var/backups/mariadb/current_set             (SET_ID incrementals chain into)
+#   /var/backups/mariadb/last_full_backup        (epoch of last full)
+#   /var/backups/mariadb/last_backup             (epoch of last backup of any kind)
 # Usage: mariadb-backup-run.sh [full|incremental]
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
 {%- set dest = backup.get('destination', {}) %}
@@ -25,6 +35,7 @@ if ! flock -n 9; then
     exit 0
 fi
 CHECKPOINTS="$STATE_DIR/xtrabackup_checkpoints"
+CURRENT_SET_FILE="$STATE_DIR/current_set"
 LAST_FULL="$STATE_DIR/last_full_backup"
 LAST_BACKUP="$STATE_DIR/last_backup"
 MYSQL_USER="{{ backup.get('user', 'mariadb_backup') }}"
@@ -32,8 +43,10 @@ MYSQL_PASS="{{ backup.get('password', '') }}"
 REMOTE_USER="{{ dest.get('user', '') }}"
 REMOTE_HOST="{{ dest.get('host', '') }}"
 REMOTE_PATH="{{ dest.get('path', '/backup/mariadb') }}"
+RETAIN_SETS="{{ backup.get('retain_sets', 4) }}"
 SSH_KEY=/etc/mariadb-backup/ssh_key
 HOST=$(hostname -s)
+SETS_DIR="$REMOTE_PATH/$HOST/sets"
 START=$(date +%s)
 
 DISCORD_WEBHOOK_URL="{{ discord }}"
@@ -83,87 +96,146 @@ remote_size() {
 # checkpoints so the next run safely does a full rather than a bad incremental.
 save_checkpoints() {
     local remote_dir="$1"
-    if $SSH "cat '${remote_dir}/xtrabackup_checkpoints'" > "$CHECKPOINTS.tmp" \
+    local err; err=$(mktemp)
+    log "Fetching checkpoints from remote: ${remote_dir}/xtrabackup_checkpoints"
+    if $SSH "cat '${remote_dir}/xtrabackup_checkpoints'" > "$CHECKPOINTS.tmp" 2>"$err" \
         && grep -q '^to_lsn' "$CHECKPOINTS.tmp"; then
+        local saved_lsn; saved_lsn=$(awk '/^to_lsn/{print $3}' "$CHECKPOINTS.tmp")
         mv "$CHECKPOINTS.tmp" "$CHECKPOINTS"
+        log "Saved checkpoints (to_lsn=${saved_lsn}); next incremental will chain from here"
     else
-        log "WARNING: could not fetch valid checkpoints from remote; next run will do a full"
+        log "WARNING: could not fetch valid checkpoints from ${remote_dir} — NEXT RUN WILL DO A FULL"
+        local errmsg; errmsg=$(tr '\n' ' ' < "$err")
+        [ -n "$errmsg" ] && log "WARNING:   ssh/cat error: ${errmsg}"
+        log "WARNING:   fetched content (first line): '$(head -1 "$CHECKPOINTS.tmp" 2>/dev/null)'"
         rm -f "$CHECKPOINTS" "$CHECKPOINTS.tmp"
+    fi
+    rm -f "$err"
+}
+
+# Keep only the newest $RETAIN_SETS sets on the remote; remove older ones.
+# Sets are named by timestamp so a lexical sort is a chronological sort.
+prune_old_sets() {
+    if ! [[ "$RETAIN_SETS" =~ ^[0-9]+$ ]] || [ "$RETAIN_SETS" -le 0 ]; then
+        log "Set retention disabled (retain_sets='${RETAIN_SETS}'); keeping all sets"
+        return 0
+    fi
+    local old_sets
+    old_sets=$($SSH "ls -1d '$SETS_DIR'/[0-9]*-[0-9]* 2>/dev/null | sort | head -n -${RETAIN_SETS}" || true)
+    if [ -z "$old_sets" ]; then
+        log "Retention: nothing to prune (keeping newest ${RETAIN_SETS} set(s))"
+        return 0
+    fi
+    log "Retention: pruning $(echo "$old_sets" | wc -l | tr -d ' ') old set(s), keeping newest ${RETAIN_SETS}:"
+    while IFS= read -r s; do log "  removing ${s}"; done <<< "$old_sets"
+    if ! echo "$old_sets" | $SSH "xargs -r rm -rf"; then
+        log "WARNING: failed to prune one or more old sets (continuing)"
     fi
 }
 
 run_full() {
-    log "Starting streamed full backup"
-    $SSH "rm -rf '$REMOTE_PATH/$HOST/base.prev' ; \
-          [ -d '$REMOTE_PATH/$HOST/base' ] && mv '$REMOTE_PATH/$HOST/base' '$REMOTE_PATH/$HOST/base.prev' ; \
-          mkdir -p '$REMOTE_PATH/$HOST/base'"
+    local set_id; set_id=$(date +%Y%m%d-%H%M%S)
+    local set_dir="$SETS_DIR/$set_id"
+    log "Starting streamed FULL backup — opening new set ${set_id}"
+    log "  remote base dir: ${set_dir}/base"
+    $SSH "mkdir -p '$set_dir/base'"
 
     mariabackup --backup --stream=xbstream \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
-    | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/base/'"
+    | $SSH "mbstream -x -C '$set_dir/base/'"
 
-    save_checkpoints "$REMOTE_PATH/$HOST/base"
+    save_checkpoints "$set_dir/base"
+
+    # Point subsequent incrementals at this set, and update the convenience symlink.
+    echo "$set_id" > "$CURRENT_SET_FILE"
+    log "Current backup set is now ${set_id}; incrementals will chain into it"
+    $SSH "ln -sfn '$set_dir' '$SETS_DIR/latest'" \
+        || log "WARNING: could not update '${SETS_DIR}/latest' symlink"
 
     local now; now=$(date +%s)
     echo "$now" > "$LAST_FULL"
     echo "$now" > "$LAST_BACKUP"
 
     local elapsed=$(( now - START ))
-    local size; size=$(remote_size "$REMOTE_PATH/$HOST/base/")
-    log "Full backup complete — size: ${size}, duration: ${elapsed}s"
-    notify ":white_check_mark:" "full backup complete — size: ${size}, duration: ${elapsed}s"
+    local size; size=$(remote_size "$set_dir/base/")
+    log "Full backup complete — set: ${set_id}, size: ${size}, duration: ${elapsed}s"
+    notify ":white_check_mark:" "full backup complete (set ${set_id}) — size: ${size}, duration: ${elapsed}s"
+
+    prune_old_sets
 }
 
 run_incremental() {
-    if [ ! -f "$CHECKPOINTS" ]; then
-        log "No checkpoints file found; running full backup first"
+    log "Evaluating incremental preconditions"
+
+    # An incremental must chain onto an existing set's base. No recorded set means
+    # nothing for it to chain onto, so we have to take a full first.
+    if [ ! -f "$CURRENT_SET_FILE" ]; then
+        log "No current set recorded (${CURRENT_SET_FILE} missing); running FULL backup first"
         run_full
         return
     fi
+    local set_id; set_id=$(cat "$CURRENT_SET_FILE")
+    local set_dir="$SETS_DIR/$set_id"
+    log "Current set: ${set_id} (${set_dir})"
 
-    local full_age=$(( ($(date +%s) - $(cat "$LAST_FULL")) / 86400 ))
+    if [ ! -f "$CHECKPOINTS" ]; then
+        log "No checkpoints file at ${CHECKPOINTS} — no LSN to chain from; running FULL backup first"
+        run_full
+        return
+    fi
+    log "Checkpoints file ${CHECKPOINTS} contents:"
+    while IFS= read -r line; do log "    ${line}"; done < "$CHECKPOINTS"
+
+    local last_full_epoch; last_full_epoch=$(cat "$LAST_FULL" 2>/dev/null || echo 0)
+    local full_age=$(( ($(date +%s) - last_full_epoch) / 86400 ))
+    log "Last full backup was ${full_age}d ago (epoch ${last_full_epoch})"
     if [ "$full_age" -ge 7 ]; then
-        log "Full backup is ${full_age}d old (weekly run missed); running full backup first"
+        log "Full backup is ${full_age}d old (>=7d, weekly run missed); running FULL backup first"
         run_full
         return
     fi
 
     local to_lsn; to_lsn=$(awk '/^to_lsn/{print $3}' "$CHECKPOINTS")
     if ! [[ "$to_lsn" =~ ^[0-9]+$ ]]; then
-        log "Checkpoints file has no valid to_lsn ('${to_lsn}'); running full backup"
+        log "Checkpoints file has no valid to_lsn ('${to_lsn}'); running FULL backup"
         rm -f "$CHECKPOINTS"
         run_full
         return
     fi
     local DATE; DATE=$(date +%Y%m%d-%H%M%S)
+    local inc_dir="$set_dir/incremental/$DATE"
 
-    log "Starting streamed incremental backup (from LSN ${to_lsn})"
-    $SSH "mkdir -p '$REMOTE_PATH/$HOST/incremental/$DATE'"
+    log "All preconditions met; starting streamed INCREMENTAL backup"
+    log "  set: ${set_id}, from LSN: ${to_lsn}"
+    log "  remote incremental dir: ${inc_dir}"
+    $SSH "mkdir -p '$inc_dir'"
 
     if ! { mariabackup --backup --stream=xbstream \
         --incremental-lsn="$to_lsn" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
-    | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/incremental/$DATE/'"; }; then
-        log "Incremental backup failed (LSN ${to_lsn} incompatible with current server state); falling back to full backup"
+    | $SSH "mbstream -x -C '$inc_dir/'"; }; then
+        log "Incremental backup failed (LSN ${to_lsn} incompatible with current server state); falling back to FULL backup"
         rm -f "$CHECKPOINTS"
-        $SSH "rm -rf '$REMOTE_PATH/$HOST/incremental/$DATE'"
+        $SSH "rm -rf '$inc_dir'"
         run_full
         return
     fi
 
     # Advance the checkpoint so the next incremental chains from this one.
-    save_checkpoints "$REMOTE_PATH/$HOST/incremental/$DATE"
+    save_checkpoints "$inc_dir"
 
     local now; now=$(date +%s)
     echo "$now" > "$LAST_BACKUP"
 
     local elapsed=$(( now - START ))
-    local size; size=$(remote_size "$REMOTE_PATH/$HOST/incremental/$DATE/")
-    log "Incremental backup complete — size: ${size}, duration: ${elapsed}s"
-    notify ":white_check_mark:" "incremental backup complete — size: ${size}, duration: ${elapsed}s"
+    local size; size=$(remote_size "$inc_dir/")
+    log "Incremental backup complete — set: ${set_id}, dir: ${DATE}, size: ${size}, duration: ${elapsed}s"
+    notify ":white_check_mark:" "incremental backup complete (set ${set_id}) — size: ${size}, duration: ${elapsed}s"
 }
+
+log "mariadb-backup-run starting: mode=${MODE}, host=${HOST}, remote=${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}, retain_sets=${RETAIN_SETS}"
 
 case "$MODE" in
     full)        run_full ;;

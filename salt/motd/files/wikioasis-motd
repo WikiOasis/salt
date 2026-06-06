@@ -37,12 +37,18 @@ up=$(uptime -p 2>/dev/null | sed 's/^up //')
 [ -n "$up" ] || up=$(uptime | sed 's/.*up *//; s/, *[0-9]* user.*//')
 
 # Pick a random prod joke from the pool (one joke per line). Prefer shuf; fall
-# back to an awk picker if shuf is unavailable.
+# back to an awk picker if shuf is unavailable. awk's srand() with no argument
+# seeds from the time in whole seconds, so every login within the same second
+# gets the same "random" line — seed it from /dev/urandom (PID as last resort)
+# so the joke actually varies between logins.
 joke=
 if [ -s "$JOKES" ]; then
-    joke=$(shuf -n1 "$JOKES" 2>/dev/null) || joke=$(awk '
-        BEGIN { srand() } { a[NR] = $0 }
-        END { if (NR) print a[int(rand() * NR) + 1] }' "$JOKES")
+    joke=$(shuf -n1 "$JOKES" 2>/dev/null) || {
+        seed=$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | tr -d ' ')
+        joke=$(awk -v seed="${seed:-$$}" '
+            BEGIN { srand(seed) } { a[NR] = $0 }
+            END { if (NR) print a[int(rand() * NR) + 1] }' "$JOKES")
+    }
 fi
 
 # Build the text column (real escape bytes via printf, one line per entry).
