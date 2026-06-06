@@ -103,8 +103,14 @@ remote_size() {
 # the local checkpoints so the next run safely does a full rather than a bad chain.
 save_checkpoints() {
     local lsndir="$1" min_lsn="${2:-0}"
-    local cpfile="$lsndir/xtrabackup_checkpoints"
-    if [ ! -f "$cpfile" ]; then
+    # MariaDB 11.x mariabackup writes mariadb_backup_checkpoints; older builds
+    # (and Percona xtrabackup) used xtrabackup_checkpoints. Accept whichever exists.
+    local cpfile=""
+    local name
+    for name in mariadb_backup_checkpoints xtrabackup_checkpoints; do
+        if [ -f "$lsndir/$name" ]; then cpfile="$lsndir/$name"; break; fi
+    done
+    if [ -z "$cpfile" ]; then
         log "WARNING: mariabackup wrote no checkpoints to ${lsndir} — NEXT RUN WILL DO A FULL"
         log "WARNING:   dir contents: $(ls -a "$lsndir" 2>/dev/null | tr '\n' ' ')"
         rm -f "$CHECKPOINTS"
