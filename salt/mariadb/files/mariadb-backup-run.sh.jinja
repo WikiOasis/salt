@@ -73,6 +73,8 @@ notify() {
 
 on_exit() {
     local code=$?
+    # Clean up any per-run --extra-lsndir temp dirs a failed backup left behind.
+    rm -rf "$STATE_DIR"/lsn.* 2>/dev/null || true
     if [ $code -ne 0 ]; then
         local elapsed=$(( $(date +%s) - START ))
         notify ":x:" "${MODE} backup FAILED after ${elapsed}s (exit ${code})"
@@ -86,31 +88,42 @@ remote_size() {
     $SSH "du -sh '$1' 2>/dev/null" | cut -f1 || true
 }
 
-# Record the checkpoint LSN from the backup just streamed to the remote.
-# mariabackup's --extra-lsndir is unreliable for streamed backups: the local
-# copy is often missing or carries a stale to_lsn that never advances. That made
-# most DBs fall back to a full every run, and on busy DBs made each incremental
-# chain from an ever-older LSN until it ballooned and broke the SSH stream.
-# The xtrabackup_checkpoints extracted on the remote always reflects this exact
-# backup, so it is the source of truth. If we can't fetch it, drop the local
-# checkpoints so the next run safely does a full rather than a bad incremental.
+# Record the checkpoint LSN from the backup that just ran, read from a fresh
+# per-run --extra-lsndir (passed in as $1). We deliberately do NOT read a streamed
+# xtrabackup_checkpoints from the remote: mariabackup does not emit that file into
+# the --stream=xbstream output here (confirmed — it never lands on the remote), so
+# every run silently fell back to a full. --extra-lsndir writes the checkpoints
+# locally by the local mariabackup process regardless of the stream destination.
+#
+# The earlier "extra-lsndir is stale" problem came from reusing a *persistent*
+# lsndir: a backup that died before writing checkpoints left an old to_lsn behind,
+# so the next incremental chained from an ever-older LSN until it ballooned. We
+# avoid that by giving each run a fresh mktemp dir and refusing any to_lsn that did
+# not advance past where this backup started ($2, default 0). On any doubt we drop
+# the local checkpoints so the next run safely does a full rather than a bad chain.
 save_checkpoints() {
-    local remote_dir="$1"
-    local err; err=$(mktemp)
-    log "Fetching checkpoints from remote: ${remote_dir}/xtrabackup_checkpoints"
-    if $SSH "cat '${remote_dir}/xtrabackup_checkpoints'" > "$CHECKPOINTS.tmp" 2>"$err" \
-        && grep -q '^to_lsn' "$CHECKPOINTS.tmp"; then
-        local saved_lsn; saved_lsn=$(awk '/^to_lsn/{print $3}' "$CHECKPOINTS.tmp")
-        mv "$CHECKPOINTS.tmp" "$CHECKPOINTS"
-        log "Saved checkpoints (to_lsn=${saved_lsn}); next incremental will chain from here"
-    else
-        log "WARNING: could not fetch valid checkpoints from ${remote_dir} — NEXT RUN WILL DO A FULL"
-        local errmsg; errmsg=$(tr '\n' ' ' < "$err")
-        [ -n "$errmsg" ] && log "WARNING:   ssh/cat error: ${errmsg}"
-        log "WARNING:   fetched content (first line): '$(head -1 "$CHECKPOINTS.tmp" 2>/dev/null)'"
-        rm -f "$CHECKPOINTS" "$CHECKPOINTS.tmp"
+    local lsndir="$1" min_lsn="${2:-0}"
+    local cpfile="$lsndir/xtrabackup_checkpoints"
+    if [ ! -f "$cpfile" ]; then
+        log "WARNING: mariabackup wrote no checkpoints to ${lsndir} — NEXT RUN WILL DO A FULL"
+        log "WARNING:   dir contents: $(ls -a "$lsndir" 2>/dev/null | tr '\n' ' ')"
+        rm -f "$CHECKPOINTS"
+        return 0
     fi
-    rm -f "$err"
+    local new_lsn; new_lsn=$(awk '/^to_lsn/{print $3}' "$cpfile")
+    if ! [[ "$new_lsn" =~ ^[0-9]+$ ]]; then
+        log "WARNING: checkpoints ${cpfile} has no valid to_lsn ('${new_lsn}') — NEXT RUN WILL DO A FULL"
+        log "WARNING:   file contents: $(tr '\n' ' ' < "$cpfile")"
+        rm -f "$CHECKPOINTS"
+        return 0
+    fi
+    if [ "$new_lsn" -le "$min_lsn" ]; then
+        log "WARNING: checkpoint to_lsn (${new_lsn}) did not advance past ${min_lsn} — treating as stale; NEXT RUN WILL DO A FULL"
+        rm -f "$CHECKPOINTS"
+        return 0
+    fi
+    cp "$cpfile" "$CHECKPOINTS"
+    log "Saved checkpoints (to_lsn=${new_lsn}); next incremental will chain from here"
 }
 
 # Keep only the newest $RETAIN_SETS sets on the remote; remove older ones.
@@ -136,16 +149,19 @@ prune_old_sets() {
 run_full() {
     local set_id; set_id=$(date +%Y%m%d-%H%M%S)
     local set_dir="$SETS_DIR/$set_id"
+    local lsndir; lsndir=$(mktemp -d "$STATE_DIR/lsn.XXXXXX")
     log "Starting streamed FULL backup — opening new set ${set_id}"
     log "  remote base dir: ${set_dir}/base"
     $SSH "mkdir -p '$set_dir/base'"
 
     mariabackup --backup --stream=xbstream \
+        --extra-lsndir="$lsndir" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$set_dir/base/'"
 
-    save_checkpoints "$set_dir/base"
+    save_checkpoints "$lsndir"
+    rm -rf "$lsndir"
 
     # Point subsequent incrementals at this set, and update the convenience symlink.
     echo "$set_id" > "$CURRENT_SET_FILE"
@@ -205,6 +221,7 @@ run_incremental() {
     fi
     local DATE; DATE=$(date +%Y%m%d-%H%M%S)
     local inc_dir="$set_dir/incremental/$DATE"
+    local lsndir; lsndir=$(mktemp -d "$STATE_DIR/lsn.XXXXXX")
 
     log "All preconditions met; starting streamed INCREMENTAL backup"
     log "  set: ${set_id}, from LSN: ${to_lsn}"
@@ -213,18 +230,21 @@ run_incremental() {
 
     if ! { mariabackup --backup --stream=xbstream \
         --incremental-lsn="$to_lsn" \
+        --extra-lsndir="$lsndir" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$inc_dir/'"; }; then
         log "Incremental backup failed (LSN ${to_lsn} incompatible with current server state); falling back to FULL backup"
-        rm -f "$CHECKPOINTS"
+        rm -f "$CHECKPOINTS"; rm -rf "$lsndir"
         $SSH "rm -rf '$inc_dir'"
         run_full
         return
     fi
 
-    # Advance the checkpoint so the next incremental chains from this one.
-    save_checkpoints "$inc_dir"
+    # Advance the checkpoint so the next incremental chains from this one. Require
+    # the new to_lsn to advance past where we started ($to_lsn), else it's stale.
+    save_checkpoints "$lsndir" "$to_lsn"
+    rm -rf "$lsndir"
 
     local now; now=$(date +%s)
     echo "$now" > "$LAST_BACKUP"
