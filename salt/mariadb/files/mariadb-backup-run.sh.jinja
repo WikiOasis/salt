@@ -13,6 +13,17 @@ set -euo pipefail
 ulimit -n 524288
 MODE="${1:-incremental}"
 STATE_DIR=/var/backups/mariadb
+
+# Serialize backups. A busy DB's incremental can run for the better part of an
+# hour; without a lock a manual rerun or an overrun into the next scheduled run
+# would start a second mariabackup against the same state files and corrupt the
+# LSN tracking. Non-blocking: if one is already running we just skip this run.
+LOCK_FILE=/run/mariadb-backup.lock
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Another backup is already running; skipping"
+    exit 0
+fi
 CHECKPOINTS="$STATE_DIR/xtrabackup_checkpoints"
 LAST_FULL="$STATE_DIR/last_full_backup"
 LAST_BACKUP="$STATE_DIR/last_backup"
@@ -57,7 +68,28 @@ on_exit() {
 trap on_exit EXIT
 
 remote_size() {
-    $SSH "du -sh '$1' 2>/dev/null" | cut -f1
+    # Best-effort; never let a transient du/ssh hiccup fail an otherwise-good
+    # backup (the data is already safely on the remote by the time this runs).
+    $SSH "du -sh '$1' 2>/dev/null" | cut -f1 || true
+}
+
+# Record the checkpoint LSN from the backup just streamed to the remote.
+# mariabackup's --extra-lsndir is unreliable for streamed backups: the local
+# copy is often missing or carries a stale to_lsn that never advances. That made
+# most DBs fall back to a full every run, and on busy DBs made each incremental
+# chain from an ever-older LSN until it ballooned and broke the SSH stream.
+# The xtrabackup_checkpoints extracted on the remote always reflects this exact
+# backup, so it is the source of truth. If we can't fetch it, drop the local
+# checkpoints so the next run safely does a full rather than a bad incremental.
+save_checkpoints() {
+    local remote_dir="$1"
+    if $SSH "cat '${remote_dir}/xtrabackup_checkpoints'" > "$CHECKPOINTS.tmp" \
+        && grep -q '^to_lsn' "$CHECKPOINTS.tmp"; then
+        mv "$CHECKPOINTS.tmp" "$CHECKPOINTS"
+    else
+        log "WARNING: could not fetch valid checkpoints from remote; next run will do a full"
+        rm -f "$CHECKPOINTS" "$CHECKPOINTS.tmp"
+    fi
 }
 
 run_full() {
@@ -67,10 +99,11 @@ run_full() {
           mkdir -p '$REMOTE_PATH/$HOST/base'"
 
     mariabackup --backup --stream=xbstream \
-        --extra-lsndir="$STATE_DIR" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/base/'"
+
+    save_checkpoints "$REMOTE_PATH/$HOST/base"
 
     local now; now=$(date +%s)
     echo "$now" > "$LAST_FULL"
@@ -97,6 +130,12 @@ run_incremental() {
     fi
 
     local to_lsn; to_lsn=$(awk '/^to_lsn/{print $3}' "$CHECKPOINTS")
+    if ! [[ "$to_lsn" =~ ^[0-9]+$ ]]; then
+        log "Checkpoints file has no valid to_lsn ('${to_lsn}'); running full backup"
+        rm -f "$CHECKPOINTS"
+        run_full
+        return
+    fi
     local DATE; DATE=$(date +%Y%m%d-%H%M%S)
 
     log "Starting streamed incremental backup (from LSN ${to_lsn})"
@@ -104,7 +143,6 @@ run_incremental() {
 
     if ! { mariabackup --backup --stream=xbstream \
         --incremental-lsn="$to_lsn" \
-        --extra-lsndir="$STATE_DIR" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
     | $SSH "mbstream -x -C '$REMOTE_PATH/$HOST/incremental/$DATE/'"; }; then
@@ -114,6 +152,9 @@ run_incremental() {
         run_full
         return
     fi
+
+    # Advance the checkpoint so the next incremental chains from this one.
+    save_checkpoints "$REMOTE_PATH/$HOST/incremental/$DATE"
 
     local now; now=$(date +%s)
     echo "$now" > "$LAST_BACKUP"
