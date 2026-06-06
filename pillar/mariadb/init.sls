@@ -10,6 +10,6 @@ mariadb:
   expire_logs_days: 10
   innodb:
     buffer_pool_size: 1G
-    log_file_size: 256M
+    log_file_size: 2G
     flush_log_at_trx_commit: 1
     file_per_table: true

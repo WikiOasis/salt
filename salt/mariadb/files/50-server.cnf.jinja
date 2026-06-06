@@ -108,7 +108,7 @@ expire_logs_days        = {{ cfg.get('expire_logs_days', 10) }}
 # Most important is to give InnoDB 80 % of the system RAM for buffer use:
 # https://mariadb.com/kb/en/innodb-system-variables/#innodb_buffer_pool_size
 innodb_buffer_pool_size = {{ innodb.get('buffer_pool_size', '1G') }}
-innodb_log_file_size    = {{ innodb.get('log_file_size', '256M') }}
+innodb_log_file_size    = {{ innodb.get('log_file_size', '2G') }}
 innodb_flush_log_at_trx_commit = {{ innodb.get('flush_log_at_trx_commit', 1) }}
 innodb_file_per_table   = {{ '1' if innodb.get('file_per_table', true) else '0' }}
 innodb_open_files       = {{ innodb.get('open_files', 1000) }}
