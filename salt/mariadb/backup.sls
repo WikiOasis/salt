@@ -8,6 +8,7 @@ mariadb_backup_pkgs:
       - mariadb-backup
       - jq
       - curl
+      - zstd
 
 /etc/mariadb-backup:
   file.directory:

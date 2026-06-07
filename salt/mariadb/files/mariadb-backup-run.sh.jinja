@@ -19,6 +19,7 @@
 {%- set dest = backup.get('destination', {}) %}
 {%- set discord = salt['pillar.get']('notifications:discord_webhook_url', '') %}
 {%- set slack = salt['pillar.get']('notifications:slack_webhook_url', '') %}
+{%- set compress = backup.get('compress', true) %}
 set -euo pipefail
 ulimit -n 524288
 MODE="${1:-incremental}"
@@ -52,7 +53,24 @@ START=$(date +%s)
 DISCORD_WEBHOOK_URL="{{ discord }}"
 SLACK_WEBHOOK_URL="{{ slack }}"
 
-SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes $REMOTE_USER@$REMOTE_HOST"
+# Prefer fast AEAD ciphers: the default cipher is often the throughput bottleneck
+# on a busy link, and the SSH transfer is what gates how long a full takes (and
+# therefore how much redo must be held — see the innodb_log_file_size sizing).
+SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes -o Ciphers=aes128-gcm@openssh.com,chacha20-poly1305@openssh.com,aes128-ctr $REMOTE_USER@$REMOTE_HOST"
+
+# Compress the stream in transit so the SSH transfer moves far fewer bytes, which
+# shortens the backup window (the real fix for redo-log wrap on large/busy DBs).
+# Data is decompressed on the remote, so backups are STORED UNCOMPRESSED and the
+# restore procedure is unchanged. zstd -T0 uses all cores; level 3 is a fast,
+# high-ratio default. Set mariadb:backup:compress to false to disable (e.g. if the
+# remote lacks zstd). DECOMPRESS is a remote-side pipeline prefix (note trailing |).
+{%- if compress %}
+COMPRESS="zstd -T0 -3"
+DECOMPRESS="zstd -dc -T0 | "
+{%- else %}
+COMPRESS="cat"
+DECOMPRESS=""
+{%- endif %}
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
@@ -166,7 +184,8 @@ run_full() {
         --extra-lsndir="$lsndir" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
-    | $SSH "mbstream -x -C '$set_dir/base/'"
+    | $COMPRESS \
+    | $SSH "${DECOMPRESS}mbstream -x -C '$set_dir/base/'"
 
     save_checkpoints "$lsndir"
     rm -rf "$lsndir"
@@ -241,7 +260,8 @@ run_incremental() {
         --extra-lsndir="$lsndir" \
         --open-files-limit=524288 \
         --user="$MYSQL_USER" --password="$MYSQL_PASS" \
-    | $SSH "mbstream -x -C '$inc_dir/'"; }; then
+    | $COMPRESS \
+    | $SSH "${DECOMPRESS}mbstream -x -C '$inc_dir/'"; }; then
         log "Incremental backup failed (LSN ${to_lsn} incompatible with current server state); falling back to FULL backup"
         rm -f "$CHECKPOINTS"; rm -rf "$lsndir"
         $SSH "rm -rf '$inc_dir'"
