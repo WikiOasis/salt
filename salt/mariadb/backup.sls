@@ -1,5 +1,6 @@
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
 {%- set dest = backup.get('destination', {}) %}
+{%- set schedule = backup.get('schedule', {}) %}
 {%- if backup and dest.get('host') %}
 
 mariadb_backup_pkgs:
@@ -96,23 +97,23 @@ mariadb_backup_db_user:
       - pkg: install_mariadb
       - service: mariadb
 
-# Weekly full backup on Sunday at 01:00
+# Weekly full backup on Sunday (default 01:00, overridable per host via pillar)
 mariadb_backup_weekly_cron:
   cron.present:
     - name: /usr/local/bin/mariadb-backup-run.sh full >> /var/log/mariadb-backup.log 2>&1
     - user: root
-    - minute: '0'
-    - hour: '1'
+    - minute: '{{ schedule.get('full_minute', '0') }}'
+    - hour: '{{ schedule.get('full_hour', '1') }}'
     - dayweek: '0'
     - identifier: mariadb-backup-weekly
 
-# Daily incremental backup Mon-Sat at 02:00
+# Daily incremental backup Mon-Sat (default 02:00, overridable per host via pillar)
 mariadb_backup_daily_cron:
   cron.present:
     - name: /usr/local/bin/mariadb-backup-run.sh incremental >> /var/log/mariadb-backup.log 2>&1
     - user: root
-    - minute: '0'
-    - hour: '2'
+    - minute: '{{ schedule.get('incremental_minute', '0') }}'
+    - hour: '{{ schedule.get('incremental_hour', '2') }}'
     - dayweek: '1-6'
     - identifier: mariadb-backup-daily
 

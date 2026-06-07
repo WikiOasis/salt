@@ -37,6 +37,13 @@ mariadb:
       user: mariadb-backup
       # Absolute path on the backup server; subdirs per host are created automatically
       path: /mnt/backups/mariadb
+    # Cron schedule (UTC). Defaults shown; override per host (e.g. in
+    # pillar/mariadb/<host>.sls) to stagger backups across servers.
+    schedule:
+      full_hour: '1'          # weekly full backup, Sunday
+      full_minute: '0'
+      incremental_hour: '2'   # daily incremental, Mon-Sat
+      incremental_minute: '0'
     # Private key whose public half is in authorized_keys on the backup server
     ssh_private_key: |
       -----BEGIN OPENSSH PRIVATE KEY-----
