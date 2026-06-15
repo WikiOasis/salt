@@ -1,16 +1,108 @@
 #!/bin/bash
-# Rsyncs locally-streamed binlog files to the remote backup server.
+# Rsyncs locally-streamed binlog files to the remote backup server, then removes
+# local copies of rotated binlogs once they're confirmed pushed.
 # Run every 5 minutes via cron.
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
 {%- set dest = backup.get('destination', {}) %}
+{%- set discord = salt['pillar.get']('notifications:discord_webhook_url', '') %}
+{%- set slack = salt['pillar.get']('notifications:slack_webhook_url', '') %}
 BACKUP_DIR=/var/backups/mariadb/binlogs
+STATE_DIR=/var/backups/mariadb
+STATUS_FILE="$STATE_DIR/binlog_sync_status"
 REMOTE_USER="{{ dest.get('user', '') }}"
 REMOTE_HOST="{{ dest.get('host', '') }}"
 REMOTE_PATH="{{ dest.get('path', '/backup/mariadb') }}"
 SSH_KEY=/etc/mariadb-backup/ssh_key
 HOST=$(hostname -s)
+RSYNC_SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes"
+REMOTE_DIR="$REMOTE_PATH/$HOST/binlogs/"
 
-rsync -az \
-    -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes" \
+DISCORD_WEBHOOK_URL="{{ discord }}"
+SLACK_WEBHOOK_URL="{{ slack }}"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+
+notify() {
+    local emoji="$1" text="$2"
+    local msg="${emoji} [${HOST}] ${text}"
+    if [ -n "$DISCORD_WEBHOOK_URL" ]; then
+        jq -n --arg m "$msg" '{username:"Backup",content:$m}' \
+        | curl -sSL --max-time 30 -X POST -H "Content-Type: application/json" -d @- \
+            "$DISCORD_WEBHOOK_URL" || true
+    fi
+    if [ -n "$SLACK_WEBHOOK_URL" ]; then
+        jq -n --arg m "$msg" '{text:$m}' \
+        | curl -sSL --max-time 30 -X POST -H "Content-Type: application/json" -d @- \
+            "$SLACK_WEBHOOK_URL" || true
+    fi
+}
+
+# mariadb-binlog-stream keeps appending to the newest file, so it must stay
+# local for this and future runs to keep syncing it. Only rotated/closed
+# binlogs are candidates for local cleanup.
+LATEST=$(ls -t "$BACKUP_DIR"/mysql-bin.[0-9]* 2>/dev/null | head -1)
+LATEST_NAME=$(basename "${LATEST:-}")
+PREV_STATUS=$(cat "$STATUS_FILE" 2>/dev/null || echo "ok")
+
+log "Starting binlog sync to ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR} (active file: ${LATEST_NAME:-none})"
+
+if rsync -az \
+    -e "$RSYNC_SSH" \
     "$BACKUP_DIR/" \
-    "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH/$HOST/binlogs/"
+    "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR"; then
+    log "Sync to remote OK"
+    # Only notify on a state *transition* — every-failed-run would spam the
+    # webhook for the duration of an outage given the 5-minute cron interval.
+    if [ "$PREV_STATUS" = "failing" ]; then
+        log "Sync recovered after previously failing"
+        notify ":white_check_mark:" "binlog sync to ${REMOTE_HOST} recovered"
+    fi
+    echo "ok" > "$STATUS_FILE"
+else
+    log "WARNING: rsync to ${REMOTE_HOST} failed"
+    if [ "$PREV_STATUS" != "failing" ]; then
+        notify ":x:" "binlog sync to ${REMOTE_HOST} is FAILING — local binlogs will accumulate until this recovers"
+    fi
+    echo "failing" > "$STATUS_FILE"
+    log "Binlog sync run finished (failed)"
+    exit 1
+fi
+
+# Remove local copies of rotated binlogs once rsync confirms they match the
+# copy on the remote. --remove-source-files only deletes a file after
+# verifying the transfer, so a failed/partial push leaves it for the next run.
+mapfile -t OLD_FILES < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'mysql-bin.[0-9]*' ! -name "$LATEST_NAME" -printf '%f\n')
+
+if [ "${#OLD_FILES[@]}" -eq 0 ]; then
+    log "No rotated binlogs eligible for local cleanup"
+else
+    declare -A SIZES
+    for f in "${OLD_FILES[@]}"; do
+        SIZES["$f"]=$(stat -c%s "$BACKUP_DIR/$f" 2>/dev/null || echo 0)
+    done
+
+    printf '%s\n' "${OLD_FILES[@]}" \
+    | rsync -az --remove-source-files \
+        -e "$RSYNC_SSH" \
+        --files-from=- \
+        "$BACKUP_DIR/" \
+        "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR"
+
+    RECLAIMED=0
+    REMOVED=0
+    for f in "${OLD_FILES[@]}"; do
+        if [ -e "$BACKUP_DIR/$f" ]; then
+            log "  kept ${f} (not yet confirmed on remote)"
+        else
+            RECLAIMED=$(( RECLAIMED + SIZES["$f"] ))
+            REMOVED=$(( REMOVED + 1 ))
+        fi
+    done
+
+    if [ "$REMOVED" -gt 0 ]; then
+        SIZE_HUMAN=$(numfmt --to=iec --suffix=B "$RECLAIMED" 2>/dev/null || echo "${RECLAIMED} bytes")
+        log "Removed ${REMOVED} rotated binlog(s), reclaimed ${SIZE_HUMAN} of local disk space"
+    fi
+fi
+
+log "Binlog sync run finished"
