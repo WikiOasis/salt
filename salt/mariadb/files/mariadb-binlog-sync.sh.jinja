@@ -71,37 +71,35 @@ fi
 # Remove local copies of rotated binlogs once rsync confirms they match the
 # copy on the remote. --remove-source-files only deletes a file after
 # verifying the transfer, so a failed/partial push leaves it for the next run.
-mapfile -t OLD_FILES < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'mysql-bin.[0-9]*' ! -name "$LATEST_NAME" -printf '%f\n')
+# Measured by comparing total size/count of rotated binlogs before and after.
+old_binlogs_stats() {
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'mysql-bin.[0-9]*' ! -name "$LATEST_NAME" -printf '%s\n' \
+    | awk '{sum+=$1; n++} END {print sum+0, n+0}'
+}
 
-if [ "${#OLD_FILES[@]}" -eq 0 ]; then
+read -r BEFORE_BYTES BEFORE_COUNT <<< "$(old_binlogs_stats)"
+
+if [ "$BEFORE_COUNT" -eq 0 ]; then
     log "No rotated binlogs eligible for local cleanup"
 else
-    declare -A SIZES
-    for f in "${OLD_FILES[@]}"; do
-        SIZES["$f"]=$(stat -c%s "$BACKUP_DIR/$f" 2>/dev/null || echo 0)
-    done
-
-    printf '%s\n' "${OLD_FILES[@]}" \
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'mysql-bin.[0-9]*' ! -name "$LATEST_NAME" -printf '%f\n' \
     | rsync -az --remove-source-files \
         -e "$RSYNC_SSH" \
         --files-from=- \
         "$BACKUP_DIR/" \
         "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR"
 
-    RECLAIMED=0
-    REMOVED=0
-    for f in "${OLD_FILES[@]}"; do
-        if [ -e "$BACKUP_DIR/$f" ]; then
-            log "  kept ${f} (not yet confirmed on remote)"
-        else
-            RECLAIMED=$(( RECLAIMED + SIZES["$f"] ))
-            REMOVED=$(( REMOVED + 1 ))
-        fi
-    done
+    read -r AFTER_BYTES AFTER_COUNT <<< "$(old_binlogs_stats)"
+
+    REMOVED=$(( BEFORE_COUNT - AFTER_COUNT ))
+    RECLAIMED=$(( BEFORE_BYTES - AFTER_BYTES ))
 
     if [ "$REMOVED" -gt 0 ]; then
         SIZE_HUMAN=$(numfmt --to=iec --suffix=B "$RECLAIMED" 2>/dev/null || echo "${RECLAIMED} bytes")
         log "Removed ${REMOVED} rotated binlog(s), reclaimed ${SIZE_HUMAN} of local disk space"
+    fi
+    if [ "$AFTER_COUNT" -gt 0 ]; then
+        log "  ${AFTER_COUNT} rotated binlog(s) not yet confirmed on remote; will retry next run"
     fi
 fi
 
