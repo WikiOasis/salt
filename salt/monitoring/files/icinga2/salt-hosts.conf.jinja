@@ -302,6 +302,15 @@ object Notification "slack-svc-{{ hostname }}-{{ svc }}" {
   states       = [ OK, Warning, Critical, Unknown ]
   types        = [ Problem, Recovery, Acknowledgement, FlappingStart, FlappingEnd ]
 }
+
+object Notification "incidentio-svc-{{ hostname }}-{{ svc }}" {
+  host_name    = "{{ hostname }}"
+  service_name = "{{ svc }}"
+  command      = "notify-service-by-incidentio"
+  users        = [ "webhook-notify" ]
+  states       = [ OK, Warning, Critical, Unknown ]
+  types        = [ Problem, Recovery ]
+}
 {%- endfor %}
 
 object Notification "discord-host-{{ hostname }}" {
@@ -318,6 +327,14 @@ object Notification "slack-host-{{ hostname }}" {
   users     = [ "webhook-notify" ]
   states    = [ Up, Down ]
   types     = [ Problem, Recovery, Acknowledgement, FlappingStart, FlappingEnd ]
+}
+
+object Notification "incidentio-host-{{ hostname }}" {
+  host_name = "{{ hostname }}"
+  command   = "notify-host-by-incidentio"
+  users     = [ "webhook-notify" ]
+  states    = [ Up, Down ]
+  types     = [ Problem, Recovery ]
 }
 
 {%- endfor %}
