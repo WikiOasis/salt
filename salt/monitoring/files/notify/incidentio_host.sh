@@ -15,8 +15,7 @@ jq -n \
     title:             $title,
     description:       $desc,
     deduplication_key: $dedup,
-    status:            $status,
-    metadata: { type: "host" }
+    status:            $status
   }' \
 | curl -sSL --max-time 30 -X POST \
     -H "Content-Type: application/json" \
