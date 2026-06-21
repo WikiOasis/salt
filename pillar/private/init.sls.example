@@ -13,6 +13,8 @@ monitoring:
 notifications:
   discord_webhook_url: https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
   slack_webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+  incidentio_url: https://api.incident.io/v2/alert_events/http/CHANGE_ME
+  incidentio_token: CHANGE_ME
 
 mediawiki:
   webhooks:

@@ -195,7 +195,7 @@ icinga2:
     - require:
       - file: /etc/icinga2/scripts
 
-{%- for script in ['discord_host', 'discord_service', 'slack_host', 'slack_service'] %}
+{%- for script in ['discord_host', 'discord_service', 'slack_host', 'slack_service', 'incidentio_host', 'incidentio_service'] %}
 /etc/icinga2/scripts/{{ script }}_notification.sh:
   file.managed:
     - source: salt://monitoring/files/notify/{{ script }}.sh
