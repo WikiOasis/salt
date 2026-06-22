@@ -20,7 +20,7 @@ connection_timeout=300
 
 # Check commands
 # load: warn at 80% of vCPUs, crit at 100% of vCPUs (per-CPU normalised)
-command[check_load]=/usr/lib/nagios/plugins/check_load -r -w 0.80,0.80,0.80 -c 1.00,1.00,1.00
+command[check_load]=/usr/lib/nagios/plugins/check_load -r -w 0.85,0.85,0.85 -c 1.00,1.00,1.00
 
 # disk: warn at 80% used (20% free), crit at 90% used (10% free)
 command[check_disk_root]=/usr/lib/nagios/plugins/check_disk -w 20% -c 10% -p /
