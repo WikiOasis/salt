@@ -18,7 +18,7 @@ mediawiki:
   php_binary: {{ jr.get('php_binary', '/usr/bin/php') }}
 
 runner:
-  workers: {{ jr.get('workers', 4) }}
+  workers: {{ jr.get('workers', 3) }}
   max_jobs: {{ jr.get('max_jobs', 200) }}
   max_time: {{ jr.get('max_time', 3600) }}
 
