@@ -4,7 +4,7 @@ apt:
   mirror: deb.debian.org
 
 motd:
-  theme: pride
+  theme: blue
   jokes:
     - "it works on my machine"
     - "we can't just delete customer data, we're not GitLab"
