@@ -18,6 +18,12 @@ users:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIq5RurEGzZPA38t64iDxOYwL/AT2JTLcwcIqHefM8VW user@user-HP-Laptop-15-fd0xxx
         uid: 3002
         gid: 3002
+    pisces:
+        fullname: Pisces
+        ssh-keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMpZw/QHcb+UFRgEf3lAlLPQ4vpMhQeDNt2VGR5Kl/L5 pisces@wikioasis
+        uid: 3003
+        gid: 3003
 groups:
     ops:
         gid: 7000
@@ -27,7 +33,7 @@ groups:
     mediawiki-admins:
         gid: 7001
         description: elevated permissions on webservers
-        members: [tali64]
+        members: [tali64, pisces]
         privileges: ['ALL = (www-data) NOPASSWD: ALL',
                 'ALL = (www-data) NOPASSWD: /usr/local/bin/mwdeploy *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
