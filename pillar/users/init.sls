@@ -21,7 +21,7 @@ users:
     pisces:
         fullname: Pisces
         ssh-keys:
-          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMpZw/QHcb+UFRgEf3lAlLPQ4vpMhQeDNt2VGR5Kl/L5 pisces@wikioasis
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAKWvAxYvkaVdWezSktHSkz7LelSH+kOSaEkJclwkrM/ pisces@wikioasis
         uid: 3003
         gid: 3003
 groups:
