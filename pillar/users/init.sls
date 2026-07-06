@@ -35,7 +35,7 @@ groups:
         description: elevated permissions on webservers
         members: [tali64, pisces]
         privileges: ['ALL = (www-data) NOPASSWD: ALL',
-                'ALL = (www-data) NOPASSWD: /usr/local/bin/mwdeploy *',
+                'ALL = (ALL) NOPASSWD: /usr/local/bin/mwdeploy *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service php8.4-fpm *',
                 'ALL = (ALL) NOPASSWD: /bin/journalctl *']
