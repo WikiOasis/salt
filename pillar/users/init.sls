@@ -14,8 +14,6 @@ users:
         gid: 3001
     tali64:
         fullname: Tali64
-        ssh-keys:
-          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIq5RurEGzZPA38t64iDxOYwL/AT2JTLcwcIqHefM8VW user@user-HP-Laptop-15-fd0xxx
         uid: 3002
         gid: 3002
     pisces:
@@ -33,7 +31,7 @@ groups:
     mediawiki-admins:
         gid: 7001
         description: elevated permissions on webservers
-        members: [tali64, pisces]
+        members: [pisces]
         privileges: ['ALL = (www-data) NOPASSWD: ALL',
                 'ALL = (ALL) NOPASSWD: /usr/local/bin/mwdeploy *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
