@@ -83,6 +83,16 @@ logrotate_pkg:
     - require:
       - pkg: nginx
 
+/etc/nginx/conf.d/portal.conf:
+  file.managed:
+    - source: salt://nginx/files/portal.conf.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: nginx
+
 /etc/nginx/sites-enabled/default:
   file.absent:
     - require:
