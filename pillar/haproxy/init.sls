@@ -43,6 +43,8 @@ haproxy:
           backend: apps
         - hostname: safety.wikioasis.org
           backend: apps
+        - hostname: portal.wikioasis.org
+          backend: apps
       default_backend: mediawiki
       options:
         - forwardfor
