@@ -28,6 +28,8 @@ pm.max_requests = {{ fpm.get('pm_max_requests', 500) }}
 request_terminate_timeout = {{ fpm.get('request_terminate_timeout', 60) }}
 
 php_admin_value[memory_limit] = {{ fpm.get('memory_limit', '300M') }}
+php_admin_value[upload_max_filesize] = {{ fpm.get('upload_max_filesize', '128M') }}
+php_admin_value[post_max_size] = {{ fpm.get('post_max_size', '128M') }}
 
 ping.path = /ping
 ping.response = pong
