@@ -4,6 +4,7 @@ users:
         fullname: Thomas
         ssh-keys:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBBENCQ1Vgjdl8ux9snbGF4s1SRbcU0EvaYlj7I51LWG zippybonzo@wikioasis.org
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDCEy/PIhExYwD6FYZoTARuajgaUuXGDJQVWJjKJQpVI zippybonzo@wikioasis.org
         uid: 3000
         gid: 3000
     unai:
