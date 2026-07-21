@@ -33,7 +33,7 @@ php:
     enable: true
     enable_cli: false
     memory_consumption: 1024
-    interned_strings_buffer: 32
+    interned_strings_buffer: 512
     max_accelerated_files: 100000
     max_wasted_percentage: 10
     validate_timestamps: true
