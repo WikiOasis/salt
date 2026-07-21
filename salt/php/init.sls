@@ -26,8 +26,19 @@ install_php:
     - require:
       - pkg: install_php
 
+/etc/php/{{ version }}/fpm/php.ini:
+  file.managed:
+    - source: salt://php/files/php.ini.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: install_php
+
 php{{ version }}-fpm:
   service.running:
     - enable: True
     - watch:
       - file: /etc/php/{{ version }}/fpm/pool.d/{{ pool }}.conf
+      - file: /etc/php/{{ version }}/fpm/php.ini

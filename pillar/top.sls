@@ -5,6 +5,7 @@ base:
       - private
    'apps*':
       - php
+      - php.apps
       - private
    'bastion*':
       - users.servers.bastion
@@ -43,6 +44,9 @@ base:
       - nginx
       - mediawiki
       - mediawiki.jobrunner
+
+   'staging*':
+      - php.staging
 
    'opensearch*':
       - opensearch
