@@ -1,6 +1,4 @@
-# Applied on top of php/init.sls for the staging host only (see pillar/top.sls).
-# Staging is a low-traffic canary box, so OPcache gets a much smaller budget
-# than the production mw*/task* fleet.
+# Merged on top of pillar/php/init.sls for staging* hosts only (pillar/top.sls).
 php:
   opcache:
     memory_consumption: 256
