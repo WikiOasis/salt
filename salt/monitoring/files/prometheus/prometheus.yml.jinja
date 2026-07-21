@@ -34,6 +34,11 @@ scrape_configs:
       - files: ['/etc/prometheus/file_sd/phpfpm.json']
         refresh_interval: 5m
 
+  - job_name: 'phpopcache'
+    file_sd_configs:
+      - files: ['/etc/prometheus/file_sd/phpopcache.json']
+        refresh_interval: 5m
+
   - job_name: 'opensearch'
     file_sd_configs:
       - files: ['/etc/prometheus/file_sd/opensearch.json']

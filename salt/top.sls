@@ -15,6 +15,7 @@ base:
     - monitoring.nrpe_nginx
     - monitoring.nrpe_php
     - monitoring.phpfpm_exporter
+    - monitoring.phpopcache_exporter
   'db*':
     - mariadb
     - mariadb.monitoring_user
@@ -52,6 +53,7 @@ base:
     - monitoring.nrpe_php
     - monitoring.nrpe_mediawiki
     - monitoring.phpfpm_exporter
+    - monitoring.phpopcache_exporter
   'task*':
     - php
     - nginx
@@ -61,6 +63,7 @@ base:
     - monitoring.nrpe_nginx
     - monitoring.nrpe_php
     - monitoring.phpfpm_exporter
+    - monitoring.phpopcache_exporter
 
   'opensearch*':
     - opensearch
