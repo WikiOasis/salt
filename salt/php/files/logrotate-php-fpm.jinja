@@ -1,0 +1,12 @@
+{%- set version = salt['pillar.get']('php:version', '8.3') %}
+# Managed by Salt (php state).
+/var/log/php{{ version }}-fpm-error.log {
+        weekly
+        missingok
+        rotate 4
+        maxsize 50M
+        compress
+        delaycompress
+        notifempty
+        create 0640 www-data adm
+}

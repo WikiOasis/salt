@@ -36,9 +36,30 @@ install_php:
     - require:
       - pkg: install_php
 
+/var/log/php{{ version }}-fpm-error.log:
+  file.managed:
+    - replace: False
+    - user: www-data
+    - group: adm
+    - mode: '0640'
+    - require:
+      - pkg: install_php
+
+/etc/logrotate.d/php{{ version }}-fpm:
+  file.managed:
+    - source: salt://php/files/logrotate-php-fpm.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: install_php
+      - file: /var/log/php{{ version }}-fpm-error.log
+
 php{{ version }}-fpm:
   service.running:
     - enable: True
+    - reload: True
     - watch:
       - file: /etc/php/{{ version }}/fpm/pool.d/{{ pool }}.conf
       - file: /etc/php/{{ version }}/fpm/php.ini
