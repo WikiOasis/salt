@@ -5,6 +5,7 @@ base:
       - private
    'apps*':
       - php
+      - php.apps
       - private
    'bastion*':
       - users.servers.bastion
