@@ -9,11 +9,11 @@ phpopcache_exporter_binary:
     - source_hash: sha256=1d1e19afdadb0a40840e0212beb83d67dec4a74d77e9cfb27c4bb33bf652ca3f
     - archive_format: tar
     - enforce_toplevel: False
-    - if_missing: /opt/phpopcache_exporter/phpfpm_exporter
+    - if_missing: /opt/phpopcache_exporter/phpfpm_exporter-0.6.0.linux-amd64/phpfpm_exporter
 
 /usr/local/bin/prometheus-phpopcache-exporter:
   file.symlink:
-    - target: /opt/phpopcache_exporter/phpfpm_exporter
+    - target: /opt/phpopcache_exporter/phpfpm_exporter-0.6.0.linux-amd64/phpfpm_exporter
     - require:
       - archive: phpopcache_exporter_binary
 
