@@ -1,0 +1,50 @@
+{%- set cfg = salt['pillar.get']('php', {}) %}
+{%- set version = cfg.get('version', '8.3') %}
+{%- set opcache = cfg.get('opcache', {}) %}
+; Managed by Salt — do not edit manually.
+; php.ini for the php-fpm SAPI ({{ version }}), tuned for MediaWiki.
+
+[PHP]
+engine = On
+short_open_tag = Off
+expose_php = Off
+error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+display_errors = Off
+display_startup_errors = Off
+log_errors = On
+error_log = /var/log/php{{ version }}-fpm-error.log
+default_charset = "UTF-8"
+realpath_cache_size = 4096k
+realpath_cache_ttl = 600
+
+[Date]
+date.timezone = "UTC"
+
+[Session]
+session.save_handler = files
+session.gc_maxlifetime = 1440
+
+{#- Aggressive, MediaWiki-oriented OPcache tuning. Sized per-role via pillar
+   (see pillar/php/init.sls and pillar/php/staging.sls). #}
+[opcache]
+; opcache itself is loaded via /etc/php/{{ version }}/mods-available/opcache.ini
+; (enabled by default on Debian); this section only overrides its tuning.
+opcache.enable = {{ '1' if opcache.get('enable', True) else '0' }}
+opcache.enable_cli = {{ '1' if opcache.get('enable_cli', False) else '0' }}
+opcache.memory_consumption = {{ opcache.get('memory_consumption', 1024) }}
+opcache.interned_strings_buffer = {{ opcache.get('interned_strings_buffer', 32) }}
+opcache.max_accelerated_files = {{ opcache.get('max_accelerated_files', 100000) }}
+opcache.max_wasted_percentage = {{ opcache.get('max_wasted_percentage', 10) }}
+
+; Aggressive: skip per-request mtime checks entirely. Deploys MUST trigger a
+; reload/restart of php{{ version }}-fpm (not currently done by mwdeploy) so
+; workers pick up changed opcode caches — otherwise stale bytecode is served.
+opcache.validate_timestamps = {{ '1' if opcache.get('validate_timestamps', False) else '0' }}
+opcache.revalidate_freq = {{ opcache.get('revalidate_freq', 0) }}
+
+opcache.save_comments = {{ '1' if opcache.get('save_comments', False) else '0' }}
+opcache.consistency_checks = 0
+
+; JIT (PHP 8+): tracing JIT with its own dedicated buffer.
+opcache.jit = {{ opcache.get('jit', 'tracing') }}
+opcache.jit_buffer_size = {{ opcache.get('jit_buffer_size', '128M') }}

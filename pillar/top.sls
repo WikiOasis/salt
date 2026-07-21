@@ -44,6 +44,9 @@ base:
       - mediawiki
       - mediawiki.jobrunner
 
+   'staging*':
+      - php.staging
+
    'opensearch*':
       - opensearch
    'redis*':
