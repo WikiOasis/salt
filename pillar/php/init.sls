@@ -36,8 +36,8 @@ php:
     interned_strings_buffer: 32
     max_accelerated_files: 100000
     max_wasted_percentage: 10
-    validate_timestamps: false
-    revalidate_freq: 0
+    validate_timestamps: true
+    revalidate_freq: 10
     save_comments: false
     jit: tracing
     jit_buffer_size: 128M
