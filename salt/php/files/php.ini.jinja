@@ -16,6 +16,7 @@ error_log = /var/log/php{{ version }}-fpm-error.log
 default_charset = "UTF-8"
 realpath_cache_size = 4096k
 realpath_cache_ttl = 600
+zend.exception_ignore_args: Off
 
 [Date]
 date.timezone = "UTC"
