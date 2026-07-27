@@ -54,8 +54,17 @@ frontend {{ name }}
 backend {{ name }}
     balance {{ backend.get('balance', 'roundrobin') }}
     mode {{ backend.get('mode', defaults_cfg.get('mode', 'http')) }}
+{%- if backend.get('timeout_server') %}
+    timeout server {{ backend.get('timeout_server') }}
+{%- endif %}
+{%- if backend.get('timeout_tunnel') %}
+    timeout tunnel {{ backend.get('timeout_tunnel') }}
+{%- endif %}
 {%- for option in backend.get('options', []) %}
     option {{ option }}
+{%- endfor %}
+{%- for line in backend.get('http_request', []) %}
+    http-request {{ line }}
 {%- endfor %}
 {%- for check in backend.get('http_checks', []) %}
     http-check {{ check }}

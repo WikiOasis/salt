@@ -38,6 +38,8 @@ base:
       - monitoring
       - metal
       - private
+   'salt*':
+      - mwdeploy_portal
    'task*':
       - users.servers.mediawiki
       - php

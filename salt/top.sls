@@ -9,6 +9,7 @@ base:
     - monitoring.nrpe_salt
     - monitoring.node_exporter
     - monitoring.otelcol
+    - mwdeploy.shim
   'apps*':
     - php
     - nginx
@@ -40,6 +41,7 @@ base:
     - monitoring.statsd_exporter
   'staging*':
     - mediawiki
+    - mwdeploy.staging
 
   'mw*':
     - mediawiki.target
@@ -75,5 +77,8 @@ base:
     - monitoring.redis_exporter
   'salt*':
     - monitoring.nrpe_salt_master
+    - mwdeploy.portal
+    - mwdeploy.portal.nginx
+    - mwdeploy.portal.master_acl
   '*-us-east-0[0-9][0-9]*':
     - metal.vm_ipv6

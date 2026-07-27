@@ -45,6 +45,8 @@ haproxy:
           backend: apps
         - hostname: portal.wikioasis.org
           backend: apps
+        - hostname: console.wikioasis.org
+          backend: deploy_portal
       default_backend: mediawiki
       options:
         - forwardfor
@@ -91,6 +93,32 @@ haproxy:
           depooled: false
         - name: mw-us-east-022
           host: mw-us-east-022.ovvin.wonet
+          port: 80
+          check: true
+          weight: 1
+          depooled: false
+    # Deliberately NOT in the mediawiki backend: a rollout depools servers from
+    # that backend, and depooling the box serving this portal would take the
+    # dashboard down mid-deploy.
+    deploy_portal:
+      balance: roundrobin
+      options:
+        - forwardfor
+        - httpchk
+      http_checks:
+        - send meth GET uri /up
+        - expect status 200
+      # A deployment's live dashboard holds a websocket open for the length of
+      # a rollout (tens of minutes); the default tunnel/server timeouts would
+      # drop it and silently degrade the dashboard to polling.
+      timeout_tunnel: 1h
+      timeout_server: 120s
+      http_request:
+        - set-header X-Forwarded-Proto https
+        - set-header X-Forwarded-Port 443
+      servers:
+        - name: salt-us-east-021
+          host: salt-us-east-021.ovvin.wonet
           port: 80
           check: true
           weight: 1
