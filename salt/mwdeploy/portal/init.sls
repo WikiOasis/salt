@@ -6,10 +6,6 @@
 {%- set p = salt['pillar.get']('mwdeploy_portal', {}) %}
 {%- set path = p.get('path', '/srv/deploy-portal') %}
 {%- set php_version = p.get('php_version', '8.4') %}
-{%- set db = p.get('db', {}) %}
-{%- set db_name = db.get('name', 'mwdeploy') %}
-{%- set db_user = db.get('user', 'mwdeploy') %}
-{%- set db_password = salt['pillar.get']('mwdeploy_portal:db_password', '') %}
 
 mwdeploy-portal-packages:
   pkg.installed:
@@ -23,42 +19,14 @@ mwdeploy-portal-packages:
       - php{{ php_version }}-intl
       - php{{ php_version }}-zip
       - php{{ php_version }}-bcmath
-      - mariadb-server
       - nodejs
       - npm
       - git
       - composer
 
-# A small, dedicated instance for the portal's own schema — deliberately not
-# the salt/mariadb formula, which is tuned (buffer pools, replication server_id)
-# for the MediaWiki DB cluster on db*.
-mariadb:
-  service.running:
-    - enable: True
-    - require:
-      - pkg: mwdeploy-portal-packages
-
-mwdeploy-portal-db:
-  cmd.run:
-    - name: >
-        mysql -e
-        "CREATE DATABASE IF NOT EXISTS `{{ db_name }}`
-        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    - unless: >
-        mysql -e "SHOW DATABASES LIKE '{{ db_name }}';" | grep -q {{ db_name }}
-    - require:
-      - service: mariadb
-
-mwdeploy-portal-db-user:
-  cmd.run:
-    - name: >
-        mysql -e
-        "CREATE USER IF NOT EXISTS '{{ db_user }}'@'localhost' IDENTIFIED BY '{{ db_password }}';
-        ALTER USER '{{ db_user }}'@'localhost' IDENTIFIED BY '{{ db_password }}';
-        GRANT ALL PRIVILEGES ON `{{ db_name }}`.* TO '{{ db_user }}'@'localhost';
-        FLUSH PRIVILEGES;"
-    - require:
-      - cmd: mwdeploy-portal-db
+# The portal's schema lives on db-other-us-east-011 (mariadb.portal_db, applied
+# via salt/top.sls), not a local mariadb on the salt master — see
+# pillar/mwdeploy_portal db.host and portal.env.jinja's DB_HOST.
 
 mwdeploy-portal-clone:
   git.latest:
@@ -129,7 +97,6 @@ mwdeploy-portal-migrate:
     - onchanges:
       - git: mwdeploy-portal-clone
     - require:
-      - cmd: mwdeploy-portal-db-user
       - file: {{ path }}/.env
       - cmd: mwdeploy-portal-composer
 
