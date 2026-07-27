@@ -68,6 +68,10 @@ server {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         fastcgi_param DOCUMENT_ROOT   $realpath_root;
+        # TLS terminates at the edge, so this vhost only ever speaks plain
+        # HTTP — tell PHP the original request was HTTPS or Laravel sees an
+        # insecure request and emits http:// URLs for assets (vite(), CSS/JS).
+        fastcgi_param HTTPS on;
         fastcgi_hide_header X-Powered-By;
         fastcgi_read_timeout 120s;
     }
