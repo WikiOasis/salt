@@ -24,6 +24,8 @@ base:
     - mariadb.backup
     - mariadb.nrpe_backup
     - monitoring.mysqld_exporter
+  'db-other-us-east-011*':
+    - mariadb.portal_db
   'metal*':
     - metal
     - monitoring.nrpe_metal

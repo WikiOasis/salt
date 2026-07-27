@@ -16,6 +16,10 @@ mwdeploy_portal:
   db:
     name: mwdeploy
     user: mwdeploy
+    # Dedicated schema on the "other" mariadb host, not the db-c1 MediaWiki
+    # cluster — see mariadb.portal_db (applied to db-other-us-east-011 via
+    # salt/top.sls) for the database/user creation.
+    host: db-other-us-east-011.ovvin.wonet
 
   # Salt minion id of the staging host. Every preparation step (git checkout,
   # patching, local rsync, staging canary) runs here — must match salt-key -L.
