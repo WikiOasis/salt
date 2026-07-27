@@ -1,0 +1,17 @@
+[Unit]
+Description=WikiOasis deploy portal queue worker
+After=network.target mysql.service
+
+[Service]
+User=www-data
+WorkingDirectory=/srv/deploy-portal
+# --timeout=0 is required, not a preference: a deploy job blocks for as long as
+# its rsyncs and l10n rebuilds take, and a worker timeout mid-rollout would
+# leave the fleet half-updated.
+# --tries=1 because a deployment is not safely retryable from the top.
+ExecStart=/usr/bin/php artisan queue:work --queue=default --tries=1 --timeout=0 --sleep=1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

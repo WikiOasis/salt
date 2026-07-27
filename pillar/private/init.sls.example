@@ -20,6 +20,13 @@ mediawiki:
   webhooks:
     discord: ""
     slack: ""
+  # Private half of pillar/mediawiki/init.sls's deploy_ssh_public_key. staging
+  # only; this is what lets the (legacy, still in use) mwdeploy CLI SSH from
+  # staging out to every mw*/proxy* box as the mwdeploy user.
+  deploy_ssh_private_key: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    CHANGE_ME
+    -----END OPENSSH PRIVATE KEY-----
 
 sentry_relay:
   dsn: CHANGE_ME
@@ -27,6 +34,20 @@ sentry_relay:
 sentry_logging:
   journald_dsn: CHANGE_ME
   nginx_dsn: CHANGE_ME
+
+mwdeploy_portal:
+  # `openssl rand -hex 24` (any opaque string) — used for both DB user and DB
+  # backup is irrelevant here, this is the small app schema, not the wiki DB.
+  db_password: CHANGE_ME
+  # `openssl rand -base64 32`, prefixed "base64:" — same format
+  # `php artisan key:generate --show` would produce. Rotating it invalidates
+  # every session and every encrypted 2FA secret.
+  app_key: CHANGE_ME
+  # `openssl rand -hex 24` each. Shared secrets between the app, the Reverb
+  # server and the browser: the key is public (ends up in the JS bundle), the
+  # secret is app<->Reverb only.
+  reverb_app_key: CHANGE_ME
+  reverb_app_secret: CHANGE_ME
 
 mariadb:
   backup:

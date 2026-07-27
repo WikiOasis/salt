@@ -32,6 +32,21 @@
       - file: /home/{{ deploy_user }}/.ssh
 {%- endif %}
 
+# Private half of deploy_ssh_public_key, staging only — mwdeploy runs here and
+# SSHes out to every mw*/proxy* box as this user. contents_pillar keeps the key
+# out of the rendered SLS and the job cache.
+{%- if mw.get('deploy_ssh_private_key') %}
+/home/{{ deploy_user }}/.ssh/id_ed25519:
+  file.managed:
+    - contents_pillar: mediawiki:deploy_ssh_private_key
+    - user: {{ deploy_user }}
+    - group: {{ deploy_user }}
+    - mode: '0600'
+    - show_changes: False
+    - require:
+      - file: /home/{{ deploy_user }}/.ssh
+{%- endif %}
+
 # The script
 /usr/local/bin/mwdeploy:
   file.managed:
