@@ -31,12 +31,18 @@ nginx:
     - require:
       - pkg: nginx
 
+# The interface is a bundled Vue SPA: without public/build/manifest.json every
+# page 500s on the @vite directive, it does not degrade. So a failed asset
+# build (mwdeploy-portal-assets, in mwdeploy.portal.init) must block the vhost
+# from being considered healthy, not just skip a rebuild on an unrelated run.
 php-fpm-deploy-portal:
   service.running:
     - name: php{{ php_version }}-fpm
     - enable: True
     - watch:
       - file: /etc/php/{{ php_version }}/fpm/pool.d/deploy-portal.conf
+    - require:
+      - cmd: mwdeploy-portal-assets
 
 nginx_deploy_portal_service:
   service.running:
@@ -48,3 +54,4 @@ nginx_deploy_portal_service:
     - require:
       - pkg: nginx
       - file: /etc/nginx/sites-enabled/default
+      - cmd: mwdeploy-portal-assets

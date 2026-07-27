@@ -44,6 +44,15 @@ mwdeploy_portal:
     canary_retries: 3
     l10n_wiki: testwiki
 
+  # Where the tree-scan import screen looks, and where mw-config is checked
+  # out relative to the deploy root it reads. config_dir is set-once per
+  # farm: changing it after checkouts exist repoints where a removal is
+  # aimed, not where the config lives, so treat an existing checkout as
+  # needing a manual move first.
+  scan:
+    config_dir: config
+    root: staging
+
   decisions:
     timeout: 900
     timeout_default: abort_and_rollback
