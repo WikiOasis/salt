@@ -471,6 +471,173 @@ def cmd_repo_register(args: argparse.Namespace) -> Result:
     )
 
 
+def cmd_git_remote_check(args: argparse.Namespace) -> Result:
+    """Confirm a git remote is reachable and has the expected branch.
+
+    Cheap enough to run from a form submission, which is the point: registering a
+    repository whose URL is wrong should fail at the form rather than as a puzzling
+    deployment failure days later.
+    """
+    argv = ["git", "ls-remote", "--exit-code", "--heads", args.url]
+
+    if args.branch:
+        argv.append(args.branch)
+
+    ran = run(argv, as_web_user=True, timeout=120)
+
+    if ran.returncode == 2:
+        raise ShimError(
+            f"{args.url} is reachable but has no branch named '{args.branch}'",
+            stdout=ran.stdout,
+            stderr=ran.stderr,
+        )
+
+    ran.raise_for_status(f"could not reach {args.url}")
+
+    heads = [line.split("\t")[-1].removeprefix("refs/heads/") for line in ran.stdout.splitlines() if line.strip()]
+
+    return Result(
+        ok=True,
+        detail=f"{args.url} is reachable ({len(heads)} matching head(s))",
+        extra={"heads": heads},
+    )
+
+
+def cmd_version_scaffold(args: argparse.Namespace) -> Result:
+    """Create an empty versions/<ver>/ tree, ready for core and its extensions.
+
+    Split out from repo-register so that reconstructing a version is one explicit
+    step the portal can show on its review screen, rather than a side effect of
+    cloning core.
+    """
+    path = args.path
+
+    created = []
+
+    for subdirectory in ("", "extensions", "skins", "cache"):
+        target = os.path.join(path, subdirectory) if subdirectory else path
+
+        if not os.path.isdir(target):
+            run(["mkdir", "-p", target], as_web_user=True).raise_for_status(
+                f"could not create {target}"
+            )
+            created.append(target)
+
+    fix_ownership(path)
+
+    return Result(
+        ok=True,
+        detail=f"scaffolded {path} for version {args.version} ({len(created)} directories created)",
+        extra={"path": path, "version": args.version, "created": created},
+    )
+
+
+# --------------------------------------------------------------------------- #
+# removal
+# --------------------------------------------------------------------------- #
+
+
+def assert_removable(path: str, root: str, allow_version_root: bool) -> str:
+    """Refuse to delete anything that is not unambiguously a deploy artefact.
+
+    This is the guard on the single most destructive operation in the system. The
+    portal already validates and stores paths, but a bug or a crafted request must
+    not be able to turn `repo-remove` into `rm -rf /`, so every check is repeated
+    here where the deletion actually happens.
+
+    Returns the normalised absolute path.
+    """
+    if not root:
+        raise ShimError("--root is required; refusing to remove anything without one")
+
+    # Resolve both sides before comparing: a symlink or a "." component could
+    # otherwise smuggle the target outside the root.
+    resolved = os.path.realpath(path)
+    resolved_root = os.path.realpath(root)
+
+    if not os.path.isabs(path) or not os.path.isabs(root):
+        raise ShimError(f"paths must be absolute: path={path} root={root}")
+
+    if ".." in path.split(os.sep):
+        raise ShimError(f"refusing to remove a path containing '..': {path}")
+
+    if resolved == os.sep or resolved_root == os.sep:
+        raise ShimError("refusing to operate on /")
+
+    if resolved == resolved_root:
+        raise ShimError(f"refusing to remove the deploy root itself: {resolved}")
+
+    # Strictly inside the root, and not merely sharing a name prefix with it
+    # (/srv/mediawiki-old must not pass a /srv/mediawiki root).
+    if not resolved.startswith(resolved_root.rstrip(os.sep) + os.sep):
+        raise ShimError(f"refusing to remove {resolved}: outside the deploy root {resolved_root}")
+
+    relative = os.path.relpath(resolved, resolved_root)
+    segments = [segment for segment in relative.split(os.sep) if segment]
+
+    if not segments:
+        raise ShimError(f"refusing to remove the deploy root itself: {resolved}")
+
+    # `versions` holds every core version; deleting it removes the whole farm.
+    if segments == ["versions"]:
+        raise ShimError(f"refusing to remove the versions directory itself: {resolved}")
+
+    # A bare versions/<ver> is an entire core version. Removing one is legitimate
+    # but needs saying out loud, so it takes a separate flag.
+    if len(segments) == 2 and segments[0] == "versions" and not allow_version_root:
+        raise ShimError(
+            f"refusing to remove the whole core version {segments[1]} without "
+            "--allow-version-root"
+        )
+
+    return resolved
+
+
+def cmd_repo_remove(args: argparse.Namespace) -> Result:
+    """Remove a checkout (or a whole core version) from this host.
+
+    Deliberately not implemented by deleting on staging and letting rsync
+    --delete propagate: under a path-restricted include set those semantics are
+    subtle, and they change entirely if the farm moves to NFS. Running an explicit
+    removal on each host is deterministic and attributable per server.
+    """
+    resolved = assert_removable(args.path, args.root, args.allow_version_root)
+
+    if not os.path.exists(resolved):
+        # Idempotent: the portal runs this per server, and a retry (or a server
+        # provisioned after the checkout was removed) must not fail.
+        return Result(
+            ok=True,
+            detail=f"{resolved} is already absent",
+            extra={"path": resolved, "removed": False},
+        )
+
+    if not os.path.isdir(resolved):
+        raise ShimError(f"refusing to remove {resolved}: not a directory")
+
+    if args.check:
+        entries = len(os.listdir(resolved))
+
+        return Result(
+            ok=True,
+            detail=f"would remove {resolved} ({entries} entries)",
+            extra={"path": resolved, "removed": False, "checked": True},
+        )
+
+    run(["rm", "-rf", "--", resolved], as_web_user=True, timeout=600).raise_for_status(
+        f"could not remove {resolved}"
+    )
+
+    if os.path.exists(resolved):
+        raise ShimError(f"{resolved} still exists after removal")
+
+    return Result(
+        ok=True,
+        detail=f"removed {resolved}",
+        extra={"path": resolved, "removed": True},
+    )
+
+
 # --------------------------------------------------------------------------- #
 # rsync
 # --------------------------------------------------------------------------- #
@@ -573,6 +740,64 @@ def cmd_rsync_remote(args: argparse.Namespace) -> Result:
     fix_ownership(args.dst)
 
     return result
+
+
+# --------------------------------------------------------------------------- #
+# wiki → version mapping
+# --------------------------------------------------------------------------- #
+
+
+def cmd_wiki_versions(args: argparse.Namespace) -> Result:
+    """Report which core versions the farm's wikis are currently pointed at.
+
+    This exists so that undeploying a core version can be *refused* when wikis
+    still run on it, rather than left to an operator's checklist.
+
+    The mapping lives in the config repo, not here, and its exact shape varies
+    between farms. Both common shapes are handled:
+
+        {"enwiki": "1.45", ...}
+        {"enwiki": {"version": "1.45"}, ...}
+
+    and a leading "php-" is tolerated because that is how Wikimedia writes it.
+    Anything else is reported as unparseable rather than guessed at — a wrong
+    answer here means deleting a version that is still serving traffic.
+    """
+    path = args.file
+
+    if not os.path.isfile(path):
+        raise ShimError(f"wiki version map not found: {path}")
+
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise ShimError(f"could not read {path}: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise ShimError(f"{path} is not a JSON object mapping wikis to versions")
+
+    versions: dict[str, list[str]] = {}
+
+    for wiki, value in data.items():
+        if isinstance(value, dict):
+            value = value.get("version")
+
+        if not isinstance(value, str) or not value.strip():
+            raise ShimError(f"{path}: could not read a version for wiki '{wiki}'")
+
+        version = value.strip().removeprefix("php-")
+        versions.setdefault(version, []).append(str(wiki))
+
+    return Result(
+        ok=True,
+        detail=f"{len(data)} wikis across {len(versions)} version(s): "
+        + ", ".join(f"{version} ({len(wikis)})" for version, wikis in sorted(versions.items())),
+        extra={
+            "versions": {version: sorted(wikis) for version, wikis in versions.items()},
+            "wiki_count": len(data),
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -827,6 +1052,40 @@ def build_parser() -> argparse.ArgumentParser:
     register.add_argument("--kind", choices=("plain", "core-version"), default="plain")
     register.add_argument("--version", default=None, help="MediaWiki version, with --kind core-version")
     register.set_defaults(handler=cmd_repo_register)
+
+    remote_check = subparsers.add_parser(
+        "git-remote-check", help="Confirm a git remote is reachable before registering it"
+    )
+    remote_check.add_argument("--url", required=True)
+    remote_check.add_argument("--branch", default=None, help="Also require this branch to exist")
+    remote_check.set_defaults(handler=cmd_git_remote_check)
+
+    scaffold = subparsers.add_parser("version-scaffold", help="Create an empty versions/<ver> tree")
+    scaffold.add_argument("--path", required=True)
+    scaffold.add_argument("--version", required=True)
+    scaffold.set_defaults(handler=cmd_version_scaffold)
+
+    remove = subparsers.add_parser("repo-remove", help="Remove a checkout, or a whole core version")
+    remove.add_argument("--path", required=True, help="Absolute path to remove")
+    remove.add_argument(
+        "--root",
+        required=True,
+        help="Deploy root the path must be strictly inside; refuses anything outside it",
+    )
+    remove.add_argument(
+        "--allow-version-root",
+        action="store_true",
+        dest="allow_version_root",
+        help="Permit removing a bare versions/<ver>, i.e. an entire core version",
+    )
+    remove.add_argument("--check", action="store_true", help="Report what would be removed")
+    remove.set_defaults(handler=cmd_repo_remove)
+
+    wiki_versions = subparsers.add_parser(
+        "wiki-versions", help="Report which core versions the farm's wikis point at"
+    )
+    wiki_versions.add_argument("--file", required=True, help="Path to the wiki → version JSON map")
+    wiki_versions.set_defaults(handler=cmd_wiki_versions)
 
     local = subparsers.add_parser("rsync-local", help="Rsync staging → production on this host")
     local.add_argument("--src", required=True)
