@@ -26,7 +26,7 @@ mwdeploy_portal_db_user:
         mysql -e
         "CREATE USER IF NOT EXISTS '{{ db_user }}'@'%' IDENTIFIED BY '{{ db_password }}';
         ALTER USER '{{ db_user }}'@'%' IDENTIFIED BY '{{ db_password }}';
-        GRANT ALL PRIVILEGES ON `{{ db_name }}`.* TO '{{ db_user }}'@'%';
+        GRANT ALL PRIVILEGES ON {{ db_name }}.* TO '{{ db_user }}'@'%';
         FLUSH PRIVILEGES;"
     - require:
       - cmd: mwdeploy_portal_db
