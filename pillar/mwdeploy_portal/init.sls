@@ -23,7 +23,7 @@ mwdeploy_portal:
 
   # Salt minion id of the staging host. Every preparation step (git checkout,
   # patching, local rsync, staging canary) runs here — must match salt-key -L.
-  staging_target: staging-us-east-021
+  staging_target: staging-us-east-021.ovvin.wonet
 
   # Bare rsync daemon module exported by mwdeploy.staging. Swap for an NFS path
   # if the farm grows an NFS export of the tree (single env var change, see
