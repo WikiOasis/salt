@@ -35,8 +35,13 @@
         # Required for a non-root user (www-data) to read the master's PKI and
         # cache directories when publishing jobs via publisher_acl.
         permissive_pki_access: True
-    - user: salt
-    - group: salt
+    # Keep this root:root. salt-master runs as root but with CAP_DAC_OVERRIDE
+    # dropped, so it only reads this file via the owning-user permission bits,
+    # not the root-bypasses-all-DAC-checks path. Owning it as `salt` (a group
+    # the master process isn't in) makes the master itself unable to read its
+    # own drop-in and fail to start with EACCES.
+    - user: root
+    - group: root
     - mode: '0640'
 
 salt-master:
