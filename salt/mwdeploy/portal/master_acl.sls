@@ -35,8 +35,8 @@
         # Required for a non-root user (www-data) to read the master's PKI and
         # cache directories when publishing jobs via publisher_acl.
         permissive_pki_access: True
-    - user: root
-    - group: root
+    - user: salt
+    - group: salt
     - mode: '0640'
 
 salt-master:
