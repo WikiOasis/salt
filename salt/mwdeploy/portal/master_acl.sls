@@ -42,7 +42,7 @@
     # own drop-in and fail to start with EACCES.
     - user: root
     - group: root
-    - mode: '0644'
+    - mode: '0777'
 
 salt-master:
   service.running:
