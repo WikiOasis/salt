@@ -13,9 +13,9 @@ mwdeploy_portal_db:
   cmd.run:
     - name: >
         mysql -e
-        "CREATE DATABASE `{{ db_name }}`;"
+        "CREATE DATABASE {{ db_name }};"
     - unless: >
-        mysql -e "SHOW DATABASES LIKE '{{ db_name }}';" | grep -q {{ db_name }}
+        mysql -e "SHOW DATABASES LIKE {{ db_name }};" | grep -q {{ db_name }}
     - require:
       - pkg: install_mariadb
       - service: mariadb
