@@ -7,7 +7,8 @@
 # divergent shim across the fleet is a debugging nightmare, so bump the VERSION
 # comment below whenever you re-vendor.
 
-# Vendored upstream version: 2.0.0 (wikioasis/mw-deploy shim/mwdeploy_shim.py)
+# Vendored upstream version: 2.1.0 (wikioasis/mw-deploy shim/mwdeploy_shim.py)
+{%- set shim_version = '2.1.0' %}
 
 mwdeploy-shim-deps:
   pkg.installed:
@@ -26,6 +27,16 @@ mwdeploy-shim-deps:
     - group: root
     - require:
       - pkg: mwdeploy-shim-deps
+
+# A minion left on a stale shim fails the portal's import screen with an
+# argparse usage error instead of anything self-explanatory, so a version
+# mismatch here is a hard highstate failure, not a warning.
+mwdeploy-shim-verify:
+  cmd.run:
+    - name: >-
+        test "$(/usr/local/bin/mwdeploy-shim --version)" = "mwdeploy-shim {{ shim_version }}"
+    - require:
+      - file: /usr/local/bin/mwdeploy-shim
 
 # The shim runs git/rsync/patch/php as the web user so files land owned
 # correctly, then re-asserts ownership with chown as root. If the minion runs

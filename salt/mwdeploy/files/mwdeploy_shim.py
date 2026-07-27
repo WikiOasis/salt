@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -30,7 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # The user that owns the MediaWiki tree and runs git/rsync against it.
 WEB_USER = os.environ.get("MWDEPLOY_WEB_USER", "www-data")
@@ -1012,6 +1013,259 @@ def cmd_patch_apply(args: argparse.Namespace) -> Result:
 
 
 # --------------------------------------------------------------------------- #
+# tree-scan
+# --------------------------------------------------------------------------- #
+
+MW_VERSION_RE = re.compile(r"define\(\s*['\"]MW_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]")
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+
+    if value is None:
+        return default
+
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _read_text(path: str) -> str | None:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def _git_dir(path: str) -> str | None:
+    """Locate the .git directory for a checkout without shelling out to git.
+
+    Handles the ordinary case (.git is a directory) and the gitfile case (.git
+    is a file pointing at a gitdir elsewhere, e.g. a submodule), since some
+    extensions/skins are registered as submodules of their own upstream.
+    """
+    git_path = os.path.join(path, ".git")
+
+    if os.path.isdir(git_path):
+        return git_path
+
+    contents = _read_text(git_path)
+
+    if contents and contents.strip().startswith("gitdir:"):
+        target = contents.split(":", 1)[1].strip()
+
+        return os.path.normpath(os.path.join(path, target))
+
+    return None
+
+
+def _remote_url(git_dir: str) -> str | None:
+    config = _read_text(os.path.join(git_dir, "config")) or ""
+    match = re.search(r'\[remote "origin"\][^\[]*?url\s*=\s*(\S+)', config, re.DOTALL)
+
+    return match.group(1) if match else None
+
+
+def _head_ref(git_dir: str) -> tuple[str, str]:
+    head = (_read_text(os.path.join(git_dir, "HEAD")) or "").strip()
+
+    if head.startswith("ref:"):
+        return "branch", head.split(":", 1)[1].strip()
+
+    return "commit", head
+
+
+def _resolve_ref(git_dir: str, ref: str) -> str | None:
+    """Resolve refs/heads/<branch> to a commit, checking the loose ref first
+    and falling back to packed-refs — the same two places git itself looks."""
+    loose = _read_text(os.path.join(git_dir, ref))
+
+    if loose:
+        return loose.strip()
+
+    packed = _read_text(os.path.join(git_dir, "packed-refs")) or ""
+
+    for line in packed.splitlines():
+        if line.startswith("#") or line.startswith("^"):
+            continue
+
+        parts = line.split()
+
+        if len(parts) == 2 and parts[1] == ref:
+            return parts[0]
+
+    return None
+
+
+def _read_manifest(path: str, filename: str) -> dict[str, Any] | None:
+    text = _read_text(os.path.join(path, filename))
+
+    if not text:
+        return None
+
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    requires = data.get("requires")
+
+    return {
+        "name": data.get("name"),
+        "version": data.get("version"),
+        "requires_mw": requires.get("MediaWiki") if isinstance(requires, dict) else None,
+    }
+
+
+def _core_version(path: str) -> str | None:
+    text = _read_text(os.path.join(path, "includes", "Defines.php"))
+
+    if not text:
+        return None
+
+    match = MW_VERSION_RE.search(text)
+
+    return match.group(1) if match else None
+
+
+def _scan_checkout(
+    path: str,
+    *,
+    kind: str,
+    name: str,
+    version: str | None,
+    include_manifests: bool,
+    import_non_git: bool,
+) -> dict[str, Any] | None:
+    git_dir = _git_dir(path)
+
+    if git_dir is None:
+        if not import_non_git:
+            return None
+
+        return {"kind": kind, "name": name, "version": version, "path": path, "git": False}
+
+    ref_type, ref_value = _head_ref(git_dir)
+    commit = ref_value if ref_type == "commit" else _resolve_ref(git_dir, ref_value)
+
+    entry: dict[str, Any] = {
+        "kind": kind,
+        "name": name,
+        "version": version,
+        "path": path,
+        "git": True,
+        "ref_type": ref_type,
+        "ref": ref_value,
+        "commit": commit,
+        "remote": _remote_url(git_dir),
+    }
+
+    if include_manifests:
+        if kind == "core":
+            mw_version = _core_version(path)
+
+            if mw_version:
+                entry["mw_version"] = mw_version
+        elif kind == "extension":
+            manifest = _read_manifest(path, "extension.json")
+
+            if manifest:
+                entry["manifest"] = manifest
+        elif kind == "skin":
+            manifest = _read_manifest(path, "skin.json")
+
+            if manifest:
+                entry["manifest"] = manifest
+
+    return entry
+
+
+def cmd_tree_scan(args: argparse.Namespace) -> Result:
+    """Read-only inventory of a deploy tree: every core version under
+    versions/, its extensions and skins, and the config checkout.
+
+    Deliberately reads files (.git/HEAD, packed-refs, .git/config,
+    extension.json, includes/Defines.php) instead of shelling out to git —
+    this is meant to be cheap enough for the portal's import screen to call
+    directly, and it must not depend on a git binary being present.
+    """
+    root = args.root
+
+    if not os.path.isdir(root):
+        raise ShimError(f"no such directory: {root}")
+
+    include_manifests = not args.no_metadata
+    checkouts: list[dict[str, Any]] = []
+    truncated = False
+
+    def add(kind: str, path: str, name: str, version: str | None) -> bool:
+        nonlocal truncated
+
+        if len(checkouts) >= args.limit:
+            truncated = True
+
+            return False
+
+        if not os.path.isdir(path):
+            return True
+
+        entry = _scan_checkout(
+            path,
+            kind=kind,
+            name=name,
+            version=version,
+            include_manifests=include_manifests,
+            import_non_git=args.import_non_git,
+        )
+
+        if entry is not None:
+            checkouts.append(entry)
+
+        return True
+
+    versions_root = os.path.join(root, "versions")
+
+    if os.path.isdir(versions_root):
+        for version in sorted(os.listdir(versions_root)):
+            version_path = os.path.join(versions_root, version)
+
+            if not os.path.isdir(version_path):
+                continue
+
+            if not add("core", version_path, f"core-{version}", version):
+                break
+
+            for kind, dirname in (("extension", "extensions"), ("skin", "skins")):
+                group = os.path.join(version_path, dirname)
+
+                if not os.path.isdir(group):
+                    continue
+
+                for name in sorted(os.listdir(group)):
+                    if not add(kind, os.path.join(group, name), name, version):
+                        break
+
+            if truncated:
+                break
+
+    config_dir = os.path.join(root, args.config_dir)
+
+    if os.path.isdir(config_dir):
+        add("config", config_dir, args.config_repo_name, None)
+
+    git_count = sum(1 for entry in checkouts if entry.get("git"))
+
+    return Result(
+        ok=True,
+        detail=f"scanned {root}: {len(checkouts)} checkout(s) ({git_count} git)"
+        + (", truncated at limit" if truncated else ""),
+        extra={"root": root, "checkouts": checkouts, "truncated": truncated},
+    )
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 
@@ -1127,6 +1381,42 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--server", required=True)
         sub.add_argument("--socket", default=os.environ.get("MWDEPLOY_HAPROXY_SOCKET", "/run/haproxy/admin.sock"))
         sub.set_defaults(handler=handler)
+
+    scan = subparsers.add_parser(
+        "tree-scan", help="Read-only inventory of a deploy tree's versions, extensions and skins"
+    )
+    scan.add_argument("--root", required=True, help="Deploy root, e.g. /srv/mediawiki-staging")
+    scan.add_argument(
+        "--config-dir",
+        dest="config_dir",
+        default=os.environ.get("MWDEPLOY_CONFIG_DIR", "config"),
+        help="mw-config checkout, relative to --root",
+    )
+    scan.add_argument(
+        "--config-repo-name",
+        dest="config_repo_name",
+        default=os.environ.get("MWDEPLOY_CONFIG_REPO_NAME", "mw-config"),
+    )
+    scan.add_argument(
+        "--limit",
+        type=int,
+        default=int(os.environ.get("MWDEPLOY_SCAN_LIMIT", "5000")),
+        help="Ceiling on checkouts scanned",
+    )
+    scan.add_argument(
+        "--no-metadata",
+        action="store_true",
+        default=not _env_bool("MWDEPLOY_SCAN_MANIFESTS", True),
+        help="Skip parsing extension.json/skin.json/Defines.php",
+    )
+    scan.add_argument(
+        "--import-non-git",
+        dest="import_non_git",
+        action="store_true",
+        default=_env_bool("MWDEPLOY_IMPORT_NON_GIT", False),
+        help="Include directories under versions/ that are not git checkouts",
+    )
+    scan.set_defaults(handler=cmd_tree_scan)
 
     patch = subparsers.add_parser("patch-apply", help="Apply or dry-run a patch")
     patch.add_argument("--patch", required=True)
