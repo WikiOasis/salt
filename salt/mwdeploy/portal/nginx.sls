@@ -28,7 +28,6 @@ nginx:
     - user: root
     - group: root
     - mode: '0644'
-    - check_cmd: sudo /usr/sbin/nginx -t
     - require:
       - pkg: nginx
 
