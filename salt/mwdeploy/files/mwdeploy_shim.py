@@ -1357,24 +1357,21 @@ def cmd_tree_scan(args: argparse.Namespace) -> Result:
 
 def cmd_l10n_rebuild(args: argparse.Namespace) -> Result:
     """Rebuild the localisation cache. The original tool's l10n_rebuild, minus
-    the SSH wrapper — Salt has already put us on the right host."""
-    multiversion = os.environ.get("MWDEPLOY_MULTIVERSION", "/srv/mediawiki/multiversion")
-    maintenance = os.path.join(multiversion, "MWScript.php")
+    the SSH wrapper — Salt has already put us on the right host.
 
-    if os.path.exists(maintenance):
-        argv = ["php", maintenance, "rebuildLocalisationCache.php", args.wiki, "--quiet"]
-    else:
-        # Single-version layout: run the maintenance script directly.
-        argv = [
-            "php",
-            os.path.join(args.mediawiki, "maintenance", "rebuildLocalisationCache.php"),
-            "--quiet",
-        ]
+    Always goes through scripts/mwscript.php rather than invoking a
+    maintenance script directly: it resolves which MediaWiki version a wiki
+    actually runs and dispatches into that version's tree, which matters
+    here because testwiki runs a different core version than the rest of
+    the fleet.
+    """
+    mwscript = os.path.join(args.mediawiki, "scripts", "mwscript.php")
+    argv = ["php", mwscript, "--wiki", args.wiki, "rebuildLocalisationCache", "--quiet"]
 
     ran = run(argv, as_web_user=True, timeout=7200)
     ran.raise_for_status(f"l10n rebuild for {args.wiki} failed")
 
-    return Result(ok=True, detail=f"rebuilt l10n cache via {argv[1]} for {args.wiki}")
+    return Result(ok=True, detail=f"rebuilt l10n cache via mwscript.php for {args.wiki}")
 
 
 # --------------------------------------------------------------------------- #
