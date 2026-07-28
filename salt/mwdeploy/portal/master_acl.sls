@@ -16,6 +16,10 @@
 #   sudo -u www-data /usr/bin/salt --out=json --static 'staging-us-east-021' \
 #       cmd.run_all 'mwdeploy-shim --version'
 #   sudo -u www-data /usr/bin/salt --batch 50% 'proxy*' test.ping
+#   sudo -u www-data /usr/bin/salt --async 'staging-us-east-021' \
+#       cmd.run_all 'mwdeploy-shim --version'
+#   # then, using the JID printed above:
+#   sudo -u www-data /usr/bin/salt 'staging-us-east-021' saltutil.find_job <jid>
 # The portal's SaltClient runs with --batch (see pillar mwdeploy_portal
 # rollout.default_parallel/max_parallel), and salt's batch runner pings every
 # targeted minion with test.ping before dispatching the real job — so
@@ -23,6 +27,15 @@
 # batched runs fail with AuthorizationError before cmd.run_all ever executes.
 # If it works as root but not as www-data, fix the ACL/PKI permissions here —
 # do not silently fall back to a passwordless sudo wrapper instead.
+#
+# --async support: `salt --async` still calls the same functions below (the
+# ACL check is per-function, not per-client-mode), so cmd.run_all/test.ping
+# already cover firing an async job. What --async changes is how the result
+# comes back: the CLI returns the JID immediately instead of blocking, so
+# checking on the job afterwards means a second call to saltutil.find_job
+# against the same minions — that's granted alongside the others below, or
+# every async status check fails with AuthorizationError even though the job
+# itself ran fine.
 
 /etc/salt/master.d/mwdeploy-acl.conf:
   file.managed:
@@ -32,15 +45,19 @@
             - 'mw*':
               - cmd.run_all
               - test.ping
+              - saltutil.find_job
             - 'task*':
               - cmd.run_all
               - test.ping
+              - saltutil.find_job
             - 'staging*':
               - cmd.run_all
               - test.ping
+              - saltutil.find_job
             - 'proxy*':
               - cmd.run_all
               - test.ping
+              - saltutil.find_job
 
         # Required for a non-root user (www-data) to read the master's PKI and
         # cache directories when publishing jobs via publisher_acl. This only
