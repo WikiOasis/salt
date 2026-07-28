@@ -17,7 +17,7 @@ defaults
     option dontlognull
     timeout connect {{ defaults_cfg.get('timeout_connect', '5s') }}
     timeout client {{ defaults_cfg.get('timeout_client', '50s') }}
-    timeout server {{ defaults_cfg.get('timeout_server', '50s') }}
+    timeout server {{ defaults_cfg.get('timeout_server', '1200s') }}
 {% for name, frontend in haproxy.get('frontends', {}).items() %}
 frontend {{ name }}
     bind {{ frontend.bind }}
