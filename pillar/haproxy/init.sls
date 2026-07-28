@@ -7,7 +7,7 @@ haproxy:
     mode: http
     timeout_connect: 5s
     timeout_client: 50s
-    timeout_server: 50s
+    timeout_server: 1200s
 
   stats_socket: /run/haproxy/admin.sock
 
