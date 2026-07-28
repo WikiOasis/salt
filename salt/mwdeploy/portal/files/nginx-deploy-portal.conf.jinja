@@ -73,7 +73,7 @@ server {
         # insecure request and emits http:// URLs for assets (vite(), CSS/JS).
         fastcgi_param HTTPS on;
         fastcgi_hide_header X-Powered-By;
-        fastcgi_read_timeout 120s;
+        fastcgi_read_timeout 1200s;
     }
 
     # Nothing outside public/ is web-reachable, but be explicit: .env sits one
