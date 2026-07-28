@@ -1389,14 +1389,18 @@ def cmd_canary(args: argparse.Namespace) -> Result:
     TTY under ``salt cmd.run``, and the decision of what to do about a failure
     belongs to the portal.
     """
-    port = 443 if args.scheme == "https" else 80
-    url = f"{args.scheme}://{args.vhost}{args.path}"
+    port = args.port or (443 if args.scheme == "https" else 80)
+    url = f"{args.scheme}://{args.host}:{port}{args.path}"
 
     attempts: list[str] = []
 
     for attempt in range(1, args.retries + 1):
-        # --resolve pins the vhost to this box, so the check exercises *this*
-        # appserver rather than whatever the proxy would have picked.
+        # Connects to this box directly and asks for the vhost with a Host
+        # header, rather than resolving/pinning DNS for it. That's what makes
+        # this exercise *this* appserver's own listener regardless of whether
+        # the vhost resolves to anything at all from here — no dependency on
+        # DNS, and no depending on the vhost and the appserver's TLS setup
+        # agreeing on a port to pin.
         ran = run(
             [
                 "curl",
@@ -1406,8 +1410,8 @@ def cmd_canary(args: argparse.Namespace) -> Result:
                 "--insecure",
                 "--max-time",
                 str(args.timeout),
-                "--resolve",
-                f"{args.vhost}:{port}:{args.host}",
+                "--header",
+                f"Host: {args.vhost}",
                 "--write-out",
                 "\n%{http_code}",
                 url,
@@ -1693,8 +1697,9 @@ def build_parser() -> argparse.ArgumentParser:
     l10n.set_defaults(handler=cmd_l10n_rebuild)
 
     canary = subparsers.add_parser("canary", help="One canary verdict; never prompts")
-    canary.add_argument("--vhost", default="meta.wikioasis.org")
-    canary.add_argument("--host", default="127.0.0.1", help="Address the vhost is pinned to")
+    canary.add_argument("--vhost", default="meta.wikioasis.org", help="Sent as the Host header")
+    canary.add_argument("--host", default="127.0.0.1", help="Address to connect to directly")
+    canary.add_argument("--port", type=int, default=None, help="Defaults to 443/80 based on --scheme")
     canary.add_argument("--path", default="/wiki/Main_Page")
     canary.add_argument("--scheme", choices=("http", "https"), default="https")
     canary.add_argument("--retries", type=int, default=3)
