@@ -58,7 +58,7 @@ haproxy:
       options:
         - forwardfor
       servers:
-        - name: apps-us-east-021
+        - name: apps-us-east-021.ovvin.wonet
           host: apps-us-east-021.ovvin.wonet
           port: 80
           check: true
@@ -73,25 +73,25 @@ haproxy:
         - send meth GET uri /wiki/Main_Page ver HTTP/1.1 hdr Host wikioasis.org
         - expect string wikioasis
       servers:
-        - name: mw-us-east-011
+        - name: mw-us-east-011.ovvin.wonet
           host: mw-us-east-011.ovvin.wonet
           port: 80
           check: true
           weight: 1
           depooled: false
-        - name: mw-us-east-012
+        - name: mw-us-east-012.ovvin.wonet
           host: mw-us-east-012.ovvin.wonet
           port: 80
           check: true
           weight: 1
           depooled: false
-        - name: mw-us-east-021
+        - name: mw-us-east-021.ovvin.wonet
           host: mw-us-east-021.ovvin.wonet
           port: 80
           check: true
           weight: 1
           depooled: false
-        - name: mw-us-east-022
+        - name: mw-us-east-022.ovvin.wonet
           host: mw-us-east-022.ovvin.wonet
           port: 80
           check: true
@@ -117,7 +117,7 @@ haproxy:
         - set-header X-Forwarded-Proto https
         - set-header X-Forwarded-Port 443
       servers:
-        - name: salt-us-east-021
+        - name: salt-us-east-021.ovvin.wonet
           host: salt-us-east-021.ovvin.wonet
           port: 80
           check: true
@@ -128,7 +128,7 @@ haproxy:
       options:
         - forwardfor
       servers:
-        - name: monitoring-us-east-021
+        - name: monitoring-us-east-021.ovvin.wonet
           host: monitoring-us-east-021.ovvin.wonet
           port: 80
           check: true
@@ -139,7 +139,7 @@ haproxy:
       options:
         - forwardfor
       servers:
-        - name: monitoring-us-east-021
+        - name: monitoring-us-east-021.ovvin.wonet
           host: monitoring-us-east-021.ovvin.wonet
           port: 80
           check: true
@@ -150,7 +150,7 @@ haproxy:
       options:
         - forwardfor
       servers:
-        - name: staging-us-east-021
+        - name: staging-us-east-021.ovvin.wonet
           host: staging-us-east-021.ovvin.wonet
           port: 80
           check: true
@@ -161,7 +161,7 @@ haproxy:
       options:
         - forwardfor
       servers:
-        - name: apps-us-east-021
+        - name: apps-us-east-021.ovvin.wonet
           host: apps-us-east-021.ovvin.wonet
           port: 3001
           check: true
@@ -172,7 +172,7 @@ haproxy:
       options:
         - forwardfor
       servers:
-        - name: apps-us-east-021
+        - name: apps-us-east-021.ovvin.wonet
           host: apps-us-east-021.ovvin.wonet
           port: 3002
           check: true
