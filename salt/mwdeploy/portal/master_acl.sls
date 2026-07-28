@@ -43,7 +43,12 @@
               - test.ping
 
         # Required for a non-root user (www-data) to read the master's PKI and
-        # cache directories when publishing jobs via publisher_acl.
+        # cache directories when publishing jobs via publisher_acl. This only
+        # stops the master from clamping those directories back to 0700 on
+        # start — it grants nothing by itself. The actual grant is the `salt`
+        # group membership and directory modes below; without those, www-data
+        # still gets AuthorizationError/permission-denied even though this is
+        # set to True.
         permissive_pki_access: True
     # Keep this root:root. salt-master runs as root but with CAP_DAC_OVERRIDE
     # dropped, so it only reads this file via the owning-user permission bits,
@@ -59,6 +64,48 @@
     - user: root
     - group: root
     - mode: '0644'
+
+# The `salt` system group is what permissive_pki_access above relies on: it
+# tells the master not to reset /etc/salt/pki/master and /var/cache/salt/master
+# back to 0700 root:root on start, but something still has to grant www-data
+# actual read/write access to them, or every `sudo -u www-data salt ...`
+# fails (test.ping included) with a permission error before the ACL is even
+# consulted. This group is that grant.
+salt-group:
+  group.present:
+    - name: salt
+    - system: True
+    - addusers:
+      - www-data
+
+# Read+execute so www-data can load the master's private key material to
+# authenticate published jobs. This is the same private key salt-master
+# itself uses, so this grant is exactly as sensitive as it looks - see the
+# cmd.run_all note at the top of this file.
+/etc/salt/pki/master:
+  file.directory:
+    - group: salt
+    - dir_mode: '0750'
+    - file_mode: '0640'
+    - recurse:
+      - group
+      - mode
+    - require:
+      - group: salt-group
+
+# Read+write so www-data can create/read job and minion-cache data when
+# publishing jobs (this is where --batch's per-minion test.ping results and
+# the subsequent cmd.run_all results land).
+/var/cache/salt/master:
+  file.directory:
+    - group: salt
+    - dir_mode: '0770'
+    - file_mode: '0660'
+    - recurse:
+      - group
+      - mode
+    - require:
+      - group: salt-group
 
 salt-master:
   service.running:
