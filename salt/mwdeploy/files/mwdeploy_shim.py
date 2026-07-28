@@ -1383,11 +1383,14 @@ def cmd_l10n_rebuild(args: argparse.Namespace) -> Result:
 
 
 def cmd_canary(args: argparse.Namespace) -> Result:
-    """One canary verdict: HTTP 200 and the expected body marker.
+    """One canary verdict: does the body contain the expected marker?
 
-    Same check as the original canary_check, but it never prompts — there is no
-    TTY under ``salt cmd.run``, and the decision of what to do about a failure
-    belongs to the portal.
+    Mirrors the icinga MediaWiki check: connect directly and only fail when
+    the response doesn't include the expected content. The HTTP status code
+    and response time aren't checked — a non-200 response that still renders
+    the wiki (or a slow one) isn't a canary failure. It never prompts either
+    way — there is no TTY under ``salt cmd.run``, and the decision of what to
+    do about a failure belongs to the portal.
     """
     port = args.port or (443 if args.scheme == "https" else 80)
     url = f"{args.scheme}://{args.host}:{port}{args.path}"
@@ -1422,10 +1425,10 @@ def cmd_canary(args: argparse.Namespace) -> Result:
         body, _, status = ran.stdout.rpartition("\n")
         status = status.strip()
 
-        if ran.ok and status == "200" and args.expect.lower() in body.lower():
+        if ran.ok and args.expect.lower() in body.lower():
             return Result(
                 ok=True,
-                detail=f"canary ok on attempt {attempt}: {args.vhost} returned 200 containing '{args.expect}'",
+                detail=f"canary ok on attempt {attempt}: {args.vhost} contained '{args.expect}'",
                 extra={"attempts": attempt, "status": status},
             )
 
@@ -1701,7 +1704,7 @@ def build_parser() -> argparse.ArgumentParser:
     canary.add_argument("--host", default="127.0.0.1", help="Address to connect to directly")
     canary.add_argument("--port", type=int, default=None, help="Defaults to 443/80 based on --scheme")
     canary.add_argument("--path", default="/wiki/Main_Page")
-    canary.add_argument("--scheme", choices=("http", "https"), default="https")
+    canary.add_argument("--scheme", choices=("http", "https"), default="http")
     canary.add_argument("--retries", type=int, default=3)
     canary.add_argument("--backoff", type=float, default=3.0)
     canary.add_argument("--timeout", type=int, default=15)
