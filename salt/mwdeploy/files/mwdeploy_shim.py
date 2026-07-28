@@ -346,6 +346,120 @@ def cmd_git_pull(args: argparse.Namespace) -> Result:
     )
 
 
+def cmd_git_fetch(args: argparse.Namespace) -> Result:
+    """Update the remote-tracking refs without touching the working tree.
+
+    Distinct from git-pull, which resets HEAD: this is what the ref cache's
+    "fetch latest" calls, and it must never move a checkout that might be
+    mid-deployment.
+    """
+    path = require_repo(args.path)
+
+    git(path, "fetch", "origin", "--prune", "--tags").raise_for_status("git fetch failed")
+
+    return Result(ok=True, detail=f"git fetch --prune in {path}", extra={"path": path})
+
+
+def cmd_git_resolve(args: argparse.Namespace) -> Result:
+    """Resolve a branch name, tag or short SHA to the full 40-character commit SHA.
+
+    The file browser cache is keyed by this, not by the ref the caller typed, so
+    the same commit reached via "master" or its SHA hits the same cache row.
+    """
+    path = require_repo(args.path)
+
+    ran = git(path, "rev-parse", "--verify", "--quiet", f"{args.ref}^{{commit}}", timeout=60)
+
+    if not ran.ok:
+        # The ref may only exist on the remote until a fetch catches it up.
+        git(path, "fetch", "origin", "--prune", "--tags").raise_for_status("git fetch failed")
+        ran = git(path, "rev-parse", "--verify", "--quiet", f"{args.ref}^{{commit}}", timeout=60)
+
+    ran.raise_for_status(f"could not resolve ref: {args.ref}")
+    sha = ran.stdout.strip()
+
+    return Result(ok=True, detail=f"{args.ref} resolves to {sha}", extra={"sha": sha})
+
+
+def cmd_git_ls_tree(args: argparse.Namespace) -> Result:
+    """List one directory's entries at a commit."""
+    path = require_repo(args.path)
+    tree_path = args.dir.strip("/")
+    spec = f"{args.ref}:{tree_path}" if tree_path else f"{args.ref}:"
+
+    listing = git(path, "ls-tree", "--long", spec, timeout=120)
+    listing.raise_for_status(f"could not list tree {spec}")
+
+    entries = []
+
+    for line in listing.stdout.splitlines():
+        # "<mode> <type> <sha> <size>\t<name>"
+        meta, _, name = line.partition("\t")
+        fields = meta.split()
+
+        if len(fields) < 4 or not name:
+            continue
+
+        mode, kind, _sha, size = fields[0], fields[1], fields[2], fields[3]
+
+        entries.append({
+            "name": name,
+            "type": kind,
+            "mode": mode,
+            "size": None if size == "-" else int(size),
+        })
+
+    return Result(
+        ok=True,
+        detail=f"{len(entries)} entries in {spec}",
+        extra={"entries": entries},
+    )
+
+
+def cmd_git_show_blob(args: argparse.Namespace) -> Result:
+    """Read one file's content at a commit, capped at --max-bytes.
+
+    Binary content (a null byte anywhere in the output) is flagged rather than
+    dumped as text — there is no sane way to show a compiled image inline, and
+    treating it as UTF-8 would just corrupt it further.
+    """
+    path = require_repo(args.path)
+    file_path = args.file.strip("/")
+    spec = f"{args.ref}:{file_path}"
+
+    ran = run(
+        ["git", "-C", path, "show", spec],
+        as_web_user=True,
+        timeout=120,
+    )
+    ran.raise_for_status(f"could not read {spec}")
+
+    raw = ran.stdout.encode("utf-8", "surrogateescape")
+    size = len(raw)
+    is_binary = b"\x00" in raw[:8192]
+
+    truncated = False
+    content = ""
+
+    if not is_binary:
+        if size > args.max_bytes:
+            raw = raw[: args.max_bytes]
+            truncated = True
+
+        content = raw.decode("utf-8", "replace")
+
+    return Result(
+        ok=True,
+        detail=f"read {spec} ({size} bytes)",
+        extra={
+            "content": content,
+            "size": size,
+            "truncated": truncated,
+            "binary": is_binary,
+        },
+    )
+
+
 def cmd_git_refs(args: argparse.Namespace) -> Result:
     """List remote branches or recent commits, for the portal's ref picker."""
     path = require_repo(args.path)
@@ -744,60 +858,495 @@ def cmd_rsync_remote(args: argparse.Namespace) -> Result:
 
 
 # --------------------------------------------------------------------------- #
-# wiki → version mapping
+# tree scan
 # --------------------------------------------------------------------------- #
 
+# Directories that are never a checkout. Walking them is at best pointless and at
+# worst very slow: images/ is the farm's uploads, and a vendor/ tree under an
+# extension is Composer's, not a repository the portal deploys.
+SCAN_IGNORED: frozenset[str] = frozenset(
+    {".git", "cache", "images", "l10n_cache", "node_modules", "vendor", "tests", "__pycache__"}
+)
 
-def cmd_wiki_versions(args: argparse.Namespace) -> Result:
-    """Report which core versions the farm's wikis are currently pointed at.
+# extension.json fields worth carrying back. The full file is often tens of
+# kilobytes of hooks and resource-loader modules; none of that helps an operator
+# decide whether to register the extension, and all of it would bloat a scan of
+# several hundred repositories into a payload Salt has to shuttle around.
+EXTENSION_METADATA_FIELDS: tuple[str, ...] = (
+    "name",
+    "version",
+    "license-name",
+    "type",
+    "url",
+    "namemsg",
+    "descriptionmsg",
+    "description",
+)
 
-    This exists so that undeploying a core version can be *refused* when wikis
-    still run on it, rather than left to an operator's checklist.
+# Ceiling on any single file this command reads. extension.json is the big one;
+# 4 MiB is far past the largest in the MediaWiki ecosystem and still bounded.
+SCAN_READ_LIMIT = 4 * 1024 * 1024
 
-    The mapping lives in the config repo, not here, and its exact shape varies
-    between farms. Both common shapes are handled:
+SHA_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 
-        {"enwiki": "1.45", ...}
-        {"enwiki": {"version": "1.45"}, ...}
 
-    and a leading "php-" is tolerated because that is how Wikimedia writes it.
-    Anything else is reported as unparseable rather than guessed at — a wrong
-    answer here means deleting a version that is still serving traffic.
+def _read_file(path: str, limit: int = SCAN_READ_LIMIT) -> str | None:
+    """Read a file for inspection, returning None rather than raising.
+
+    A scan walks whatever is on disk, including half-finished checkouts and
+    directories owned by another user. One unreadable file must degrade that
+    entry, not abort the inventory.
     """
-    path = args.file
+    try:
+        if os.path.getsize(path) > limit:
+            return None
 
-    if not os.path.isfile(path):
-        raise ShimError(f"wiki version map not found: {path}")
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def git_dir_for(path: str) -> str | None:
+    """Locate the git directory for a checkout.
+
+    ``.git`` is a directory for a normal clone and a *file* containing
+    ``gitdir: …`` for a submodule or a linked worktree. MediaWiki farms have
+    plenty of the latter, because extensions were historically submodules of
+    core, so following the pointer is not an edge case.
+    """
+    candidate = os.path.join(path, ".git")
+
+    if os.path.isdir(candidate):
+        return candidate
+
+    if not os.path.isfile(candidate):
+        return None
+
+    contents = _read_file(candidate, limit=64 * 1024) or ""
+
+    for line in contents.splitlines():
+        line = line.strip()
+
+        if line.startswith("gitdir:"):
+            pointer = line.removeprefix("gitdir:").strip()
+
+            if not os.path.isabs(pointer):
+                pointer = os.path.normpath(os.path.join(path, pointer))
+
+            return pointer if os.path.isdir(pointer) else None
+
+    return None
+
+
+def parse_git_config(git_dir: str) -> dict[str, dict[str, str]]:
+    """Read .git/config without shelling out to git.
+
+    A farm scan touches several hundred checkouts; doing it with `git config` and
+    `git rev-parse` per repository is a few thousand subprocesses and a scan that
+    takes minutes. The on-disk formats are stable and trivially parseable, so this
+    reads them directly and the whole scan costs one process.
+
+    Returns ``{"core": {...}, 'remote "origin"': {...}}`` — section headers are
+    kept verbatim (lowercased name, exact subsection) so callers can look up
+    ``remote "origin"`` without re-deriving the spelling.
+    """
+    contents = _read_file(os.path.join(git_dir, "config"))
+
+    if contents is None:
+        return {}
+
+    sections: dict[str, dict[str, str]] = {}
+    current = ""
+
+    for raw in contents.splitlines():
+        line = raw.strip()
+
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+
+        if line.startswith("[") and line.endswith("]"):
+            header = line[1:-1].strip()
+
+            if " " in header:
+                name, _, subsection = header.partition(" ")
+                current = f'{name.strip().lower()} {subsection.strip()}'
+            else:
+                current = header.lower()
+
+            sections.setdefault(current, {})
+
+            continue
+
+        if "=" not in line:
+            # A valueless key ("[core] bare") is a boolean true in git's format.
+            sections.setdefault(current, {})[line.lower()] = "true"
+
+            continue
+
+        key, _, value = line.partition("=")
+        value = value.strip()
+
+        if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+            value = value[1:-1]
+
+        sections.setdefault(current, {})[key.strip().lower()] = value
+
+    return sections
+
+
+def _config_value(sections: dict[str, dict[str, str]], name: str, subsection: str, key: str) -> str | None:
+    section = sections.get(f'{name} "{subsection}"') or sections.get(f"{name} {subsection}")
+
+    return None if section is None else section.get(key)
+
+
+def resolve_ref(git_dir: str, ref: str) -> str | None:
+    """The commit a ref points at: loose ref file first, then packed-refs."""
+    loose = _read_file(os.path.join(git_dir, ref), limit=4096)
+
+    if loose is not None:
+        candidate = loose.strip()
+
+        if SHA_PATTERN.match(candidate):
+            return candidate
+
+        # A symbolic loose ref, e.g. refs/remotes/origin/HEAD.
+        if candidate.startswith("ref:"):
+            return resolve_ref(git_dir, candidate.removeprefix("ref:").strip())
+
+    packed = _read_file(os.path.join(git_dir, "packed-refs"))
+
+    if packed is None:
+        return None
+
+    for line in packed.splitlines():
+        if line.startswith("#") or line.startswith("^"):
+            continue
+
+        parts = line.split()
+
+        if len(parts) == 2 and parts[1] == ref:
+            return parts[0]
+
+    return None
+
+
+def read_symbolic_ref(git_dir: str, name: str) -> str | None:
+    """The ref name a symbolic ref points at, e.g. HEAD → refs/heads/master."""
+    contents = _read_file(os.path.join(git_dir, name), limit=4096)
+
+    if contents is None:
+        return None
+
+    contents = contents.strip()
+
+    return contents.removeprefix("ref:").strip() if contents.startswith("ref:") else None
+
+
+def inspect_git(path: str) -> dict[str, Any] | None:
+    """What the portal needs to register an existing checkout, from disk alone.
+
+    ``ref_type``/``ref`` mirror what ``git-head`` reports for a checkout the portal
+    itself made, so an imported checkout and a deployed one describe their position
+    identically — which is what lets a rollback treat them the same.
+    """
+    git_dir = git_dir_for(path)
+
+    if git_dir is None:
+        return None
+
+    sections = parse_git_config(git_dir)
+    url = _config_value(sections, "remote", "origin", "url")
+
+    if url is None:
+        # No origin: fall back to whichever remote does exist, so a checkout
+        # cloned with a different remote name is still importable.
+        for header, values in sections.items():
+            if header.startswith("remote ") and "url" in values:
+                url = values["url"]
+                break
+
+    head_ref = read_symbolic_ref(git_dir, "HEAD")
+    detached_sha = None
+
+    if head_ref is None:
+        raw_head = (_read_file(os.path.join(git_dir, "HEAD"), limit=4096) or "").strip()
+        detached_sha = raw_head if SHA_PATTERN.match(raw_head) else None
+
+    branch = head_ref.removeprefix("refs/heads/") if head_ref and head_ref.startswith("refs/heads/") else None
+    commit = resolve_ref(git_dir, head_ref) if head_ref else detached_sha
+
+    remote_head = read_symbolic_ref(git_dir, "refs/remotes/origin/HEAD")
+    default_branch = remote_head.rsplit("/", 1)[-1] if remote_head else None
+
+    upstream = None
+
+    if branch:
+        merge = _config_value(sections, "branch", branch, "merge")
+        remote = _config_value(sections, "branch", branch, "remote") or "origin"
+
+        if merge:
+            upstream = f"{remote}/{merge.removeprefix('refs/heads/')}"
+
+    return {
+        "url": url,
+        "ref_type": "branch" if branch else "commit",
+        # A branch checkout reports the branch so an import pins to the branch
+        # rather than freezing the farm at today's commit; a detached HEAD has
+        # nothing else to report and pins to the commit, which is accurate.
+        "ref": branch or commit,
+        "commit": commit,
+        "branch": branch,
+        "default_branch": default_branch,
+        "upstream": upstream,
+        "has_submodules": os.path.isfile(os.path.join(path, ".gitmodules")),
+        "git_dir": git_dir,
+    }
+
+
+def parse_extension_metadata(path: str) -> dict[str, Any]:
+    """Name, version and licence out of extension.json / skin.json.
+
+    This is the difference between an inventory of directory names and one that
+    knows the directory called ``Echo`` contains the extension *Notifications*.
+    """
+    for filename in ("extension.json", "skin.json"):
+        contents = _read_file(os.path.join(path, filename))
+
+        if contents is None:
+            continue
+
+        try:
+            data = json.loads(contents)
+        except ValueError:
+            return {"manifest": filename, "manifest_error": f"{filename} is not valid JSON"}
+
+        if not isinstance(data, dict):
+            return {"manifest": filename, "manifest_error": f"{filename} is not a JSON object"}
+
+        metadata: dict[str, Any] = {"manifest": filename}
+
+        for field in EXTENSION_METADATA_FIELDS:
+            value = data.get(field)
+
+            if isinstance(value, (str, int, float)):
+                metadata[field] = str(value)
+
+        requires = data.get("requires")
+
+        if isinstance(requires, dict) and isinstance(requires.get("MediaWiki"), str):
+            metadata["requires_mediawiki"] = requires["MediaWiki"]
+
+        return metadata
+
+    composer = _read_file(os.path.join(path, "composer.json"))
+
+    if composer is not None:
+        try:
+            data = json.loads(composer)
+        except ValueError:
+            return {}
+
+        if isinstance(data, dict) and isinstance(data.get("name"), str):
+            return {"manifest": "composer.json", "name": data["name"]}
+
+    return {}
+
+
+def detect_core_version(path: str) -> str | None:
+    """The MediaWiki version a core checkout actually is.
+
+    Read from MW_VERSION rather than trusted from the directory name: a
+    ``versions/1.45`` tree sitting on a REL1_44 checkout is exactly the drift an
+    operator wants the import screen to tell them about.
+    """
+    defines = _read_file(os.path.join(path, "includes", "Defines.php"), limit=512 * 1024)
+
+    if defines:
+        match = re.search(r"MW_VERSION['\"]?\s*,\s*['\"]([^'\"]+)['\"]", defines)
+
+        if match:
+            return match.group(1)
 
     try:
-        with open(path, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError) as exc:
-        raise ShimError(f"could not read {path}: {exc}") from exc
+        for entry in sorted(os.listdir(path)):
+            if entry.startswith("RELEASE-NOTES-"):
+                return entry.removeprefix("RELEASE-NOTES-")
+    except OSError:
+        return None
 
-    if not isinstance(data, dict):
-        raise ShimError(f"{path} is not a JSON object mapping wikis to versions")
+    return None
 
-    versions: dict[str, list[str]] = {}
 
-    for wiki, value in data.items():
-        if isinstance(value, dict):
-            value = value.get("version")
+def _scan_entry(
+    root: str,
+    relative: str,
+    kind: str,
+    name: str,
+    version: str | None,
+    *,
+    metadata: bool,
+) -> dict[str, Any]:
+    absolute = os.path.join(root, relative)
+    git = inspect_git(absolute)
 
-        if not isinstance(value, str) or not value.strip():
-            raise ShimError(f"{path}: could not read a version for wiki '{wiki}'")
+    entry: dict[str, Any] = {
+        "kind": kind,
+        "name": name,
+        "path": relative,
+        "version": version,
+        "is_git": git is not None,
+    }
 
-        version = value.strip().removeprefix("php-")
-        versions.setdefault(version, []).append(str(wiki))
+    if git is not None:
+        entry["git"] = {key: value for key, value in git.items() if key != "git_dir"}
+
+    if metadata:
+        found = parse_extension_metadata(absolute)
+
+        if found:
+            entry["meta"] = found
+
+    if kind == "core":
+        entry["core_version"] = detect_core_version(absolute)
+
+    return entry
+
+
+def _listdir(path: str) -> list[str]:
+    try:
+        return sorted(entry for entry in os.listdir(path) if entry not in SCAN_IGNORED and not entry.startswith("."))
+    except OSError:
+        return []
+
+
+def scan_tree(
+    root: str,
+    *,
+    config_dir: str = "config",
+    metadata: bool = True,
+    only_versions: Sequence[str] = (),
+    limit: int = 5000,
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    """Inventory a MediaWiki deploy tree.
+
+    Covers the whole layout the portal understands, in the order it is laid out:
+
+        versions/<ver>                       core
+        versions/<ver>/extensions/<Name>     extension
+        versions/<ver>/skins/<Name>          skin
+        extensions/<Name>, skins/<Name>      unversioned, top level
+        <config_dir>                         config
+
+    Returns (entries, versions, warnings). A directory that is not a git checkout
+    is still reported, with ``is_git: false`` — "there is an unmanaged directory in
+    the tree" is one of the more useful things a scan can tell an operator, and
+    dropping it silently would make the inventory a lie.
+    """
+    if not os.path.isdir(root):
+        raise ShimError(f"no such directory: {root}")
+
+    entries: list[dict[str, Any]] = []
+    versions: list[str] = []
+    warnings: list[str] = []
+    wanted = set(only_versions)
+
+    def add(relative: str, kind: str, name: str, version: str | None) -> None:
+        if len(entries) >= limit:
+            return
+
+        entry = _scan_entry(root, relative, kind, name, version, metadata=metadata)
+        entries.append(entry)
+
+        if not entry["is_git"]:
+            warnings.append(f"{relative}: not a git checkout")
+        elif entry.get("git", {}).get("url") is None:
+            warnings.append(f"{relative}: git checkout with no remote configured")
+
+    versions_root = os.path.join(root, "versions")
+
+    for version in _listdir(versions_root):
+        version_path = os.path.join(versions_root, version)
+
+        if not os.path.isdir(version_path):
+            continue
+
+        if wanted and version not in wanted:
+            continue
+
+        versions.append(version)
+        add(f"versions/{version}", "core", "mediawiki", version)
+
+        for kind, subdirectory in (("extension", "extensions"), ("skin", "skins")):
+            container = os.path.join(version_path, subdirectory)
+
+            for name in _listdir(container):
+                if os.path.isdir(os.path.join(container, name)):
+                    add(f"versions/{version}/{subdirectory}/{name}", kind, name, version)
+
+    # Unversioned checkouts at the top level. A farm mid-migration to a versioned
+    # layout has both, and the portal models both, so both are scanned.
+    if not wanted:
+        for kind, subdirectory in (("extension", "extensions"), ("skin", "skins")):
+            container = os.path.join(root, subdirectory)
+
+            for name in _listdir(container):
+                if os.path.isdir(os.path.join(container, name)):
+                    add(f"{subdirectory}/{name}", kind, name, None)
+
+        config_relative = config_dir.strip("/")
+
+        if config_relative and os.path.isdir(os.path.join(root, config_relative)):
+            add(config_relative, "config", os.path.basename(config_relative), None)
+
+    if len(entries) >= limit:
+        warnings.append(f"scan stopped at --limit {limit}; there is more in the tree than was reported")
+
+    return entries, versions, warnings
+
+
+def cmd_tree_scan(args: argparse.Namespace) -> Result:
+    """Report what MediaWiki is already on disk, so the portal can adopt it.
+
+    This is what makes the portal usable against a farm that predates it: rather
+    than asking an operator to hand-register a hundred extensions they already
+    have, the registry is filled in from the tree itself. It is strictly read-only
+    — nothing here writes, fetches or checks anything out.
+    """
+    root = args.root.rstrip("/") or "/"
+
+    entries, versions, warnings = scan_tree(
+        root,
+        config_dir=args.config_dir,
+        metadata=not args.no_metadata,
+        only_versions=args.version or (),
+        limit=args.limit,
+    )
+
+    counts: dict[str, int] = {}
+
+    for entry in entries:
+        counts[entry["kind"]] = counts.get(entry["kind"], 0) + 1
+
+    extra: dict[str, Any] = {
+        "root": root,
+        "versions": versions,
+        "entries": entries,
+        "counts": counts,
+        "warnings": warnings,
+        "shim_version": VERSION,
+    }
 
     return Result(
         ok=True,
-        detail=f"{len(data)} wikis across {len(versions)} version(s): "
-        + ", ".join(f"{version} ({len(wikis)})" for version, wikis in sorted(versions.items())),
-        extra={
-            "versions": {version: sorted(wikis) for version, wikis in versions.items()},
-            "wiki_count": len(data),
-        },
+        detail="scanned {}: {} version(s), {} checkout(s){}".format(
+            root,
+            len(versions),
+            len(entries),
+            f", {len(warnings)} warning(s)" if warnings else "",
+        ),
+        extra=extra,
     )
 
 
@@ -1013,259 +1562,6 @@ def cmd_patch_apply(args: argparse.Namespace) -> Result:
 
 
 # --------------------------------------------------------------------------- #
-# tree-scan
-# --------------------------------------------------------------------------- #
-
-MW_VERSION_RE = re.compile(r"define\(\s*['\"]MW_VERSION['\"]\s*,\s*['\"]([^'\"]+)['\"]")
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    value = os.environ.get(name)
-
-    if value is None:
-        return default
-
-    return value.strip().lower() in ("1", "true", "yes", "on")
-
-
-def _read_text(path: str) -> str | None:
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            return handle.read()
-    except OSError:
-        return None
-
-
-def _git_dir(path: str) -> str | None:
-    """Locate the .git directory for a checkout without shelling out to git.
-
-    Handles the ordinary case (.git is a directory) and the gitfile case (.git
-    is a file pointing at a gitdir elsewhere, e.g. a submodule), since some
-    extensions/skins are registered as submodules of their own upstream.
-    """
-    git_path = os.path.join(path, ".git")
-
-    if os.path.isdir(git_path):
-        return git_path
-
-    contents = _read_text(git_path)
-
-    if contents and contents.strip().startswith("gitdir:"):
-        target = contents.split(":", 1)[1].strip()
-
-        return os.path.normpath(os.path.join(path, target))
-
-    return None
-
-
-def _remote_url(git_dir: str) -> str | None:
-    config = _read_text(os.path.join(git_dir, "config")) or ""
-    match = re.search(r'\[remote "origin"\][^\[]*?url\s*=\s*(\S+)', config, re.DOTALL)
-
-    return match.group(1) if match else None
-
-
-def _head_ref(git_dir: str) -> tuple[str, str]:
-    head = (_read_text(os.path.join(git_dir, "HEAD")) or "").strip()
-
-    if head.startswith("ref:"):
-        return "branch", head.split(":", 1)[1].strip()
-
-    return "commit", head
-
-
-def _resolve_ref(git_dir: str, ref: str) -> str | None:
-    """Resolve refs/heads/<branch> to a commit, checking the loose ref first
-    and falling back to packed-refs — the same two places git itself looks."""
-    loose = _read_text(os.path.join(git_dir, ref))
-
-    if loose:
-        return loose.strip()
-
-    packed = _read_text(os.path.join(git_dir, "packed-refs")) or ""
-
-    for line in packed.splitlines():
-        if line.startswith("#") or line.startswith("^"):
-            continue
-
-        parts = line.split()
-
-        if len(parts) == 2 and parts[1] == ref:
-            return parts[0]
-
-    return None
-
-
-def _read_manifest(path: str, filename: str) -> dict[str, Any] | None:
-    text = _read_text(os.path.join(path, filename))
-
-    if not text:
-        return None
-
-    try:
-        data = json.loads(text)
-    except ValueError:
-        return None
-
-    if not isinstance(data, dict):
-        return None
-
-    requires = data.get("requires")
-
-    return {
-        "name": data.get("name"),
-        "version": data.get("version"),
-        "requires_mw": requires.get("MediaWiki") if isinstance(requires, dict) else None,
-    }
-
-
-def _core_version(path: str) -> str | None:
-    text = _read_text(os.path.join(path, "includes", "Defines.php"))
-
-    if not text:
-        return None
-
-    match = MW_VERSION_RE.search(text)
-
-    return match.group(1) if match else None
-
-
-def _scan_checkout(
-    path: str,
-    *,
-    kind: str,
-    name: str,
-    version: str | None,
-    include_manifests: bool,
-    import_non_git: bool,
-) -> dict[str, Any] | None:
-    git_dir = _git_dir(path)
-
-    if git_dir is None:
-        if not import_non_git:
-            return None
-
-        return {"kind": kind, "name": name, "version": version, "path": path, "git": False}
-
-    ref_type, ref_value = _head_ref(git_dir)
-    commit = ref_value if ref_type == "commit" else _resolve_ref(git_dir, ref_value)
-
-    entry: dict[str, Any] = {
-        "kind": kind,
-        "name": name,
-        "version": version,
-        "path": path,
-        "git": True,
-        "ref_type": ref_type,
-        "ref": ref_value,
-        "commit": commit,
-        "remote": _remote_url(git_dir),
-    }
-
-    if include_manifests:
-        if kind == "core":
-            mw_version = _core_version(path)
-
-            if mw_version:
-                entry["mw_version"] = mw_version
-        elif kind == "extension":
-            manifest = _read_manifest(path, "extension.json")
-
-            if manifest:
-                entry["manifest"] = manifest
-        elif kind == "skin":
-            manifest = _read_manifest(path, "skin.json")
-
-            if manifest:
-                entry["manifest"] = manifest
-
-    return entry
-
-
-def cmd_tree_scan(args: argparse.Namespace) -> Result:
-    """Read-only inventory of a deploy tree: every core version under
-    versions/, its extensions and skins, and the config checkout.
-
-    Deliberately reads files (.git/HEAD, packed-refs, .git/config,
-    extension.json, includes/Defines.php) instead of shelling out to git —
-    this is meant to be cheap enough for the portal's import screen to call
-    directly, and it must not depend on a git binary being present.
-    """
-    root = args.root
-
-    if not os.path.isdir(root):
-        raise ShimError(f"no such directory: {root}")
-
-    include_manifests = not args.no_metadata
-    checkouts: list[dict[str, Any]] = []
-    truncated = False
-
-    def add(kind: str, path: str, name: str, version: str | None) -> bool:
-        nonlocal truncated
-
-        if len(checkouts) >= args.limit:
-            truncated = True
-
-            return False
-
-        if not os.path.isdir(path):
-            return True
-
-        entry = _scan_checkout(
-            path,
-            kind=kind,
-            name=name,
-            version=version,
-            include_manifests=include_manifests,
-            import_non_git=args.import_non_git,
-        )
-
-        if entry is not None:
-            checkouts.append(entry)
-
-        return True
-
-    versions_root = os.path.join(root, "versions")
-
-    if os.path.isdir(versions_root):
-        for version in sorted(os.listdir(versions_root)):
-            version_path = os.path.join(versions_root, version)
-
-            if not os.path.isdir(version_path):
-                continue
-
-            if not add("core", version_path, f"core-{version}", version):
-                break
-
-            for kind, dirname in (("extension", "extensions"), ("skin", "skins")):
-                group = os.path.join(version_path, dirname)
-
-                if not os.path.isdir(group):
-                    continue
-
-                for name in sorted(os.listdir(group)):
-                    if not add(kind, os.path.join(group, name), name, version):
-                        break
-
-            if truncated:
-                break
-
-    config_dir = os.path.join(root, args.config_dir)
-
-    if os.path.isdir(config_dir):
-        add("config", config_dir, args.config_repo_name, None)
-
-    git_count = sum(1 for entry in checkouts if entry.get("git"))
-
-    return Result(
-        ok=True,
-        detail=f"scanned {root}: {len(checkouts)} checkout(s) ({git_count} git)"
-        + (", truncated at limit" if truncated else ""),
-        extra={"root": root, "checkouts": checkouts, "truncated": truncated},
-    )
-
-
-# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 
@@ -1287,6 +1583,28 @@ def build_parser() -> argparse.ArgumentParser:
     pull = subparsers.add_parser("git-pull", help="Fetch and hard-reset to the tracked branch tip")
     pull.add_argument("--path", required=True)
     pull.set_defaults(handler=cmd_git_pull)
+
+    fetch = subparsers.add_parser("git-fetch", help="Fetch and prune without touching the working tree")
+    fetch.add_argument("--path", required=True)
+    fetch.set_defaults(handler=cmd_git_fetch)
+
+    resolve = subparsers.add_parser("git-resolve", help="Resolve a ref to its full commit SHA")
+    resolve.add_argument("--path", required=True)
+    resolve.add_argument("--ref", required=True)
+    resolve.set_defaults(handler=cmd_git_resolve)
+
+    ls_tree = subparsers.add_parser("git-ls-tree", help="List a directory's entries at a commit")
+    ls_tree.add_argument("--path", required=True)
+    ls_tree.add_argument("--ref", required=True)
+    ls_tree.add_argument("--dir", default="", help="Directory relative to the repo root; empty means the root")
+    ls_tree.set_defaults(handler=cmd_git_ls_tree)
+
+    show_blob = subparsers.add_parser("git-show-blob", help="Read one file's content at a commit")
+    show_blob.add_argument("--path", required=True)
+    show_blob.add_argument("--ref", required=True)
+    show_blob.add_argument("--file", required=True, dest="file")
+    show_blob.add_argument("--max-bytes", type=int, default=2 * 1024 * 1024, dest="max_bytes")
+    show_blob.set_defaults(handler=cmd_git_show_blob)
 
     head = subparsers.add_parser("git-head", help="Report the current ref without changing anything")
     head.add_argument("--path", required=True)
@@ -1335,11 +1653,25 @@ def build_parser() -> argparse.ArgumentParser:
     remove.add_argument("--check", action="store_true", help="Report what would be removed")
     remove.set_defaults(handler=cmd_repo_remove)
 
-    wiki_versions = subparsers.add_parser(
-        "wiki-versions", help="Report which core versions the farm's wikis point at"
+    scan = subparsers.add_parser(
+        "tree-scan", help="Inventory an existing MediaWiki tree so the portal can adopt it"
     )
-    wiki_versions.add_argument("--file", required=True, help="Path to the wiki → version JSON map")
-    wiki_versions.set_defaults(handler=cmd_wiki_versions)
+    scan.add_argument("--root", required=True, help="Deploy root to scan, e.g. /srv/mediawiki-staging")
+    scan.add_argument("--config-dir", default="config", dest="config_dir", help="Config checkout, relative to --root")
+    scan.add_argument(
+        "--version",
+        action="append",
+        default=[],
+        help="Restrict the scan to this core version (repeatable); implies skipping unversioned checkouts",
+    )
+    scan.add_argument(
+        "--no-metadata",
+        action="store_true",
+        dest="no_metadata",
+        help="Skip extension.json/skin.json parsing; faster, but names come from directories only",
+    )
+    scan.add_argument("--limit", type=int, default=5000, help="Ceiling on reported checkouts")
+    scan.set_defaults(handler=cmd_tree_scan)
 
     local = subparsers.add_parser("rsync-local", help="Rsync staging → production on this host")
     local.add_argument("--src", required=True)
@@ -1368,7 +1700,11 @@ def build_parser() -> argparse.ArgumentParser:
     canary.add_argument("--retries", type=int, default=3)
     canary.add_argument("--backoff", type=float, default=3.0)
     canary.add_argument("--timeout", type=int, default=15)
-    canary.add_argument("--expect", default="wikioasis", help="Case-insensitive marker expected in the body")
+    canary.add_argument(
+        "--expect",
+        default='content="MediaWiki',
+        help="Case-insensitive marker expected in the body",
+    )
     canary.set_defaults(handler=cmd_canary)
 
     haproxy = subparsers.add_parser("haproxy", help="Depool or repool one server on this proxy")
@@ -1381,42 +1717,6 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--server", required=True)
         sub.add_argument("--socket", default=os.environ.get("MWDEPLOY_HAPROXY_SOCKET", "/run/haproxy/admin.sock"))
         sub.set_defaults(handler=handler)
-
-    scan = subparsers.add_parser(
-        "tree-scan", help="Read-only inventory of a deploy tree's versions, extensions and skins"
-    )
-    scan.add_argument("--root", required=True, help="Deploy root, e.g. /srv/mediawiki-staging")
-    scan.add_argument(
-        "--config-dir",
-        dest="config_dir",
-        default=os.environ.get("MWDEPLOY_CONFIG_DIR", "config"),
-        help="mw-config checkout, relative to --root",
-    )
-    scan.add_argument(
-        "--config-repo-name",
-        dest="config_repo_name",
-        default=os.environ.get("MWDEPLOY_CONFIG_REPO_NAME", "mw-config"),
-    )
-    scan.add_argument(
-        "--limit",
-        type=int,
-        default=int(os.environ.get("MWDEPLOY_SCAN_LIMIT", "5000")),
-        help="Ceiling on checkouts scanned",
-    )
-    scan.add_argument(
-        "--no-metadata",
-        action="store_true",
-        default=not _env_bool("MWDEPLOY_SCAN_MANIFESTS", True),
-        help="Skip parsing extension.json/skin.json/Defines.php",
-    )
-    scan.add_argument(
-        "--import-non-git",
-        dest="import_non_git",
-        action="store_true",
-        default=_env_bool("MWDEPLOY_IMPORT_NON_GIT", False),
-        help="Include directories under versions/ that are not git checkouts",
-    )
-    scan.set_defaults(handler=cmd_tree_scan)
 
     patch = subparsers.add_parser("patch-apply", help="Apply or dry-run a patch")
     patch.add_argument("--patch", required=True)
