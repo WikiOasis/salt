@@ -1,0 +1,11 @@
+{%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
+{%- set drive = backup.get('rclone_drive', {}) %}
+[gdrive]
+type = drive
+scope = drive
+service_account_file = /etc/mariadb-backup/rclone-drive-sa.json
+{%- if drive.get('team_drive_id') %}
+team_drive = {{ drive.get('team_drive_id') }}
+{%- elif drive.get('folder_id') %}
+root_folder_id = {{ drive.get('folder_id') }}
+{%- endif %}

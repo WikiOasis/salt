@@ -54,9 +54,16 @@ mwdeploy_portal:
 
 mariadb:
   backup:
+    # 'server' (default): stream directly to the dedicated backup server below,
+    #   over SSH — the normal, long-term destination.
+    # 'drive': TEMPORARY STOPGAP — push into Google Drive via rclone instead
+    #   (see rclone_drive below). Both destination configs can stay populated
+    #   at once; this just switches which one mariadb-backup-run.sh uses.
+    mode: server
     # MariaDB user Salt will create on each db* server for backup operations
     user: mariadb_backup
     password: CHANGE_ME
+    # Used when mode: server
     destination:
       # IP or hostname of the external backup server
       host: CHANGE_ME
@@ -70,8 +77,38 @@ mariadb:
       full_minute: '0'
       incremental_hour: '2'   # daily incremental, Mon-Sat
       incremental_minute: '0'
-    # Private key whose public half is in authorized_keys on the backup server
+    # Private key whose public half is in authorized_keys on the backup
+    # server. Only used when mode: server.
     ssh_private_key: |
       -----BEGIN OPENSSH PRIVATE KEY-----
       CHANGE_ME
       -----END OPENSSH PRIVATE KEY-----
+    # Used when mode: drive. Recommended way to obtain these values (works
+    # headlessly, no interactive OAuth needed for a cron job):
+    #   1. In a Google Cloud project, enable the "Google Drive API" and
+    #      create a Service Account (IAM & Admin > Service Accounts).
+    #   2. Create a JSON key for it (Keys > Add Key > Create new key > JSON)
+    #      and paste its full contents into service_account_json below.
+    #   3. Service accounts have NO personal Drive storage of their own, so
+    #      uploads will fail with a quota error unless you share somewhere
+    #      with it first: either share a normal Drive folder with the
+    #      service account's client_email (found in the JSON) as Editor and
+    #      set folder_id to that folder's ID, OR (better, no quota
+    #      surprises) add the service account as a member of a Shared Drive
+    #      and set team_drive_id instead.
+    rclone_drive:
+      # Full contents of the service account's JSON key file
+      service_account_json: |
+        {
+          "type": "service_account",
+          "...": "CHANGE_ME"
+        }
+      # ID of a Drive folder shared with the service account (from the
+      # folder's URL: drive.google.com/drive/folders/<THIS_PART>). Use this
+      # OR team_drive_id below, not both.
+      folder_id: CHANGE_ME
+      # ID of a Shared Drive (Team Drive) the service account is a member
+      # of. Preferred over folder_id when a Shared Drive is available.
+      # team_drive_id: CHANGE_ME
+      # Path inside the shared folder/Shared Drive to store backups under
+      path: backups/mariadb

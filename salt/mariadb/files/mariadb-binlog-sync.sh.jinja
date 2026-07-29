@@ -2,10 +2,20 @@
 # Rsyncs locally-streamed binlog files to the remote backup server, then removes
 # local copies of rotated binlogs once they're confirmed pushed.
 # Run every 5 minutes via cron.
+#
+# Only runs when mariadb:backup:mode is 'server' (the default). In 'drive'
+# mode (the temporary Google Drive stopgap — see mariadb-backup-run.sh) this
+# script is a no-op: the active binlog file grows continuously and Drive has
+# no delta/rsync-style upload, so a naive push every 5 minutes would re-upload
+# the whole (ever-larger) file each time. Only the periodic full/incremental
+# mariabackup runs go to Drive; local binlogs are still retained on disk for
+# when 'server' mode comes back, they're just not shipped off-box meanwhile.
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
 {%- set dest = backup.get('destination', {}) %}
 {%- set discord = salt['pillar.get']('notifications:discord_webhook_url', '') %}
 {%- set slack = salt['pillar.get']('notifications:slack_webhook_url', '') %}
+{%- set mode = backup.get('mode', 'server') %}
+BACKUP_MODE="{{ mode }}"
 BACKUP_DIR=/var/backups/mariadb/binlogs
 STATE_DIR=/var/backups/mariadb
 STATUS_FILE="$STATE_DIR/binlog_sync_status"
@@ -21,6 +31,11 @@ DISCORD_WEBHOOK_URL="{{ discord }}"
 SLACK_WEBHOOK_URL="{{ slack }}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+
+if [ "$BACKUP_MODE" = "drive" ]; then
+    log "Skipping binlog remote sync: mariadb:backup:mode is 'drive' (temporary stopgap does not stream binlogs off-box). Local binlogs are still retained under ${BACKUP_DIR}."
+    exit 0
+fi
 
 notify() {
     local emoji="$1" text="$2"

@@ -1,7 +1,11 @@
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
 {%- set dest = backup.get('destination', {}) %}
+{%- set drive = backup.get('rclone_drive', {}) %}
 {%- set schedule = backup.get('schedule', {}) %}
-{%- if backup and dest.get('host') %}
+{%- set mode = backup.get('mode', 'server') %}
+{%- set server_ready = mode == 'server' and dest.get('host') %}
+{%- set drive_ready = mode == 'drive' and drive.get('service_account_json') %}
+{%- if backup and (server_ready or drive_ready) %}
 
 mariadb_backup_pkgs:
   pkg.installed:
@@ -10,12 +14,17 @@ mariadb_backup_pkgs:
       - jq
       - curl
       - zstd
+{%- if drive_ready %}
+      - rclone
+{%- endif %}
 
 /etc/mariadb-backup:
   file.directory:
     - user: root
     - group: root
     - mode: '0750'
+
+{%- if server_ready %}
 
 /etc/mariadb-backup/ssh_key:
   file.managed:
@@ -25,6 +34,31 @@ mariadb_backup_pkgs:
     - mode: '0600'
     - require:
       - file: /etc/mariadb-backup
+{%- endif %}
+
+{%- if drive_ready %}
+
+# TEMPORARY STOPGAP: pushes backups to Google Drive via rclone instead of the
+# usual backup server. See mariadb:backup:mode in pillar.
+/etc/mariadb-backup/rclone-drive-sa.json:
+  file.managed:
+    - contents_pillar: mariadb:backup:rclone_drive:service_account_json
+    - user: root
+    - group: root
+    - mode: '0600'
+    - require:
+      - file: /etc/mariadb-backup
+
+/etc/mariadb-backup/rclone.conf:
+  file.managed:
+    - source: salt://mariadb/files/rclone.conf.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0600'
+    - require:
+      - file: /etc/mariadb-backup/rclone-drive-sa.json
+{%- endif %}
 
 /var/backups/mariadb:
   file.directory:
