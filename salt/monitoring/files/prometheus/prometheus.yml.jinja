@@ -43,3 +43,8 @@ scrape_configs:
     file_sd_configs:
       - files: ['/etc/prometheus/file_sd/opensearch.json']
         refresh_interval: 5m
+
+  - job_name: 'cloudflare'
+    file_sd_configs:
+      - files: ['/etc/prometheus/file_sd/cloudflare.json']
+        refresh_interval: 5m

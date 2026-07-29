@@ -9,6 +9,9 @@ monitoring:
   monitoring_db_password: CHANGE_ME
   grafana_admin_password: CHANGE_ME
   mysqld_exporter_password: CHANGE_ME
+  # Cloudflare API token (Account Analytics:Read + Zone Analytics:Read),
+  # used by the cloudflare_exporter service on the monitoring host.
+  cloudflare_exporter_token: CHANGE_ME
 
 notifications:
   discord_webhook_url: https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN

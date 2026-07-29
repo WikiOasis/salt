@@ -41,6 +41,7 @@ base:
     - monitoring.prometheus
     - monitoring.grafana
     - monitoring.statsd_exporter
+    - monitoring.cloudflare_exporter
   'staging*':
     - mediawiki
     - mwdeploy.staging
