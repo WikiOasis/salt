@@ -2,7 +2,9 @@
 
 # No Debian package or release binary exists for this exporter (only a Docker
 # image is published upstream), so it's installed from PyPI into its own venv.
-prometheus_user:
+# (ID can't be "prometheus_user" - that's already declared by statsd_exporter.sls,
+# and SLS IDs must be globally unique across every state applied to a minion.)
+cloudflare_exporter_prometheus_user:
   user.present:
     - name: prometheus
     - system: True
@@ -75,6 +77,6 @@ prometheus-cloudflare-exporter:
       - file: /etc/prometheus/cloudflare_exporter.env
       - file: /etc/systemd/system/prometheus-cloudflare-exporter.service
     - require:
-      - user: prometheus_user
+      - user: cloudflare_exporter_prometheus_user
       - cmd: cloudflare_exporter_install
       - file: /etc/systemd/system/prometheus-cloudflare-exporter.service
