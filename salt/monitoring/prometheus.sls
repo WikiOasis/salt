@@ -50,6 +50,7 @@ prometheus_package:
     ('phpfpm',     'apps/mw',     9253),
     ('phpopcache', 'apps/mw/task', 9254),
     ('opensearch', 'opensearch',  9114),
+    ('cloudflare', 'monitoring',  9199),
 ] %}
 /etc/prometheus/file_sd/{{ job }}.json:
   file.managed:
@@ -68,7 +69,7 @@ prometheus:
     - watch:
       - file: /etc/prometheus/prometheus.yml
       - file: /etc/default/prometheus
-{%- for job in ['node', 'mysqld', 'haproxy', 'redis', 'statsd', 'phpfpm', 'phpopcache', 'opensearch'] %}
+{%- for job in ['node', 'mysqld', 'haproxy', 'redis', 'statsd', 'phpfpm', 'phpopcache', 'opensearch', 'cloudflare'] %}
       - file: /etc/prometheus/file_sd/{{ job }}.json
 {%- endfor %}
     - require:
