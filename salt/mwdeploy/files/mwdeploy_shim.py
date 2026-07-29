@@ -40,9 +40,9 @@ WEB_USER = os.environ.get("MWDEPLOY_WEB_USER", "www-data")
 # a commit subject.
 GIT_SEP = "\x1f"
 
-# Excludes carried over verbatim from the original rsync_local/rsync_remote.
+# Excludes carried over verbatim from the original rsync_local/rsync_remote,
+# minus .git — see below.
 RSYNC_EXCLUDES: tuple[str, ...] = (
-    ".git",
     ".gitignore",
     ".gitmodules",
     ".gitreview",
@@ -54,6 +54,16 @@ RSYNC_EXCLUDES: tuple[str, ...] = (
     "*.pyc",
     "__pycache__",
 )
+
+# .git deliberately syncs to production and the appservers, unlike the original
+# tool. git-checkout only ever runs against the staging tree, so a checkout's
+# .git anywhere downstream is otherwise frozen at whatever it last held when
+# that host's copy was cloned — `git status`/`git log` on an appserver then
+# reports a stale, disconnected commit even though the working tree it sits
+# next to is current, and MediaWiki's own Special:Version reads that same
+# stale metadata. Shipping .git keeps both accurate at the cost of the first
+# full sync being as large as a clone; every sync after that is an rsync delta
+# against history appservers already have.
 
 # Base rsync flags. --delete is intentional: a file removed upstream must go away
 # on the appservers too, or a deleted extension keeps being loadable.
@@ -237,7 +247,18 @@ def require_repo(path: str) -> str:
 
 
 def git(path: str, *arguments: str, timeout: int | None = 600) -> Ran:
-    return run(["git", "-C", path, *arguments], as_web_user=True, timeout=timeout)
+    # `-c safe.directory=<path>` scopes the trust to this one invocation rather
+    # than requiring a fleet-wide `git config --global --add safe.directory`.
+    # Every checkout git touches is owned by WEB_USER and run as WEB_USER (via
+    # the sudo wrapper above), so git's dubious-ownership check should already
+    # agree — this only matters if that ever drifts (WEB_USER misconfigured, or
+    # the shim invoked directly as a different user), where it turns a silent
+    # "detected dubious ownership" failure into a working git command.
+    return run(
+        ["git", "-c", f"safe.directory={path}", "-C", path, *arguments],
+        as_web_user=True,
+        timeout=timeout,
+    )
 
 
 def current_head(path: str) -> tuple[str, str]:
@@ -428,7 +449,7 @@ def cmd_git_show_blob(args: argparse.Namespace) -> Result:
     spec = f"{args.ref}:{file_path}"
 
     ran = run(
-        ["git", "-C", path, "show", spec],
+        ["git", "-c", f"safe.directory={path}", "-C", path, "show", spec],
         as_web_user=True,
         timeout=120,
     )
