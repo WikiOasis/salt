@@ -13,6 +13,25 @@ nginx:
     form-action 'self' http://127.0.0.1:300 http://localhost:3000 https://*.skywiki.org https://*.betaoasis.xyz https://*.wikioasis.org;
     base-uri 'self';;
 
+  # Phorge ships its own inline scripts and styles (Javelin behaviours, response
+  # payloads, Remarkup) with no nonce or hash, so both script-src and style-src
+  # need 'unsafe-inline'. 'unsafe-eval' is required by Javelin's JX.install and
+  # the Aphlict/Conduit clients.
+  phorge_csp_header: >-
+    default-src 'self' https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net;
+    script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net;
+    style-src 'self' data: 'unsafe-inline' https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net;
+    img-src 'self' data: blob: https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net https://*.wikioasis.org https://secure.gravatar.com;
+    font-src 'self' data: https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net;
+    connect-src 'self' https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net wss://phorge.wikioasis.org;
+    media-src 'self' blob: https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net;
+    worker-src 'self' blob:;
+    frame-src 'self' https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net;
+    frame-ancestors 'self';
+    form-action 'self' https://phorge.wikioasis.org https://phorge.wikioasisusercontent.net;
+    object-src 'none';
+    base-uri 'self';
+
   server_blocks:
     - listen:
         - "80"
