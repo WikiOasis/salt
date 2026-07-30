@@ -2,10 +2,23 @@
 {%- set version = php.get('version', '8.3') %}
 {%- set fpm = php.get('fpm', {}) %}
 {%- set listen = fpm.get('listen', '') or ('/run/php/php' ~ version ~ '-fpm.sock') %}
+{%- set nginx = salt['pillar.get']('nginx', {}) %}
+{%- set csp = nginx.get('phorge_csp_header', '') %}
 # salt managed, do not modify manually
 server {
   server_name phorge.wikioasis.org phorge.wikioasisusercontent.net;
   root        /var/www/phorge/webroot;
+
+  # Phorge renders inline <script> blocks (Javelin behaviours and response
+  # payloads) without nonces or hashes, so script-src has to permit
+  # 'unsafe-inline' or the pages refuse to run any JS. Drop the policy from
+  # PHP-FPM first: two Content-Security-Policy headers intersect into the
+  # stricter of the two, which is what blocks the inline scripts.
+  fastcgi_hide_header Content-Security-Policy;
+  fastcgi_hide_header Content-Security-Policy-Report-Only;
+{%- if csp %}
+  add_header Content-Security-Policy "{{ csp }}" always;
+{%- endif %}
 
   location / {
     index index.php;
