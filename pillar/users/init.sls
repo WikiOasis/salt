@@ -23,11 +23,17 @@ users:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAKWvAxYvkaVdWezSktHSkz7LelSH+kOSaEkJclwkrM/ pisces@wikioasis
         uid: 3003
         gid: 3003
+    reception:
+        fullname: Reception123
+        ssh-keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMQPuGdtuEkafBFAztzF8XMk06bmYVfe6ZDM14cvqUXU ed25519-key-20260803
+        uid: 3004
+        gid: 3004
 groups:
     ops:
         gid: 7000
         description: root, on all servers
-        members: [thomas, unai]
+        members: [thomas, unai, reception]
         privileges: ['ALL = (ALL) NOPASSWD: ALL']
     mediawiki-admins:
         gid: 7001
