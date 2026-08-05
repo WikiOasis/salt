@@ -105,6 +105,12 @@ nginx:
       location: 'AJY8rOPeI4BLR9G2i9kTwg'
       return: 'AJY8rOPeI4BLR9G2i9kTwg.l7gwszJvNB4zDQrUoNIf3VaGZN3Ffz4XMnMkYM0h9m4'
       database_name: 'hisdarkmaterialswiki'
+    lacswiki:
+      server_name: 'wiki.lacs.asso.eu.org'
+      listen: 80
+      location: '8WvWWxjOtB-TJolbD1lre31n7dpu96BQCIQCnQqjlsQxagafLd1LzTwY3s91XafA'
+      return: '8WvWWxjOtB-TJolbD1lre31n7dpu96BQCIQCnQqjlsQxagafLd1LzTwY3s91XafA.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
+      database_name: 'lacswiki'
     oaklandswiki:
       server_name: 'oaklandswiki.com'
       listen: 80
