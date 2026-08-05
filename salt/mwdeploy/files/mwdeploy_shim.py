@@ -232,6 +232,66 @@ def fix_ownership(path: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# dependencies
+# --------------------------------------------------------------------------- #
+
+# --no-dev keeps test/build-only packages off the tree this actually runs from;
+# --no-interaction matters more than usual, since there is no TTY under `salt
+# cmd.run` for composer to prompt on.
+COMPOSER_INSTALL_ARGS: tuple[str, ...] = ("install", "--no-dev", "--no-interaction", "--optimize-autoloader")
+NPM_INSTALL_ARGS: tuple[str, ...] = ("install",)
+
+
+def install_dependencies(path: str) -> list[str]:
+    """Run composer install / npm install if this checkout declares either.
+
+    vendor/ and node_modules/ are gitignored everywhere in the MediaWiki
+    ecosystem, so a checkout that ships a composer.json or package.json is not
+    actually loadable from a bare clone or rsync alone.
+    """
+    ran: list[str] = []
+
+    if os.path.isfile(os.path.join(path, "composer.json")):
+        run(["composer", *COMPOSER_INSTALL_ARGS], cwd=path, as_web_user=True, timeout=900).raise_for_status(
+            f"composer install failed in {path}"
+        )
+        ran.append("composer install")
+
+    if os.path.isfile(os.path.join(path, "package.json")):
+        run(["npm", *NPM_INSTALL_ARGS], cwd=path, as_web_user=True, timeout=900).raise_for_status(
+            f"npm install failed in {path}"
+        )
+        ran.append("npm install")
+
+    return ran
+
+
+def install_dependencies_for_sync(root: str, paths: Iterable[str]) -> list[dict[str, Any]]:
+    """install_dependencies wherever an rsync just landed a checkout.
+
+    A path-restricted deploy names the checkouts it touched directly, so each
+    one is checked individually. A full-tree sync names no paths at all; there
+    is no per-checkout list to scope to there, so the destination root itself
+    is the one directory checked.
+    """
+    relative = [path.strip("/") for path in paths if path.strip("/")]
+    targets = [os.path.join(root, path) for path in relative] or [root]
+
+    installed = []
+
+    for target in targets:
+        if not os.path.isdir(target):
+            continue
+
+        ran = install_dependencies(target)
+
+        if ran:
+            installed.append({"path": target, "ran": ran})
+
+    return installed
+
+
+# --------------------------------------------------------------------------- #
 # git
 # --------------------------------------------------------------------------- #
 
@@ -330,6 +390,8 @@ def cmd_git_checkout(args: argparse.Namespace) -> Result:
 
     git(path, "clean", "-ffd").raise_for_status("git clean failed")
 
+    installed = install_dependencies(path)
+
     fix_ownership(path)
 
     ref_type, ref_value = current_head(path)
@@ -337,7 +399,7 @@ def cmd_git_checkout(args: argparse.Namespace) -> Result:
     return Result(
         ok=True,
         detail=f"git checkout {resolved} in {path} (now at {ref_type} {ref_value})",
-        extra={"ref": ref_value, "ref_type": ref_type, "path": path},
+        extra={"ref": ref_value, "ref_type": ref_type, "path": path, "installed": installed},
     )
 
 
@@ -356,6 +418,8 @@ def cmd_git_pull(args: argparse.Namespace) -> Result:
     )
     git(path, "clean", "-ffd").raise_for_status("git clean failed")
 
+    installed = install_dependencies(path)
+
     fix_ownership(path)
 
     ref_type, ref_value = current_head(path)
@@ -363,7 +427,7 @@ def cmd_git_pull(args: argparse.Namespace) -> Result:
     return Result(
         ok=True,
         detail=f"git pull in {path} (now at {ref_type} {ref_value})",
-        extra={"ref": ref_value, "ref_type": ref_type, "path": path},
+        extra={"ref": ref_value, "ref_type": ref_type, "path": path, "installed": installed},
     )
 
 
@@ -596,6 +660,8 @@ def cmd_repo_register(args: argparse.Namespace) -> Result:
         for subdirectory in ("extensions", "skins", "cache"):
             run(["mkdir", "-p", os.path.join(path, subdirectory)], as_web_user=True)
 
+    installed = install_dependencies(path)
+
     fix_ownership(path)
 
     ref_type, ref_value = current_head(path)
@@ -603,7 +669,7 @@ def cmd_repo_register(args: argparse.Namespace) -> Result:
     return Result(
         ok=True,
         detail=f"cloned {args.url} into {path} at {ref_type} {ref_value}",
-        extra={"path": path, "ref": ref_value, "ref_type": ref_type},
+        extra={"path": path, "ref": ref_value, "ref_type": ref_type, "installed": installed},
     )
 
 
@@ -851,6 +917,11 @@ def cmd_rsync_local(args: argparse.Namespace) -> Result:
         label="rsync-local",
     )
 
+    installed = install_dependencies_for_sync(args.dst, args.path)
+
+    if installed:
+        result.extra["installed"] = installed
+
     fix_ownership(args.dst)
 
     return result
@@ -872,6 +943,11 @@ def cmd_rsync_remote(args: argparse.Namespace) -> Result:
         paths=args.path,
         label="rsync-remote",
     )
+
+    installed = install_dependencies_for_sync(args.dst, args.path)
+
+    if installed:
+        result.extra["installed"] = installed
 
     fix_ownership(args.dst)
 
