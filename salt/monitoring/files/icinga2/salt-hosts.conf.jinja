@@ -1,5 +1,8 @@
 
 {%- set hosts = salt['pillar.get']('dns_hosts', {}) %}
+{#- Services allowed to page incident.io. Discord/Slack get everything. #}
+{%- set incidentio_svcs  = salt['pillar.get']('monitoring:incidentio:services', []) %}
+{%- set incidentio_hosts = salt['pillar.get']('monitoring:incidentio:host_alerts', True) %}
 # Managed by Salt — do not edit manually.
 
 # ── Host template ──────────────────────────────────────────────────────────────
@@ -303,6 +306,8 @@ object Notification "slack-svc-{{ hostname }}-{{ svc }}" {
   types        = [ Problem, Recovery, Acknowledgement, FlappingStart, FlappingEnd ]
 }
 
+{%- if svc in incidentio_svcs %}
+
 object Notification "incidentio-svc-{{ hostname }}-{{ svc }}" {
   host_name    = "{{ hostname }}"
   service_name = "{{ svc }}"
@@ -311,6 +316,7 @@ object Notification "incidentio-svc-{{ hostname }}-{{ svc }}" {
   states       = [ OK, Warning, Critical, Unknown ]
   types        = [ Problem, Recovery ]
 }
+{% endif %}
 {%- endfor %}
 
 object Notification "discord-host-{{ hostname }}" {
@@ -329,6 +335,8 @@ object Notification "slack-host-{{ hostname }}" {
   types     = [ Problem, Recovery, Acknowledgement, FlappingStart, FlappingEnd ]
 }
 
+{%- if incidentio_hosts %}
+
 object Notification "incidentio-host-{{ hostname }}" {
   host_name = "{{ hostname }}"
   command   = "notify-host-by-incidentio"
@@ -336,5 +344,6 @@ object Notification "incidentio-host-{{ hostname }}" {
   states    = [ Up, Down ]
   types     = [ Problem, Recovery ]
 }
+{%- endif %}
 
 {%- endfor %}
