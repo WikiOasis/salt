@@ -28,8 +28,8 @@ location = /sitemap.xml {
   rewrite ^ /w/sitemap.php last;
 }
 
-location ~ ^/sitemaps/(.+\.xml)$ {
-  rewrite ^/sitemaps/(.+\.xml)$ /w/sitemap.php?sitemap=$1 last;
+location ^~ /sitemaps/ {
+  rewrite ^/sitemaps/(.*)$ /w/sitemap.php?sitemap=$1&$args last;
 }
 
 location ~ ^/images/.*\.php$ {
