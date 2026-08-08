@@ -57,12 +57,59 @@ mariadb:
     # MariaDB user Salt will create on each db* server for backup operations
     user: mariadb_backup
     password: CHANGE_ME
-    destination:
-      # IP or hostname of the external backup server
-      host: CHANGE_ME
-      user: mariadb-backup
-      # Absolute path on the backup server; subdirs per host are created automatically
-      path: /mnt/backups/mariadb
+    # zstd the xbstream before upload. Backups are stored compressed, so restore
+    # is `aws s3 cp <obj> - | zstd -dc | mbstream -x -C <dir>`. Set false to
+    # store raw xbstream instead.
+    compress: true
+    # OVHcloud Object Storage (S3). Backup sets and binlogs both live here; a
+    # bucket can be shared by every db* host (keys are prefixed per hostname).
+    # DO NOT enable versioning on this bucket — the active binlog is overwritten
+    # every 5 minutes and each overwrite would be retained as a noncurrent version.
+    s3:
+      bucket: CHANGE_ME
+      # OVH region code (gra, sbg, bhs, waw, de, uk, ...). The endpoint is derived
+      # as https://s3.<region>.io.cloud.ovh.net — lifecycle rules only work on the
+      # `.io` endpoint, never the legacy `.perf` one. Override with `endpoint:` if
+      # you need something else.
+      region: gra
+      # S3 user credentials from the OVHcloud control panel (Object Storage >
+      # S3 users). Needs read/write on the bucket plus PutBucketLifecycle.
+      access_key: CHANGE_ME
+      secret_key: CHANGE_ME
+      # Optional key prefix inside the bucket, e.g. 'mariadb'. Keys become
+      # <prefix>/<hostname>/sets/... and <prefix>/<hostname>/binlogs/...
+      prefix: ''
+      # Storage class written on the PUT, so write-once objects (backup sets and
+      # rotated binlogs) are billed as Infrequent Access immediately instead of
+      # spending a day at Standard rates. OVHcloud maps its Infrequent Access
+      # tier onto the standard S3 name. Objects that get overwritten — the
+      # still-growing binlog, the `sets/latest` pointer — deliberately stay in
+      # Standard: an overwrite counts as a delete against IA's 30-day minimum.
+      # Note IA also charges a per-GiB retrieval fee, so restores are not free.
+      storage_class: STANDARD_IA
+      # A full is one streamed multipart object and S3 caps an object at 10000
+      # parts, so this sets the size ceiling: 128MB x 10000 = 1.28TB. The CLI
+      # buffers chunksize x max_concurrent_requests in RAM while uploading.
+      multipart_chunksize: 128MB
+      max_concurrent_requests: 4
+      # Bucket lifecycle policy — this is the ONLY thing that deletes old
+      # backups; the scripts never remove remote data.
+      lifecycle:
+        # Backstop transition for anything that did land in Standard (objects
+        # predating this policy, the active binlog once it stops being
+        # overwritten). New sets/rotated binlogs are already in storage_class
+        # on arrival. OVHcloud requires at least 1 day, and objects under 128KB
+        # never transition.
+        transition_days: 1
+        # Days after upload before an object is deleted. IA is billed for a
+        # 730h (30 day) minimum per object — deleting sooner is charged for the
+        # remainder anyway — so this is clamped up to transition_days + 30 if set
+        # lower. 35 keeps ~5 weekly sets.
+        expire_days: 35
+        min_storage_days: 30
+        # Sweep up parts left behind by a full backup upload that died mid-flight.
+        # They are billed but never show up in a listing.
+        abort_incomplete_multipart_days: 7
     # Cron schedule (UTC). Defaults shown; override per host (e.g. in
     # pillar/mariadb/<host>.sls) to stagger backups across servers.
     schedule:
@@ -70,8 +117,3 @@ mariadb:
       full_minute: '0'
       incremental_hour: '2'   # daily incremental, Mon-Sat
       incremental_minute: '0'
-    # Private key whose public half is in authorized_keys on the backup server
-    ssh_private_key: |
-      -----BEGIN OPENSSH PRIVATE KEY-----
-      CHANGE_ME
-      -----END OPENSSH PRIVATE KEY-----

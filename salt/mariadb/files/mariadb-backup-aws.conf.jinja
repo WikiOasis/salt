@@ -1,0 +1,20 @@
+{%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
+{%- set s3 = backup.get('s3', {}) %}
+[default]
+region = {{ s3.get('region', 'gra') }}
+
+# A full backup is uploaded as ONE object streamed from stdin, so the CLI cannot
+# know its size up front and just keeps cutting parts. S3 allows 10000 parts per
+# object, so the chunk size sets the ceiling on a single full: 128MB x 10000 =
+# 1.28TB. Raise it if a DB ever outgrows that — but note the CLI buffers up to
+# max_concurrent_requests chunks in RAM, so chunk x concurrency is the RSS cost.
+s3 =
+    multipart_threshold = {{ s3.get('multipart_chunksize', '128MB') }}
+    multipart_chunksize = {{ s3.get('multipart_chunksize', '128MB') }}
+    max_concurrent_requests = {{ s3.get('max_concurrent_requests', 4) }}
+
+# OVHcloud is S3-compatible but not S3. Recent botocore releases send flexible
+# checksums on every request by default, which third-party endpoints reject;
+# older ones ignore both keys, so setting them is safe either way.
+request_checksum_calculation = when_required
+response_checksum_validation = when_supported

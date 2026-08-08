@@ -1,15 +1,17 @@
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
-{%- set dest = backup.get('destination', {}) %}
+{%- set s3 = backup.get('s3', {}) %}
 {%- set schedule = backup.get('schedule', {}) %}
-{%- if backup and dest.get('host') %}
+{%- if backup and s3.get('bucket') %}
 
 mariadb_backup_pkgs:
   pkg.installed:
     - pkgs:
       - mariadb-backup
+      - awscli
       - jq
       - curl
       - zstd
+      - pv
 
 /etc/mariadb-backup:
   file.directory:
@@ -17,14 +19,50 @@ mariadb_backup_pkgs:
     - group: root
     - mode: '0750'
 
-/etc/mariadb-backup/ssh_key:
+/etc/mariadb-backup/s3.env:
   file.managed:
-    - contents_pillar: mariadb:backup:ssh_private_key
+    - source: salt://mariadb/files/mariadb-backup-s3.env.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0640'
+    - require:
+      - file: /etc/mariadb-backup
+
+/etc/mariadb-backup/credentials:
+  file.managed:
+    - source: salt://mariadb/files/mariadb-backup-credentials.jinja
+    - template: jinja
     - user: root
     - group: root
     - mode: '0600'
+    - show_changes: False
     - require:
       - file: /etc/mariadb-backup
+
+/etc/mariadb-backup/aws.conf:
+  file.managed:
+    - source: salt://mariadb/files/mariadb-backup-aws.conf.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0640'
+    - require:
+      - file: /etc/mariadb-backup
+
+/etc/mariadb-backup/lifecycle.json:
+  file.managed:
+    - source: salt://mariadb/files/mariadb-backup-lifecycle.json.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0640'
+    - require:
+      - file: /etc/mariadb-backup
+
+# The SSH destination is gone; the key it used is dead weight on disk.
+/etc/mariadb-backup/ssh_key:
+  file.absent
 
 /var/backups/mariadb:
   file.directory:
@@ -40,6 +78,13 @@ mariadb_backup_pkgs:
     - mode: '0750'
     - require:
       - file: /var/backups/mariadb
+
+/usr/local/bin/mariadb-backup-s3-init.sh:
+  file.managed:
+    - source: salt://mariadb/files/mariadb-backup-s3-init.sh
+    - user: root
+    - group: root
+    - mode: '0750'
 
 /usr/local/bin/mariadb-backup-run.sh:
   file.managed:
@@ -64,6 +109,22 @@ mariadb_backup_pkgs:
     - user: root
     - group: root
     - mode: '0750'
+
+# Retention lives in the bucket, not in the scripts: objects transition to the
+# Infrequent Access storage class and expire from there. `--check` compares the
+# live policy against the rendered one, so this is a no-op once applied and
+# re-applies itself if the pillar changes or someone edits it in the console.
+mariadb_backup_s3_lifecycle:
+  cmd.run:
+    - name: /usr/local/bin/mariadb-backup-s3-init.sh
+    - unless: /usr/local/bin/mariadb-backup-s3-init.sh --check
+    - require:
+      - pkg: mariadb_backup_pkgs
+      - file: /usr/local/bin/mariadb-backup-s3-init.sh
+      - file: /etc/mariadb-backup/s3.env
+      - file: /etc/mariadb-backup/credentials
+      - file: /etc/mariadb-backup/aws.conf
+      - file: /etc/mariadb-backup/lifecycle.json
 
 /etc/systemd/system/mariadb-binlog-stream.service:
   file.managed:
@@ -117,7 +178,7 @@ mariadb_backup_daily_cron:
     - dayweek: '1-6'
     - identifier: mariadb-backup-daily
 
-# Sync binlogs to remote every 5 minutes
+# Sync binlogs to the bucket every 5 minutes
 mariadb_binlog_sync_cron:
   cron.present:
     - name: /usr/local/bin/mariadb-binlog-sync.sh >> /var/log/mariadb-backup.log 2>&1

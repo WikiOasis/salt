@@ -1,24 +1,44 @@
 #!/bin/bash
-# Rsyncs locally-streamed binlog files to the remote backup server, then removes
-# local copies of rotated binlogs once they're confirmed pushed.
+# Uploads locally-streamed binlog files to OVHcloud Object Storage (S3), then
+# removes local copies of rotated binlogs once they're confirmed uploaded.
 # Run every 5 minutes via cron.
-{%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
-{%- set dest = backup.get('destination', {}) %}
+#
+# Objects land at s3://$BUCKET/$PREFIX/$HOST/binlogs/mysql-bin.NNNNNN, one key
+# per binlog file. The binlog mariadb-binlog is still appending to is uploaded
+# under the key it will keep once it rotates, and simply overwritten each run —
+# so a rotated binlog never changes key and the bucket holds exactly one copy.
+#
+# STORAGE CLASS, and why it is not uniform: Infrequent Access bills a 30-day
+# minimum per object, and an overwrite counts as a delete for that purpose. The
+# ACTIVE binlog is overwritten every 5 minutes, so putting it in IA would buy a
+# pro-rated early-deletion fee ~288 times a day — it stays in Standard, which has
+# no minimum. Once a binlog rotates it is closed and immutable, so its final
+# upload goes to IA and it is billed at the cheap rate for the rest of its life.
+# That final upload is unconditional: the copy already in the bucket is both a
+# Standard-class object and possibly a few events short of the closed file.
+#
+# Old binlogs are never deleted from the bucket here — the lifecycle policy
+# expires them (see mariadb-backup-lifecycle.json.jinja). Deleting early costs
+# money for exactly the same reason.
 {%- set discord = salt['pillar.get']('notifications:discord_webhook_url', '') %}
 {%- set slack = salt['pillar.get']('notifications:slack_webhook_url', '') %}
+set -o pipefail
 BACKUP_DIR=/var/backups/mariadb/binlogs
 STATE_DIR=/var/backups/mariadb
 STATUS_FILE="$STATE_DIR/binlog_sync_status"
-REMOTE_USER="{{ dest.get('user', '') }}"
-REMOTE_HOST="{{ dest.get('host', '') }}"
-REMOTE_PATH="{{ dest.get('path', '/backup/mariadb') }}"
-SSH_KEY=/etc/mariadb-backup/ssh_key
+UPLOAD_STATE="$STATE_DIR/binlog_uploaded"
 HOST=$(hostname -s)
-RSYNC_SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes"
-REMOTE_DIR="$REMOTE_PATH/$HOST/binlogs/"
+
+set -a
+. /etc/mariadb-backup/s3.env
+set +a
+
+BINLOG_PREFIX="${S3_PREFIX:+${S3_PREFIX}/}$HOST/binlogs"
 
 DISCORD_WEBHOOK_URL="{{ discord }}"
 SLACK_WEBHOOK_URL="{{ slack }}"
+
+aws_s3() { aws --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION" "$@"; }
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
@@ -44,63 +64,105 @@ LATEST=$(ls -t "$BACKUP_DIR"/mysql-bin.[0-9]* 2>/dev/null | head -1)
 LATEST_NAME=$(basename "${LATEST:-}")
 PREV_STATUS=$(cat "$STATUS_FILE" 2>/dev/null || echo "ok")
 
-log "Starting binlog sync to ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR} (active file: ${LATEST_NAME:-none})"
+log "Starting binlog sync to s3://${S3_BUCKET}/${BINLOG_PREFIX} (active file: ${LATEST_NAME:-none})"
 
-if rsync -az \
-    -e "$RSYNC_SSH" \
-    "$BACKUP_DIR/" \
-    "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR"; then
-    log "Sync to remote OK"
+# Unlike rsync there is no cheap way to ask the far end what it already has, so
+# we remember size+mtime of what we last uploaded, one "<name><TAB><size>:<mtime>"
+# line per file. That lets an unchanged ACTIVE binlog — the common case on an
+# idle DB — be skipped instead of re-uploaded every five minutes. Rotated files
+# ignore the state entirely (they always get their one final IA upload), so in
+# practice this file holds a single line.
+#
+# The new state is built in a temp file and moved into place at the end, so a run
+# that dies partway leaves the old state intact rather than a truncated one that
+# would re-upload everything.
+NEW_STATE=$(mktemp "$STATE_DIR/binlog_uploaded.XXXXXX")
+trap 'rm -f "$NEW_STATE"' EXIT
+
+last_sig() {
+    [ -f "$UPLOAD_STATE" ] || return 0
+    awk -F'\t' -v n="$1" '$1 == n { print $2; exit }' "$UPLOAD_STATE"
+}
+
+FAILED=0
+SENT=0
+SKIPPED=0
+REMOVED=0
+RECLAIMED=0
+
+shopt -s nullglob
+for path in "$BACKUP_DIR"/mysql-bin.[0-9]*; do
+    name=$(basename "$path")
+    # Taken BEFORE the upload on purpose. The active binlog can grow mid-copy, so
+    # a signature taken afterwards could record bytes that were never sent and we
+    # would skip them forever; recording the earlier one at worst re-uploads.
+    sig=$(stat -c '%s:%Y' "$path" 2>/dev/null) || continue
+
+    if [ "$name" = "$LATEST_NAME" ]; then
+        # Still being appended to: Standard class, and only if it changed.
+        if [ "$(last_sig "$name")" = "$sig" ]; then
+            SKIPPED=$((SKIPPED + 1))
+            printf '%s\t%s\n' "$name" "$sig" >> "$NEW_STATE"
+            continue
+        fi
+        if aws_s3 s3 cp "$path" "s3://$S3_BUCKET/$BINLOG_PREFIX/$name" --only-show-errors; then
+            SENT=$((SENT + 1))
+            printf '%s\t%s\n' "$name" "$sig" >> "$NEW_STATE"
+        else
+            log "WARNING: upload of active binlog ${name} failed"
+            FAILED=1
+            # Carry the old signature forward so the next run retries.
+            printf '%s\t%s\n' "$name" "$(last_sig "$name")" >> "$NEW_STATE"
+        fi
+        continue
+    fi
+
+    # Rotated: closed and immutable. Always re-upload, this time into IA, then
+    # drop the local copy. A failure just leaves the file for the next run — the
+    # Standard-class copy from while it was active is still in the bucket, so
+    # nothing is lost in the meantime.
+    if aws_s3 s3 cp "$path" "s3://$S3_BUCKET/$BINLOG_PREFIX/$name" \
+        --storage-class "$S3_STORAGE_CLASS" --only-show-errors; then
+        SENT=$((SENT + 1))
+        size=$(stat -c '%s' "$path" 2>/dev/null || echo 0)
+        if rm -f "$path"; then
+            REMOVED=$((REMOVED + 1))
+            RECLAIMED=$((RECLAIMED + size))
+        fi
+    else
+        log "WARNING: final ${S3_STORAGE_CLASS} upload of rotated binlog ${name} failed"
+        FAILED=1
+    fi
+done
+
+mv -f "$NEW_STATE" "$UPLOAD_STATE"
+trap - EXIT
+
+if [ "$FAILED" -eq 0 ]; then
+    log "Sync to S3 OK (${SENT} uploaded, ${SKIPPED} unchanged)"
     # Only notify on a state *transition* — every-failed-run would spam the
     # webhook for the duration of an outage given the 5-minute cron interval.
     if [ "$PREV_STATUS" = "failing" ]; then
         log "Sync recovered after previously failing"
-        notify ":white_check_mark:" "binlog sync to ${REMOTE_HOST} recovered"
+        notify ":white_check_mark:" "binlog sync to ${S3_BUCKET} recovered"
     fi
     echo "ok" > "$STATUS_FILE"
 else
-    log "WARNING: rsync to ${REMOTE_HOST} failed"
+    log "WARNING: one or more binlog uploads to ${S3_BUCKET} failed"
     if [ "$PREV_STATUS" != "failing" ]; then
-        notify ":x:" "binlog sync to ${REMOTE_HOST} is FAILING — local binlogs will accumulate until this recovers"
+        notify ":x:" "binlog sync to ${S3_BUCKET} is FAILING — local binlogs will accumulate until this recovers"
     fi
     echo "failing" > "$STATUS_FILE"
-    log "Binlog sync run finished (failed)"
-    exit 1
 fi
 
-# Remove local copies of rotated binlogs once rsync confirms they match the
-# copy on the remote. --remove-source-files only deletes a file after
-# verifying the transfer, so a failed/partial push leaves it for the next run.
-# Measured by comparing total size/count of rotated binlogs before and after.
-old_binlogs_stats() {
-    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'mysql-bin.[0-9]*' ! -name "$LATEST_NAME" -printf '%s\n' \
-    | awk '{sum+=$1; n++} END {print sum+0, n+0}'
-}
+if [ "$REMOVED" -gt 0 ]; then
+    SIZE_HUMAN=$(numfmt --to=iec --suffix=B "$RECLAIMED" 2>/dev/null || echo "${RECLAIMED} bytes")
+    log "Removed ${REMOVED} rotated binlog(s), reclaimed ${SIZE_HUMAN} of local disk space"
+fi
 
-read -r BEFORE_BYTES BEFORE_COUNT <<< "$(old_binlogs_stats)"
-
-if [ "$BEFORE_COUNT" -eq 0 ]; then
-    log "No rotated binlogs eligible for local cleanup"
-else
-    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'mysql-bin.[0-9]*' ! -name "$LATEST_NAME" -printf '%f\n' \
-    | rsync -az --remove-source-files \
-        -e "$RSYNC_SSH" \
-        --files-from=- \
-        "$BACKUP_DIR/" \
-        "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR"
-
-    read -r AFTER_BYTES AFTER_COUNT <<< "$(old_binlogs_stats)"
-
-    REMOVED=$(( BEFORE_COUNT - AFTER_COUNT ))
-    RECLAIMED=$(( BEFORE_BYTES - AFTER_BYTES ))
-
-    if [ "$REMOVED" -gt 0 ]; then
-        SIZE_HUMAN=$(numfmt --to=iec --suffix=B "$RECLAIMED" 2>/dev/null || echo "${RECLAIMED} bytes")
-        log "Removed ${REMOVED} rotated binlog(s), reclaimed ${SIZE_HUMAN} of local disk space"
-    fi
-    if [ "$AFTER_COUNT" -gt 0 ]; then
-        log "  ${AFTER_COUNT} rotated binlog(s) not yet confirmed on remote; will retry next run"
-    fi
+if [ "$FAILED" -ne 0 ]; then
+    log "Binlog sync run finished (failed)"
+    exit 1
 fi
 
 log "Binlog sync run finished"

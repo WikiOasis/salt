@@ -1,7 +1,7 @@
 mariadb:
   # Offset this host's backups to 12:00 UTC so they don't collide with the
   # other db servers (default 01:00 full / 02:00 incremental) on the shared
-  # backup destination.
+  # backup bucket.
   backup:
     schedule:
       full_hour: '12'
