@@ -93,17 +93,16 @@ mariadb:
       multipart_chunksize: 128MB
       max_concurrent_requests: 4
       # Bucket lifecycle policy — this is the ONLY thing that deletes old
-      # backups; the scripts never remove remote data.
+      # backups; the scripts never remove remote data. It expires objects and
+      # nothing else: objects are already in storage_class when they land, and
+      # a transition rule would fire on object AGE across the whole prefix,
+      # which would drag the deliberately-Standard active binlog into IA on an
+      # idle server. S3 prefix filters are literal, so there is no way to write
+      # one that covers sets but not binlogs.
       lifecycle:
-        # Backstop transition for anything that did land in Standard (objects
-        # predating this policy, the active binlog once it stops being
-        # overwritten). New sets/rotated binlogs are already in storage_class
-        # on arrival. OVHcloud requires at least 1 day, and objects under 128KB
-        # never transition.
-        transition_days: 1
         # Days after upload before an object is deleted. IA is billed for a
         # 730h (30 day) minimum per object — deleting sooner is charged for the
-        # remainder anyway — so this is clamped up to transition_days + 30 if set
+        # remainder anyway — so this is clamped up to min_storage_days if set
         # lower. 35 keeps ~5 weekly sets.
         expire_days: 35
         min_storage_days: 30

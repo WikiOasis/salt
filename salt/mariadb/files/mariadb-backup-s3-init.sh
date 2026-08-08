@@ -41,6 +41,15 @@ if [ "${1:-}" = "--check" ]; then
     # matches — so the apply path runs and reports the real error.
     live=$(live_policy | normalise 2>/dev/null) || live=""
     want=$(normalise < "$LIFECYCLE")
+    # NoncurrentVersionExpiration only means anything on a versioned bucket, and
+    # this one is documented as unversioned — the endpoint is free to drop it
+    # from the read-back. If it comes back absent everywhere, neutralise it on
+    # the desired side too, otherwise --check would compare null against a real
+    # number and report drift on every single highstate, forever. A bucket that
+    # DOES echo the field back is still compared strictly.
+    if [ -n "$live" ] && [ "$(printf '%s' "$live" | jq -c '[.[].NoncurrentDays] | unique')" = "[null]" ]; then
+        want=$(printf '%s' "$want" | jq -S '[.[] | .NoncurrentDays = null]')
+    fi
     if [ -n "$live" ] && [ "$live" = "$want" ]; then
         exit 0
     fi
@@ -57,5 +66,8 @@ aws_s3 s3api put-bucket-lifecycle-configuration \
     --bucket "$S3_BUCKET" \
     --lifecycle-configuration "file://$LIFECYCLE"
 
+# The put above is the part that matters; this read-back is only for the log.
+# Under `set -o pipefail` a transient read failure here would exit non-zero and
+# have Salt report the state as failed even though the policy was applied.
 echo "Applied lifecycle policy to s3://${S3_BUCKET} (${S3_ENDPOINT}):"
-live_policy | jq .
+live_policy | jq . || echo "  (applied, but reading it back failed)"

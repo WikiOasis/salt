@@ -174,6 +174,17 @@ preflight() {
         log "ERROR: cannot reach bucket ${S3_BUCKET} at ${S3_ENDPOINT} — aborting before starting mariabackup"
         exit 1
     fi
+    # head-bucket only proves the bucket exists and is readable. A credential
+    # without PutObject, a rotated secret or a tightened bucket policy all pass
+    # it and then fail at the END of a multi-hour full. Prove we can write.
+    # Standard class and deleted immediately, so it has no minimum to charge.
+    local probe="$BASE_PREFIX/.preflight.$$"
+    if ! printf 'ok\n' | aws_s3 s3 cp - "s3://$S3_BUCKET/$probe" --only-show-errors; then
+        log "ERROR: cannot write to s3://${S3_BUCKET}/${probe} — check the S3 user's permissions"
+        exit 1
+    fi
+    aws_s3 s3 rm "s3://$S3_BUCKET/$probe" --only-show-errors >/dev/null 2>&1 \
+        || log "WARNING: could not remove preflight probe object ${probe}"
 }
 
 # Record the checkpoint LSN from the backup that just ran, read from a fresh
@@ -243,7 +254,17 @@ run_full() {
     ) &
     local pid=$!
     progress_heartbeat "$pid" "$meter"
-    wait "$pid"
+    if ! wait "$pid"; then
+        # Same reasoning as the incremental path below, and it matters more here:
+        # a truncated base leaves the whole set unrestorable while still looking
+        # complete in a listing, and it would sit in IA for the 30-day minimum.
+        # CURRENT_SET_FILE is deliberately not advanced, so the next incremental
+        # still chains onto the previous, intact set.
+        log "FULL backup pipeline failed; removing the partial object at ${uri}"
+        rm -f "$meter"; rm -rf "$lsndir"
+        aws_s3 s3 rm "$uri" --only-show-errors 2>/dev/null || true
+        return 1
+    fi
     rm -f "$meter"
     log "Backup stream finished; saving checkpoints"
 
@@ -330,7 +351,11 @@ run_incremental() {
     local pid=$!
     progress_heartbeat "$pid" "$meter"
     if ! wait "$pid"; then
-        log "Incremental backup failed (LSN ${to_lsn} incompatible with current server state); falling back to FULL backup"
+        # Any stage of the pipeline can land here — an S3 outage, an expired
+        # credential, a full $STATE_DIR, an OOM-killed zstd — so don't name a
+        # single cause. The fallback full will usually succeed and hide the real
+        # fault, which makes an accurate log line the only trail left.
+        log "Incremental backup pipeline failed (chaining from LSN ${to_lsn}); possible causes: an LSN incompatible with the current server state, an S3 upload error, or a local resource limit. Falling back to FULL backup"
         rm -f "$CHECKPOINTS" "$meter"; rm -rf "$lsndir"
         # A truncated object is worse than none: it would look restorable in a
         # listing. Any multipart parts the CLI could not abort are swept up by

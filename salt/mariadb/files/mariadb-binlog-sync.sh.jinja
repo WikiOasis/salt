@@ -29,6 +29,19 @@ STATUS_FILE="$STATE_DIR/binlog_sync_status"
 UPLOAD_STATE="$STATE_DIR/binlog_uploaded"
 HOST=$(hostname -s)
 
+# Serialize runs, the same way mariadb-backup-run.sh does. On a 5-minute cron a
+# slow run (big binlog, degraded link) can still be uploading when the next one
+# starts; both would then build their own state and race on the final
+# `mv -f "$NEW_STATE" "$UPLOAD_STATE"`, so the loser's write clobbers the
+# winner's active-binlog signature and the next run re-uploads needlessly.
+# Non-blocking: if one is already running we just skip this run.
+LOCK_FILE=/run/mariadb-binlog-sync.lock
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Another binlog sync is already running; skipping"
+    exit 0
+fi
+
 set -a
 . /etc/mariadb-backup/s3.env
 set +a

@@ -2,46 +2,49 @@
   OVHcloud Object Storage lifecycle policy for the MariaDB backup bucket.
   Applied by mariadb-backup-s3-init.sh via `s3api put-bucket-lifecycle-configuration`.
 
-  Backup sets and rotated binlogs are already PUT directly into the Infrequent
-  Access class by the upload scripts, so rule 1's transition is a backstop, not
-  the main event: it catches anything that landed in Standard — objects written
-  before this policy existed, uploads from other tooling, and the active binlog
-  once it stops being overwritten (it is deliberately kept in Standard while it
-  is still growing, see mariadb-binlog-sync.sh).
+  This policy EXPIRES objects. It deliberately does not transition them: the
+  upload scripts already PUT backup sets and rotated binlogs straight into the
+  Infrequent Access class, so a transition rule would have nothing useful left
+  to do — and it would actively cause harm. Lifecycle transitions fire on object
+  age, not on write activity, and an S3 prefix filter is a literal string that
+  cannot express "*/sets/ but not */binlogs/" (the host component comes first,
+  and the policy is bucket-wide because every db host applies the same one). So
+  any transition rule here also covers the ACTIVE binlog, which is deliberately
+  kept in Standard because it is overwritten every 5 minutes and each overwrite
+  counts as a delete against IA's 30-day minimum. On an idle DB the sync skips
+  the unchanged active binlog, the object ages past the transition, and every
+  later overwrite then buys the early-deletion charge the design exists to
+  avoid. See mariadb-binlog-sync.sh.
 
-  Rule 1's expiration is the part that matters day to day, and it is the ONLY
-  thing that deletes old backups — the scripts never remove remote data. IA is
-  billed for a 730h (30 day) MINIMUM per object and deleting sooner still costs
-  the remainder, so expire_days is clamped below to at least transition_days + 30
-  (>= 30 days from upload either way).
+  Expiration is therefore the whole job, and it is the ONLY thing that deletes
+  old backups — the scripts never remove remote data. Objects are in IA from the
+  moment they land, and IA is billed for a 730h (30 day) MINIMUM per object with
+  early deletion charged for the remainder, so expire_days is clamped below to at
+  least min_storage_days.
 
   Rule 2 aborts orphaned multipart uploads. A full backup is a single multi-GB
   streamed multipart upload; if it dies mid-flight the uploaded parts are billed
   but invisible to `s3 ls`, so this rule is what stops them accumulating.
 
-  Objects under 128KB are not transitioned by OVHcloud (they stay in Standard,
-  which is cheaper for them anyway); they are still expired by rule 1.
+  NoncurrentVersionExpiration is a safety net for a bucket that has versioning
+  turned on against the advice in pillar/private/init.sls.example. A bucket
+  without versioning may not echo it back, which mariadb-backup-s3-init.sh's
+  --check accounts for.
 -#}
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
 {%- set s3 = backup.get('s3', {}) %}
 {%- set lc = s3.get('lifecycle', {}) %}
 {%- set prefix = s3.get('prefix', '').strip('/') %}
 {%- set filter_prefix = (prefix ~ '/') if prefix else '' %}
-{#- Same class the uploads use, so the backstop can never disagree with them. #}
-{%- set storage_class = s3.get('storage_class', 'STANDARD_IA') %}
-{%- set transition_days = lc.get('transition_days', 1)|int %}
 {%- set min_storage_days = lc.get('min_storage_days', 30)|int %}
-{%- set expire_days = [lc.get('expire_days', 35)|int, transition_days + min_storage_days]|max %}
+{%- set expire_days = [lc.get('expire_days', 35)|int, min_storage_days]|max %}
 {%- set abort_days = lc.get('abort_incomplete_multipart_days', 7)|int %}
 {
   "Rules": [
     {
-      "ID": "mariadb-backups-infrequent-access",
+      "ID": "mariadb-backups-expiry",
       "Status": "Enabled",
       "Filter": { "Prefix": "{{ filter_prefix }}" },
-      "Transitions": [
-        { "Days": {{ transition_days }}, "StorageClass": "{{ storage_class }}" }
-      ],
       "Expiration": { "Days": {{ expire_days }} },
       "NoncurrentVersionExpiration": { "NoncurrentDays": {{ expire_days }} }
     },
