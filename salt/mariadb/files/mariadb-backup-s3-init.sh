@@ -56,9 +56,18 @@ if [ "${1:-}" = "--check" ]; then
     exit 1
 fi
 
-if ! aws_s3 s3api head-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1; then
+if ! err=$(aws_s3 s3api head-bucket --bucket "$S3_BUCKET" 2>&1); then
+    # Pass the CLI's own message through. "Could not connect to the endpoint
+    # URL", a 403 and a 404 all land here and each needs a different fix, so
+    # swallowing it just sends whoever is reading down the wrong path.
     echo "ERROR: bucket '${S3_BUCKET}' is not reachable at ${S3_ENDPOINT}." >&2
-    echo "       Create it first and check mariadb:backup:s3 credentials/region." >&2
+    echo "       aws said: ${err}" >&2
+    echo "       Check, in order:" >&2
+    echo "         - the endpoint resolves. OVHcloud US regions (us-*) are on" >&2
+    echo "           .io.cloud.ovh.us; EU/CA/APAC regions are on .io.cloud.ovh.net." >&2
+    echo "         - the bucket exists in region '${S3_REGION}'." >&2
+    echo "         - mariadb:backup:s3 access_key/secret_key are valid and the" >&2
+    echo "           S3 user has access to this bucket." >&2
     exit 1
 fi
 
