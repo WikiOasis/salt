@@ -25,6 +25,7 @@ monitoring:
     services:
       - opensearch
       - nginx_errors
+      - nginx_4xx_errors
       - mediawiki
       - haproxy_backends
       - ssh
