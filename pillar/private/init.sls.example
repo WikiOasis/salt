@@ -67,10 +67,14 @@ mariadb:
     # every 5 minutes and each overwrite would be retained as a noncurrent version.
     s3:
       bucket: CHANGE_ME
-      # OVH region code (gra, sbg, bhs, waw, de, uk, ...). The endpoint is derived
-      # as https://s3.<region>.io.cloud.ovh.net — lifecycle rules only work on the
-      # `.io` endpoint, never the legacy `.perf` one. Override with `endpoint:` if
-      # you need something else.
+      # OVH region code. The endpoint is derived from it as
+      #   https://s3.<region>.io.cloud.ovh.us   for US regions (us-east-va, us-west-or)
+      #   https://s3.<region>.io.cloud.ovh.net  for everything else
+      # because OVHcloud US is a separate entity on its own domain. Regions on
+      # .net include gra, rbx, sbg, eu-west-par, eu-south-mil, de, uk, waw, bhs,
+      # ca-east-tor, sgp, ap-southeast-syd, ap-south-mum. Lifecycle rules only
+      # work on the `.io` endpoint, never the legacy `.perf` one. Set `endpoint:`
+      # to override the derivation outright.
       region: gra
       # S3 user credentials from the OVHcloud control panel (Object Storage >
       # S3 users). Needs read/write on the bucket plus PutBucketLifecycle.
