@@ -1,0 +1,58 @@
+{#-
+  OVHcloud Object Storage lifecycle policy for the MariaDB backup bucket.
+  Applied by mariadb-backup-s3-init.sh via `s3api put-bucket-lifecycle-configuration`.
+
+  This policy EXPIRES objects. It deliberately does not transition them: the
+  upload scripts already PUT backup sets and rotated binlogs straight into the
+  Infrequent Access class, so a transition rule would have nothing useful left
+  to do — and it would actively cause harm. Lifecycle transitions fire on object
+  age, not on write activity, and an S3 prefix filter is a literal string that
+  cannot express "*/sets/ but not */binlogs/" (the host component comes first,
+  and the policy is bucket-wide because every db host applies the same one). So
+  any transition rule here also covers the ACTIVE binlog, which is deliberately
+  kept in Standard because it is overwritten every 5 minutes and each overwrite
+  counts as a delete against IA's 30-day minimum. On an idle DB the sync skips
+  the unchanged active binlog, the object ages past the transition, and every
+  later overwrite then buys the early-deletion charge the design exists to
+  avoid. See mariadb-binlog-sync.sh.
+
+  Expiration is therefore the whole job, and it is the ONLY thing that deletes
+  old backups — the scripts never remove remote data. Objects are in IA from the
+  moment they land, and IA is billed for a 730h (30 day) MINIMUM per object with
+  early deletion charged for the remainder, so expire_days is clamped below to at
+  least min_storage_days.
+
+  Rule 2 aborts orphaned multipart uploads. A full backup is a single multi-GB
+  streamed multipart upload; if it dies mid-flight the uploaded parts are billed
+  but invisible to `s3 ls`, so this rule is what stops them accumulating.
+
+  NoncurrentVersionExpiration is a safety net for a bucket that has versioning
+  turned on against the advice in pillar/private/init.sls.example. A bucket
+  without versioning may not echo it back, which mariadb-backup-s3-init.sh's
+  --check accounts for.
+-#}
+{%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
+{%- set s3 = backup.get('s3', {}) %}
+{%- set lc = s3.get('lifecycle', {}) %}
+{%- set prefix = s3.get('prefix', '').strip('/') %}
+{%- set filter_prefix = (prefix ~ '/') if prefix else '' %}
+{%- set min_storage_days = lc.get('min_storage_days', 30)|int %}
+{%- set expire_days = [lc.get('expire_days', 35)|int, min_storage_days]|max %}
+{%- set abort_days = lc.get('abort_incomplete_multipart_days', 7)|int %}
+{
+  "Rules": [
+    {
+      "ID": "mariadb-backups-expiry",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "{{ filter_prefix }}" },
+      "Expiration": { "Days": {{ expire_days }} },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": {{ expire_days }} }
+    },
+    {
+      "ID": "mariadb-backups-abort-incomplete-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "{{ filter_prefix }}" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": {{ abort_days }} }
+    }
+  ]
+}

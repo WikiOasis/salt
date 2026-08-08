@@ -1,13 +1,31 @@
 #!/bin/bash
-# Streams full or incremental mariabackup directly to the remote backup server via SSH.
+# Streams full or incremental mariabackup directly to OVHcloud Object Storage (S3).
 #
-# Layout on the remote (one self-contained "set" per weekly full so a set can be
+# Layout in the bucket (one self-contained "set" per weekly full so a set can be
 # restored to any point on its own — base + the incrementals that chain off it):
-#   $REMOTE_PATH/$HOST/sets/<SET_ID>/base/                  (the weekly full)
-#   $REMOTE_PATH/$HOST/sets/<SET_ID>/incremental/<DATE>/    (incrementals for that week)
-#   $REMOTE_PATH/$HOST/sets/latest -> <newest SET_ID>       (convenience symlink)
+#   s3://$BUCKET/$PREFIX/$HOST/sets/<SET_ID>/base.xbstream.zst
+#   s3://$BUCKET/$PREFIX/$HOST/sets/<SET_ID>/incremental/<DATE>.xbstream.zst
+#   s3://$BUCKET/$PREFIX/$HOST/sets/latest    (text object naming the newest SET_ID)
 # SET_ID is the timestamp of the full that opened the set (YYYYMMDD-HHMMSS).
-# Old sets beyond mariadb:backup:retain_sets (default 4) are pruned after a full.
+#
+# Each backup is ONE object: the xbstream is uploaded as a single multipart
+# stream instead of being unpacked into thousands of small files at the far end.
+# Sets are write-once, so they are PUT straight into the Infrequent Access
+# storage class ($S3_STORAGE_CLASS) — no day spent paying Standard rates first.
+# Note IA charges a per-GiB RETRIEVAL fee, so a restore is not free; that is the
+# trade for the much cheaper at-rest price on data we hope never to read.
+# Restore unpacks on the way out:
+#   aws s3 cp s3://.../base.xbstream.zst - | zstd -dc | mbstream -x -C /restore/base
+#   aws s3 cp s3://.../incremental/<DATE>.xbstream.zst - | zstd -dc | mbstream -x -C /restore/inc1
+#   mariabackup --prepare --apply-log-only --target-dir=/restore/base
+#   mariabackup --prepare --apply-log-only --target-dir=/restore/base --incremental-dir=/restore/inc1
+# (drop the `zstd -dc |` stage if mariadb:backup:compress is false)
+#
+# NOTHING here deletes old backups. Retention is the bucket lifecycle policy
+# (see mariadb-backup-lifecycle.json.jinja), which expires objects once they are
+# past the IA minimum storage duration. IA carries a 30-day minimum billing
+# period per object, so deleting sets from the script — as the old retain_sets
+# pruning did — would just buy early-deletion charges.
 #
 # No backup data is written to local disk — only small state files are kept:
 #   /var/backups/mariadb/xtrabackup_checkpoints  (LSN for next incremental)
@@ -16,7 +34,6 @@
 #   /var/backups/mariadb/last_backup             (epoch of last backup of any kind)
 # Usage: mariadb-backup-run.sh [full|incremental]
 {%- set backup = salt['pillar.get']('mariadb:backup', {}) %}
-{%- set dest = backup.get('destination', {}) %}
 {%- set discord = salt['pillar.get']('notifications:discord_webhook_url', '') %}
 {%- set slack = salt['pillar.get']('notifications:slack_webhook_url', '') %}
 {%- set compress = backup.get('compress', true) %}
@@ -41,36 +58,44 @@ LAST_FULL="$STATE_DIR/last_full_backup"
 LAST_BACKUP="$STATE_DIR/last_backup"
 MYSQL_USER="{{ backup.get('user', 'mariadb_backup') }}"
 MYSQL_PASS="{{ backup.get('password', '') }}"
-REMOTE_USER="{{ dest.get('user', '') }}"
-REMOTE_HOST="{{ dest.get('host', '') }}"
-REMOTE_PATH="{{ dest.get('path', '/backup/mariadb') }}"
-RETAIN_SETS="{{ backup.get('retain_sets', 4) }}"
-SSH_KEY=/etc/mariadb-backup/ssh_key
 HOST=$(hostname -s)
-SETS_DIR="$REMOTE_PATH/$HOST/sets"
 START=$(date +%s)
+
+# S3_BUCKET / S3_PREFIX / S3_ENDPOINT / S3_REGION plus the AWS_* locations.
+set -a
+. /etc/mariadb-backup/s3.env
+set +a
+
+BASE_PREFIX="${S3_PREFIX:+${S3_PREFIX}/}$HOST"
+SETS_PREFIX="$BASE_PREFIX/sets"
 
 DISCORD_WEBHOOK_URL="{{ discord }}"
 SLACK_WEBHOOK_URL="{{ slack }}"
 
-# Prefer fast AEAD ciphers: the default cipher is often the throughput bottleneck
-# on a busy link, and the SSH transfer is what gates how long a full takes (and
-# therefore how much redo must be held — see the innodb_log_file_size sizing).
-SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o BatchMode=yes -o Ciphers=aes128-gcm@openssh.com,chacha20-poly1305@openssh.com,aes128-ctr $REMOTE_USER@$REMOTE_HOST"
+aws_s3() { aws --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION" "$@"; }
 
-# Compress the stream in transit so the SSH transfer moves far fewer bytes, which
-# shortens the backup window (the real fix for redo-log wrap on large/busy DBs).
-# Data is decompressed on the remote, so backups are STORED UNCOMPRESSED and the
-# restore procedure is unchanged. zstd -T0 uses all cores; level 3 is a fast,
-# high-ratio default. Set mariadb:backup:compress to false to disable (e.g. if the
-# remote lacks zstd). DECOMPRESS is a remote-side pipeline prefix (note trailing |).
+# Compress the stream before it leaves the host so the upload moves far fewer
+# bytes, which shortens the backup window (the real fix for redo-log wrap on
+# large/busy DBs). Unlike the old SSH destination there is nothing on the far
+# end to decompress, so backups are also STORED compressed — that is the point,
+# it is what the Infrequent Access tier is billed on. Set mariadb:backup:compress
+# to false to store raw xbstream instead. zstd -T0 uses all cores; level 3 is a
+# fast, high-ratio default.
 {%- if compress %}
 COMPRESS="zstd -T0 -3"
-DECOMPRESS="zstd -dc -T0 | "
+STREAM_EXT=".xbstream.zst"
 {%- else %}
 COMPRESS="cat"
-DECOMPRESS=""
+STREAM_EXT=".xbstream"
 {%- endif %}
+
+# pv only exists to feed the progress heartbeat a byte count; a missing pv must
+# not take the backup down with it.
+if command -v pv >/dev/null 2>&1; then
+    METER="pv -f -b -i 60"
+else
+    METER="cat"
+fi
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
@@ -91,8 +116,10 @@ notify() {
 
 on_exit() {
     local code=$?
-    # Clean up any per-run --extra-lsndir temp dirs a failed backup left behind.
+    # Clean up any per-run --extra-lsndir temp dirs and meter files a failed
+    # backup left behind.
     rm -rf "$STATE_DIR"/lsn.* 2>/dev/null || true
+    rm -f "$STATE_DIR"/meter.* 2>/dev/null || true
     if [ $code -ne 0 ]; then
         local elapsed=$(( $(date +%s) - START ))
         notify ":x:" "${MODE} backup FAILED after ${elapsed}s (exit ${code})"
@@ -100,31 +127,73 @@ on_exit() {
 }
 trap on_exit EXIT
 
-remote_size() {
-    # Best-effort; never let a transient du/ssh hiccup fail an otherwise-good
-    # backup (the data is already safely on the remote by the time this runs).
-    $SSH "du -sh '$1' 2>/dev/null" | cut -f1 || true
+object_size() {
+    # Best-effort; never let a transient head-object hiccup fail an otherwise-good
+    # backup (the data is already safely in the bucket by the time this runs).
+    local bytes
+    bytes=$(aws_s3 s3api head-object --bucket "$S3_BUCKET" --key "$1" \
+        --query ContentLength --output text 2>/dev/null) || true
+    if [[ "$bytes" =~ ^[0-9]+$ ]]; then
+        numfmt --to=iec --suffix=B "$bytes" 2>/dev/null || echo "${bytes} bytes"
+    else
+        echo "unknown"
+    fi
 }
 
-# While the backup pipeline (PID $1) is still running, periodically log
-# elapsed time and how much has landed on the remote so far. Only fires for
-# backups that run longer than $interval, so quiet incrementals stay silent.
+# While the backup pipeline (PID $1) is still running, periodically log elapsed
+# time and how much has been pushed so far, read from pv's byte counter ($2).
+# The upload is a single in-flight multipart object, so its parts are not
+# listable until it completes — the local meter is the only progress signal.
+# Only fires for backups that run longer than $interval, so quiet incrementals
+# stay silent.
 progress_heartbeat() {
-    local pid="$1" remote_dir="$2"
-    local interval=300
-    while sleep "$interval" && kill -0 "$pid" 2>/dev/null; do
+    local pid="$1" meter="$2"
+    local interval=300 poll=5 waited=0
+    # Poll far more often than we log: this function is what the main script
+    # blocks on, so a bare `sleep $interval` would pad every single backup with
+    # up to $interval of doing nothing after the stream had already finished.
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep "$poll"
+        waited=$(( waited + poll ))
+        [ "$waited" -lt "$interval" ] && continue
+        waited=0
         local elapsed=$(( $(date +%s) - START ))
-        local size; size=$(remote_size "$remote_dir")
-        log "  ... still running (${elapsed}s elapsed, ${size} written to remote so far)"
+        local sent
+        sent=$(tr '\r' '\n' < "$meter" 2>/dev/null | tail -1 | tr -d ' ')
+        log "  ... still running (${elapsed}s elapsed, ${sent:-unknown} streamed to S3 so far)"
     done
+}
+
+# Fail before mariabackup burns an hour on a stream with nowhere to land.
+preflight() {
+    if [ -z "${S3_BUCKET:-}" ]; then
+        log "ERROR: S3_BUCKET is empty in /etc/mariadb-backup/s3.env"
+        exit 1
+    fi
+    if ! aws_s3 s3api head-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1; then
+        log "ERROR: cannot reach bucket ${S3_BUCKET} at ${S3_ENDPOINT} — aborting before starting mariabackup"
+        exit 1
+    fi
+    # head-bucket only proves the bucket exists and is readable. A credential
+    # without PutObject, a rotated secret or a tightened bucket policy all pass
+    # it and then fail at the END of a multi-hour full. Prove we can write.
+    # Standard class and deleted immediately, so it has no minimum to charge.
+    local probe="$BASE_PREFIX/.preflight.$$"
+    if ! printf 'ok\n' | aws_s3 s3 cp - "s3://$S3_BUCKET/$probe" --only-show-errors; then
+        log "ERROR: cannot write to s3://${S3_BUCKET}/${probe} — check the S3 user's permissions"
+        exit 1
+    fi
+    aws_s3 s3 rm "s3://$S3_BUCKET/$probe" --only-show-errors >/dev/null 2>&1 \
+        || log "WARNING: could not remove preflight probe object ${probe}"
 }
 
 # Record the checkpoint LSN from the backup that just ran, read from a fresh
 # per-run --extra-lsndir (passed in as $1). We deliberately do NOT read a streamed
-# xtrabackup_checkpoints from the remote: mariabackup does not emit that file into
-# the --stream=xbstream output here (confirmed — it never lands on the remote), so
-# every run silently fell back to a full. --extra-lsndir writes the checkpoints
-# locally by the local mariabackup process regardless of the stream destination.
+# xtrabackup_checkpoints back out of the bucket: mariabackup does not emit that
+# file into the --stream=xbstream output here (confirmed — it never lands at the
+# destination), so every run silently fell back to a full. --extra-lsndir writes
+# the checkpoints locally by the local mariabackup process regardless of where
+# the stream goes.
 #
 # The earlier "extra-lsndir is stale" problem came from reusing a *persistent*
 # lsndir: a backup that died before writing checkpoints left an old to_lsn behind,
@@ -165,33 +234,14 @@ save_checkpoints() {
     log "Saved checkpoints (to_lsn=${new_lsn}); next incremental will chain from here"
 }
 
-# Keep only the newest $RETAIN_SETS sets on the remote; remove older ones.
-# Sets are named by timestamp so a lexical sort is a chronological sort.
-prune_old_sets() {
-    if ! [[ "$RETAIN_SETS" =~ ^[0-9]+$ ]] || [ "$RETAIN_SETS" -le 0 ]; then
-        log "Set retention disabled (retain_sets='${RETAIN_SETS}'); keeping all sets"
-        return 0
-    fi
-    local old_sets
-    old_sets=$($SSH "ls -1d '$SETS_DIR'/[0-9]*-[0-9]* 2>/dev/null | sort | head -n -${RETAIN_SETS}" || true)
-    if [ -z "$old_sets" ]; then
-        log "Retention: nothing to prune (keeping newest ${RETAIN_SETS} set(s))"
-        return 0
-    fi
-    log "Retention: pruning $(echo "$old_sets" | wc -l | tr -d ' ') old set(s), keeping newest ${RETAIN_SETS}:"
-    while IFS= read -r s; do log "  removing ${s}"; done <<< "$old_sets"
-    if ! echo "$old_sets" | $SSH "xargs -r rm -rf"; then
-        log "WARNING: failed to prune one or more old sets (continuing)"
-    fi
-}
-
 run_full() {
     local set_id; set_id=$(date +%Y%m%d-%H%M%S)
-    local set_dir="$SETS_DIR/$set_id"
+    local key="$SETS_PREFIX/$set_id/base$STREAM_EXT"
+    local uri="s3://$S3_BUCKET/$key"
     local lsndir; lsndir=$(mktemp -d "$STATE_DIR/lsn.XXXXXX")
+    local meter; meter=$(mktemp "$STATE_DIR/meter.XXXXXX")
     log "=== Starting FULL backup: opening new set ${set_id} ==="
-    log "  remote base dir: ${set_dir}/base"
-    $SSH "mkdir -p '$set_dir/base'"
+    log "  destination: ${uri}"
 
     (
         mariabackup --backup --stream=xbstream \
@@ -199,32 +249,47 @@ run_full() {
             --open-files-limit=524288 \
             --user="$MYSQL_USER" --password="$MYSQL_PASS" \
         | $COMPRESS \
-        | $SSH "${DECOMPRESS}mbstream -x -C '$set_dir/base/'"
+        | $METER 2>"$meter" \
+        | aws_s3 s3 cp - "$uri" --storage-class "$S3_STORAGE_CLASS" --only-show-errors
     ) &
     local pid=$!
-    progress_heartbeat "$pid" "$set_dir/base/"
-    wait "$pid"
+    progress_heartbeat "$pid" "$meter"
+    if ! wait "$pid"; then
+        # Same reasoning as the incremental path below, and it matters more here:
+        # a truncated base leaves the whole set unrestorable while still looking
+        # complete in a listing, and it would sit in IA for the 30-day minimum.
+        # CURRENT_SET_FILE is deliberately not advanced, so the next incremental
+        # still chains onto the previous, intact set.
+        log "FULL backup pipeline failed; removing the partial object at ${uri}"
+        rm -f "$meter"; rm -rf "$lsndir"
+        aws_s3 s3 rm "$uri" --only-show-errors 2>/dev/null || true
+        return 1
+    fi
+    rm -f "$meter"
     log "Backup stream finished; saving checkpoints"
 
     save_checkpoints "$lsndir"
     rm -rf "$lsndir"
 
-    # Point subsequent incrementals at this set, and update the convenience symlink.
+    # Point subsequent incrementals at this set, and update the convenience
+    # pointer object (S3 has no symlinks, so `latest` is a file holding the ID).
+    # Deliberately left in Standard: it is a handful of bytes that gets
+    # overwritten weekly, and IA would bill it at the 128KB minimum object size
+    # plus an early-deletion fee on every overwrite.
     echo "$set_id" > "$CURRENT_SET_FILE"
     log "Current backup set is now ${set_id}; incrementals will chain into it"
-    $SSH "ln -sfn '$set_dir' '$SETS_DIR/latest'" \
-        || log "WARNING: could not update '${SETS_DIR}/latest' symlink"
+    printf '%s\n' "$set_id" \
+    | aws_s3 s3 cp - "s3://$S3_BUCKET/$SETS_PREFIX/latest" --content-type text/plain --only-show-errors \
+        || log "WARNING: could not update '${SETS_PREFIX}/latest' pointer"
 
     local now; now=$(date +%s)
     echo "$now" > "$LAST_FULL"
     echo "$now" > "$LAST_BACKUP"
 
     local elapsed=$(( now - START ))
-    local size; size=$(remote_size "$set_dir/base/")
+    local size; size=$(object_size "$key")
     log "=== FULL backup finished: set ${set_id}, size: ${size}, duration: ${elapsed}s ==="
     notify ":white_check_mark:" "full backup complete (set ${set_id}) — size: ${size}, duration: ${elapsed}s"
-
-    prune_old_sets
 }
 
 run_incremental() {
@@ -238,8 +303,7 @@ run_incremental() {
         return
     fi
     local set_id; set_id=$(cat "$CURRENT_SET_FILE")
-    local set_dir="$SETS_DIR/$set_id"
-    log "Current set: ${set_id} (${set_dir})"
+    log "Current set: ${set_id} (${SETS_PREFIX}/${set_id})"
 
     if [ ! -f "$CHECKPOINTS" ]; then
         log "No checkpoints file at ${CHECKPOINTS} — no LSN to chain from; running FULL backup first"
@@ -266,12 +330,13 @@ run_incremental() {
         return
     fi
     local DATE; DATE=$(date +%Y%m%d-%H%M%S)
-    local inc_dir="$set_dir/incremental/$DATE"
+    local key="$SETS_PREFIX/$set_id/incremental/$DATE$STREAM_EXT"
+    local uri="s3://$S3_BUCKET/$key"
     local lsndir; lsndir=$(mktemp -d "$STATE_DIR/lsn.XXXXXX")
+    local meter; meter=$(mktemp "$STATE_DIR/meter.XXXXXX")
 
     log "=== Starting INCREMENTAL backup: set ${set_id}, from LSN ${to_lsn} ==="
-    log "  remote incremental dir: ${inc_dir}"
-    $SSH "mkdir -p '$inc_dir'"
+    log "  destination: ${uri}"
 
     (
         mariabackup --backup --stream=xbstream \
@@ -280,17 +345,26 @@ run_incremental() {
             --open-files-limit=524288 \
             --user="$MYSQL_USER" --password="$MYSQL_PASS" \
         | $COMPRESS \
-        | $SSH "${DECOMPRESS}mbstream -x -C '$inc_dir/'"
+        | $METER 2>"$meter" \
+        | aws_s3 s3 cp - "$uri" --storage-class "$S3_STORAGE_CLASS" --only-show-errors
     ) &
     local pid=$!
-    progress_heartbeat "$pid" "$inc_dir/"
+    progress_heartbeat "$pid" "$meter"
     if ! wait "$pid"; then
-        log "Incremental backup failed (LSN ${to_lsn} incompatible with current server state); falling back to FULL backup"
-        rm -f "$CHECKPOINTS"; rm -rf "$lsndir"
-        $SSH "rm -rf '$inc_dir'"
+        # Any stage of the pipeline can land here — an S3 outage, an expired
+        # credential, a full $STATE_DIR, an OOM-killed zstd — so don't name a
+        # single cause. The fallback full will usually succeed and hide the real
+        # fault, which makes an accurate log line the only trail left.
+        log "Incremental backup pipeline failed (chaining from LSN ${to_lsn}); possible causes: an LSN incompatible with the current server state, an S3 upload error, or a local resource limit. Falling back to FULL backup"
+        rm -f "$CHECKPOINTS" "$meter"; rm -rf "$lsndir"
+        # A truncated object is worse than none: it would look restorable in a
+        # listing. Any multipart parts the CLI could not abort are swept up by
+        # the lifecycle's AbortIncompleteMultipartUpload rule.
+        aws_s3 s3 rm "$uri" --only-show-errors 2>/dev/null || true
         run_full
         return
     fi
+    rm -f "$meter"
     log "Backup stream finished; saving checkpoints"
 
     # Advance the checkpoint so the next incremental chains from this one. Require
@@ -302,12 +376,14 @@ run_incremental() {
     echo "$now" > "$LAST_BACKUP"
 
     local elapsed=$(( now - START ))
-    local size; size=$(remote_size "$inc_dir/")
-    log "=== INCREMENTAL backup finished: set ${set_id}, dir: ${DATE}, size: ${size}, duration: ${elapsed}s ==="
+    local size; size=$(object_size "$key")
+    log "=== INCREMENTAL backup finished: set ${set_id}, object: ${DATE}${STREAM_EXT}, size: ${size}, duration: ${elapsed}s ==="
     notify ":white_check_mark:" "incremental backup complete (set ${set_id}) — size: ${size}, duration: ${elapsed}s"
 }
 
-log "mariadb-backup-run starting: mode=${MODE}, host=${HOST}, remote=${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}, retain_sets=${RETAIN_SETS}"
+log "mariadb-backup-run starting: mode=${MODE}, host=${HOST}, destination=s3://${S3_BUCKET}/${SETS_PREFIX} via ${S3_ENDPOINT}"
+
+preflight
 
 case "$MODE" in
     full)        run_full ;;
