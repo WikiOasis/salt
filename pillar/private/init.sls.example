@@ -120,3 +120,21 @@ mariadb:
       full_minute: '0'
       incremental_hour: '2'   # daily incremental, Mon-Sat
       incremental_minute: '0'
+    # Sentry Crons check-ins, so a missed or failed backup alerts like any other
+    # monitor. DSN is the normal per-project DSN (Settings > Projects > <project>
+    # > Client Keys) — parsed for the ingest host, project id and public key that
+    # the check-in URL needs. Leave dsn blank to disable check-ins entirely.
+    sentry:
+      dsn: ''
+      # Separate monitors per cron job so a missed weekly full and a missed
+      # daily incremental page differently. checkin_margin/max_runtime are
+      # minutes; full backups run far longer than incrementals so they get a
+      # longer runtime budget before Sentry flags them as stuck.
+      full:
+        monitor_slug: mariadb-backup-full
+        checkin_margin: 30
+        max_runtime: 360
+      incremental:
+        monitor_slug: mariadb-backup-incremental
+        checkin_margin: 15
+        max_runtime: 120

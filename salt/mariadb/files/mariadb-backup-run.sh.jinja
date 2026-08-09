@@ -37,6 +37,10 @@
 {%- set discord = salt['pillar.get']('notifications:discord_webhook_url', '') %}
 {%- set slack = salt['pillar.get']('notifications:slack_webhook_url', '') %}
 {%- set compress = backup.get('compress', true) %}
+{%- set schedule = backup.get('schedule', {}) %}
+{%- set sentry = backup.get('sentry', {}) %}
+{%- set sentry_full = sentry.get('full', {}) %}
+{%- set sentry_incremental = sentry.get('incremental', {}) %}
 set -euo pipefail
 ulimit -n 524288
 MODE="${1:-incremental}"
@@ -73,6 +77,51 @@ DISCORD_WEBHOOK_URL="{{ discord }}"
 SLACK_WEBHOOK_URL="{{ slack }}"
 
 aws_s3() { aws --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION" "$@"; }
+
+# Sentry Crons check-in for this run. One monitor per cron job (full vs
+# incremental) so a missed/failed weekly full and a missed/failed daily
+# incremental page as distinct monitors. The DSN is the normal per-project SDK
+# DSN (https://<public_key>@<ingest-host>/<project_id>); parsed here rather
+# than asking for the ingest host/project id/key as three separate pillar
+# values. Empty DSN disables check-ins entirely — nothing below fires.
+SENTRY_DSN="{{ sentry.get('dsn', '') }}"
+case "$MODE" in
+    full)
+        SENTRY_MONITOR_SLUG="{{ sentry_full.get('monitor_slug', 'mariadb-backup-full') }}"
+        SENTRY_CHECKIN_MARGIN="{{ sentry_full.get('checkin_margin', 30) }}"
+        SENTRY_MAX_RUNTIME="{{ sentry_full.get('max_runtime', 360) }}"
+        SENTRY_CRON_SCHEDULE="{{ schedule.get('full_minute', '0') }} {{ schedule.get('full_hour', '1') }} * * 0"
+        ;;
+    incremental)
+        SENTRY_MONITOR_SLUG="{{ sentry_incremental.get('monitor_slug', 'mariadb-backup-incremental') }}"
+        SENTRY_CHECKIN_MARGIN="{{ sentry_incremental.get('checkin_margin', 15) }}"
+        SENTRY_MAX_RUNTIME="{{ sentry_incremental.get('max_runtime', 120) }}"
+        SENTRY_CRON_SCHEDULE="{{ schedule.get('incremental_minute', '0') }} {{ schedule.get('incremental_hour', '2') }} * * 1-6"
+        ;;
+esac
+
+SENTRY_CRONS_URL=""
+if [ -n "$SENTRY_DSN" ] \
+    && [[ "$SENTRY_DSN" =~ ^https?://([^:@/]+)@([^/]+)/([0-9]+)/?$ ]]; then
+    SENTRY_CRONS_URL="https://${BASH_REMATCH[2]}/api/${BASH_REMATCH[3]}/cron/${SENTRY_MONITOR_SLUG}/${BASH_REMATCH[1]}/"
+elif [ -n "$SENTRY_DSN" ]; then
+    log "WARNING: mariadb:backup:sentry:dsn is set but not a valid DSN (expected https://<key>@<host>/<project_id>); skipping check-ins"
+fi
+
+# Best-effort: a Sentry outage or a bad DSN must never take a backup down with it.
+sentry_checkin() {
+    local status="$1"
+    [ -z "$SENTRY_CRONS_URL" ] && return 0
+    if [ "$status" = "in_progress" ]; then
+        jq -n --arg schedule "$SENTRY_CRON_SCHEDULE" \
+            --argjson margin "$SENTRY_CHECKIN_MARGIN" --argjson runtime "$SENTRY_MAX_RUNTIME" \
+            '{monitor_config:{schedule:{type:"crontab",value:$schedule},checkin_margin:$margin,max_runtime:$runtime,timezone:"UTC"},status:"in_progress"}' \
+        | curl -sSL --max-time 10 -X POST -H "Content-Type: application/json" -d @- \
+            "$SENTRY_CRONS_URL" >/dev/null 2>&1 || true
+    else
+        curl -sSL --max-time 10 "${SENTRY_CRONS_URL}?status=${status}" >/dev/null 2>&1 || true
+    fi
+}
 
 # Compress the stream before it leaves the host so the upload moves far fewer
 # bytes, which shortens the backup window (the real fix for redo-log wrap on
@@ -123,6 +172,7 @@ on_exit() {
     if [ $code -ne 0 ]; then
         local elapsed=$(( $(date +%s) - START ))
         notify ":x:" "${MODE} backup FAILED after ${elapsed}s (exit ${code})"
+        sentry_checkin "error"
     fi
 }
 trap on_exit EXIT
@@ -390,6 +440,10 @@ run_incremental() {
 
 log "mariadb-backup-run starting: mode=${MODE}, host=${HOST}, destination=s3://${S3_BUCKET}/${SETS_PREFIX} via ${S3_ENDPOINT}"
 
+case "$MODE" in
+    full|incremental) sentry_checkin "in_progress" ;;
+esac
+
 preflight
 
 case "$MODE" in
@@ -398,4 +452,5 @@ case "$MODE" in
     *)           echo "Usage: $0 [full|incremental]" >&2; exit 1 ;;
 esac
 
+sentry_checkin "ok"
 log "mariadb-backup-run finished: mode=${MODE}"
