@@ -39,7 +39,12 @@ ATOM = "{http://www.w3.org/2005/Atom}"
 USER_AGENT = "incidentio-sync/1.0 (+https://github.com/)"
 
 # Components V2 opt-in. Required for the `components` payload below, and
-# mutually exclusive with `content`/`embeds`.
+# mutually exclusive with `content`/`embeds`. A plain (non-application-owned)
+# incoming webhook like ours also silently drops the whole `components` field
+# unless the request additionally carries `with_components=true` in the query
+# string (see post_message/edit_message below) — without it Discord ends up
+# with no displayable content at all and rejects the request as 50006
+# "Cannot send an empty message", even though the flag and payload are fine.
 IS_COMPONENTS_V2 = 1 << 15
 
 # Component type IDs.
@@ -335,12 +340,12 @@ class MessageGone(Exception):
 
 
 def post_message(webhook: str, payload: dict) -> str:
-    result = discord_request(f"{webhook}?wait=true", payload, "POST")
+    result = discord_request(f"{webhook}?wait=true&with_components=true", payload, "POST")
     return str(result["id"])
 
 
 def edit_message(webhook: str, message_id: str, payload: dict) -> None:
-    discord_request(f"{webhook}/messages/{message_id}", payload, "PATCH")
+    discord_request(f"{webhook}/messages/{message_id}?with_components=true", payload, "PATCH")
 
 
 # --------------------------------------------------------------------------- #
