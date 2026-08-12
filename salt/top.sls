@@ -42,6 +42,7 @@ base:
     - monitoring.grafana
     - monitoring.statsd_exporter
     - monitoring.cloudflare_exporter
+    - incidentio_sync
   'staging*':
     - mediawiki
     - mwdeploy.staging

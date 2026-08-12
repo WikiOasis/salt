@@ -31,6 +31,14 @@ mediawiki:
     CHANGE_ME
     -----END OPENSSH PRIVATE KEY-----
 
+incidentio_sync:
+  # Discord webhook the status-page-to-Discord sync posts/edits messages
+  # through. Anyone holding this URL can post to the channel, hence private
+  # pillar rather than pillar/incidentio_sync. Not the same webhook as
+  # notifications:discord_webhook_url above — that one is generic alerting,
+  # this one is dedicated to the incident.io status page mirror.
+  discord_webhook_url: https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
+
 sentry_relay:
   dsn: CHANGE_ME
 

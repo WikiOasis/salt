@@ -38,6 +38,7 @@ base:
       - monitoring
       - metal
       - private
+      - incidentio_sync
    'salt*':
       - mwdeploy_portal
    'task*':
