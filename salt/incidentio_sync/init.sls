@@ -1,15 +1,18 @@
-# Mirrors the incident.io status page Atom feed into a Discord channel via
-# webhook (https://github.com/WikiOasis/incidentio-sync). Pure stdlib Python
-# 3.9+, no packages to install. Runs as a long-lived daemon (Type=simple,
-# internal 15s poll loop) rather than the repo's alternative timer+oneshot
-# mode, which would spawn a fresh interpreter every 15 seconds for the same
-# result.
+# Mirrors the incident.io status page into a Discord channel via webhook
+# (https://github.com/WikiOasis/incidentio-sync). Pure stdlib Python 3.9+, no
+# packages to install. Runs as a long-lived daemon (Type=simple, internal 15s
+# poll loop) rather than the repo's alternative timer+oneshot mode, which would
+# spawn a fresh interpreter every 15 seconds for the same result.
+#
+# It polls the rendered status page rather than the Atom feed, so it can see
+# components that are healthy (needed for the sticky overview message) and each
+# incident's full update timeline.
 #
 # state.json under /var/lib/incidentio-sync maps incidents to Discord message
 # IDs — it is runtime data, not configuration. Salt manages the directory
 # (StateDirectory= on the unit would create it anyway) but must NEVER touch
 # the file itself: templating or removing it makes the service repost every
-# incident as a brand-new message.
+# incident as a brand-new message, and orphan the sticky overview.
 
 incidentio_sync_user:
   user.present:

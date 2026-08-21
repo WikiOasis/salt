@@ -2,3 +2,5 @@ pillar/private/*.sls
 
 .idea/
 .claude/
+__pycache__/
+*.pyc
