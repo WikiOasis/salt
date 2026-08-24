@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 
 # The user that owns the MediaWiki tree and runs git/rsync against it.
 WEB_USER = os.environ.get("MWDEPLOY_WEB_USER", "www-data")
@@ -40,13 +40,17 @@ WEB_USER = os.environ.get("MWDEPLOY_WEB_USER", "www-data")
 # a commit subject.
 GIT_SEP = "\x1f"
 
-# Excludes carried over verbatim from the original rsync_local/rsync_remote,
-# minus .git — see below.
+# Excludes carried over from the original rsync_local/rsync_remote, minus .git
+# (see below) and plus cw_cache/*.
 RSYNC_EXCLUDES: tuple[str, ...] = (
     ".gitignore",
     ".gitmodules",
     ".gitreview",
     "cache/*",
+    # Generated per host rather than deployed: syncing staging's copy would
+    # overwrite each appserver's, and --delete would remove entries only that
+    # host had. The directory itself still lands; only its contents are skipped.
+    "cw_cache/*",
     "images/*",
     "l10n_cache/*",
     "tests/*",
