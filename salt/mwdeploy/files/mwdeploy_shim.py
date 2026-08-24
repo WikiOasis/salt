@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 # The user that owns the MediaWiki tree and runs git/rsync against it.
 WEB_USER = os.environ.get("MWDEPLOY_WEB_USER", "www-data")
@@ -241,21 +241,168 @@ def fix_ownership(path: str) -> None:
 COMPOSER_INSTALL_ARGS: tuple[str, ...] = ("install", "--no-dev", "--no-interaction", "--optimize-autoloader")
 NPM_INSTALL_ARGS: tuple[str, ...] = ("install",)
 
+# MediaWiki loads exactly one Composer autoloader: the one in the core
+# checkout's vendor/. An extension or skin that declares its own composer.json
+# therefore cannot be installed in place — `composer install` inside
+# extensions/Foo writes extensions/Foo/vendor/, which nothing ever autoloads,
+# and resolves that extension's constraints in isolation from core's. Composer's
+# merge plugin (wikimedia/composer-merge-plugin, a core dependency) is the
+# supported way round it: composer.local.json in the core root globs every
+# extension/skin manifest into core's own, so one `composer install` from the
+# root resolves them together into one vendor/.
+COMPOSER_LOCAL_FILE = "composer.local.json"
 
-def install_dependencies(path: str) -> list[str]:
+# Globs rather than a per-extension entry, so registering a new extension needs
+# no edit here at all — the next install picks its manifest up.
+COMPOSER_MERGE_INCLUDES: tuple[str, ...] = (
+    "extensions/*/composer.json",
+    "skins/*/composer.json",
+)
+
+# Where a checkout has to sit, relative to a candidate root, for that root to be
+# the core install its dependencies belong in.
+COMPOSER_MERGE_DIRS: tuple[str, ...] = ("extensions", "skins")
+
+# The root install resolves core plus every extension and skin at once, so it is
+# a good deal slower than the per-checkout install it replaces.
+COMPOSER_ROOT_TIMEOUT = 1800
+
+
+def composer_merge_root(path: str) -> str | None:
+    """The core checkout whose composer install owns this path's dependencies.
+
+    The nearest ancestor that has a composer.json and holds this path under
+    extensions/ or skins/ — i.e. MediaWiki core, whether the tree is a plain
+    /srv/mediawiki-staging or a versions/1.43 under one. Returns None for a
+    checkout that is nobody's extension (core itself, the portal, a standalone
+    tool), which is installed in place as before.
+    """
+    resolved = os.path.realpath(path)
+    current = os.path.dirname(resolved)
+
+    while True:
+        if os.path.isfile(os.path.join(current, "composer.json")):
+            relative = os.path.relpath(resolved, current).split(os.sep)
+
+            if len(relative) > 1 and relative[0] in COMPOSER_MERGE_DIRS:
+                return current
+
+        parent = os.path.dirname(current)
+
+        if parent == current:
+            return None
+
+        current = parent
+
+
+def ensure_composer_merge_plugin(root: str) -> bool:
+    """Declare the extension/skin manifest globs in the core composer.local.json.
+
+    Returns True when the file was written, False when it already said this.
+    Anything else already in it (a pinned dependency an operator added by hand,
+    other merge-plugin settings) is preserved.
+    """
+    target = os.path.join(root, COMPOSER_LOCAL_FILE)
+    data: Any = {}
+
+    if os.path.isfile(target):
+        try:
+            with open(target, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError) as exc:
+            raise ShimError(f"could not read {target}: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise ShimError(f"{target} is not a JSON object")
+
+    extra = data.get("extra")
+
+    if extra is None:
+        extra = {}
+    elif not isinstance(extra, dict):
+        raise ShimError(f'{target} has a non-object "extra"')
+
+    merge = extra.get("merge-plugin")
+
+    if merge is None:
+        merge = {}
+    elif not isinstance(merge, dict):
+        raise ShimError(f'{target} has a non-object "extra.merge-plugin"')
+
+    include = merge.get("include") or []
+
+    if isinstance(include, str):
+        include = [include]
+    elif not isinstance(include, list):
+        raise ShimError(f'{target} has a non-list "extra.merge-plugin.include"')
+
+    missing = [glob for glob in COMPOSER_MERGE_INCLUDES if glob not in include]
+
+    # recurse: a merged manifest's own merge-plugin config is honoured too.
+    # merge-dev off matches the --no-dev this installs with, so an extension's
+    # require-dev never reaches a production tree.
+    if not missing and merge.get("recurse") is True and merge.get("merge-dev") is False:
+        return False
+
+    merge["include"] = list(include) + missing
+    merge["recurse"] = True
+    merge["merge-dev"] = False
+    extra["merge-plugin"] = merge
+    data["extra"] = extra
+
+    try:
+        with open(target, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=4)
+            handle.write("\n")
+    except OSError as exc:
+        raise ShimError(f"could not write {target}: {exc}") from exc
+
+    # Written by this process rather than by composer, so it is the one file in
+    # the tree that can land owned by root.
+    fix_ownership(target)
+
+    return True
+
+
+def install_dependencies(path: str, *, composer_roots: set[str] | None = None) -> list[str]:
     """Run composer install / npm install if this checkout declares either.
 
     vendor/ and node_modules/ are gitignored everywhere in the MediaWiki
     ecosystem, so a checkout that ships a composer.json or package.json is not
     actually loadable from a bare clone or rsync alone.
+
+    A checkout that is an extension or skin of a core tree is not installed in
+    place: its manifest is merged into that core root's composer.local.json and
+    composer runs from the root instead, so everything lands in the one vendor/
+    MediaWiki autoloads. ``composer_roots``, when given, collects the roots
+    already installed so a batch of checkouts sharing one root installs once.
     """
     ran: list[str] = []
 
     if os.path.isfile(os.path.join(path, "composer.json")):
-        run(["composer", *COMPOSER_INSTALL_ARGS], cwd=path, as_web_user=True, timeout=900).raise_for_status(
-            f"composer install failed in {path}"
-        )
-        ran.append("composer install")
+        root = composer_merge_root(path)
+
+        if root is None:
+            run(["composer", *COMPOSER_INSTALL_ARGS], cwd=path, as_web_user=True, timeout=900).raise_for_status(
+                f"composer install failed in {path}"
+            )
+            ran.append("composer install")
+        else:
+            if ensure_composer_merge_plugin(root):
+                ran.append(f"composer.local.json merge in {root}")
+
+            if composer_roots is None or root not in composer_roots:
+                run(
+                    ["composer", *COMPOSER_INSTALL_ARGS],
+                    cwd=root,
+                    as_web_user=True,
+                    timeout=COMPOSER_ROOT_TIMEOUT,
+                ).raise_for_status(f"composer install failed in {root}")
+
+                ran.append(f"composer install in {root}")
+
+                if composer_roots is not None:
+                    composer_roots.add(root)
 
     if os.path.isfile(os.path.join(path, "package.json")):
         run(["npm", *NPM_INSTALL_ARGS], cwd=path, as_web_user=True, timeout=900).raise_for_status(
@@ -273,17 +420,22 @@ def install_dependencies_for_sync(root: str, paths: Iterable[str]) -> list[dict[
     one is checked individually. A full-tree sync names no paths at all; there
     is no per-checkout list to scope to there, so the destination root itself
     is the one directory checked.
+
+    Several synced extensions usually share one core root, and one root install
+    covers all of them, so the roots already installed are tracked across the
+    batch rather than reinstalled per checkout.
     """
     relative = [path.strip("/") for path in paths if path.strip("/")]
     targets = [os.path.join(root, path) for path in relative] or [root]
 
     installed = []
+    composer_roots: set[str] = set()
 
     for target in targets:
         if not os.path.isdir(target):
             continue
 
-        ran = install_dependencies(target)
+        ran = install_dependencies(target, composer_roots=composer_roots)
 
         if ran:
             installed.append({"path": target, "ran": ran})
