@@ -25,8 +25,6 @@ logrotate_pkg:
     - require:
       - pkg: nginx
 
-# http-context maps ($mw_corp) consumed by snippets/mediawiki-common.conf.
-# Lives in conf.d because `map` is only valid at http level.
 /etc/nginx/conf.d/mediawiki-maps.conf:
   file.managed:
     - source: salt://nginx/files/mediawiki-maps.conf.jinja
