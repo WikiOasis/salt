@@ -8,7 +8,7 @@
 # comment below whenever you re-vendor.
 
 # Vendored upstream version: 2.1.0 (wikioasis/mw-deploy shim/mwdeploy_shim.py)
-{%- set shim_version = '2.1.0' %}
+{%- set shim_version = '2.2.1' %}
 
 mwdeploy-shim-deps:
   pkg.installed:
