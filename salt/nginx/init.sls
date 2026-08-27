@@ -25,6 +25,18 @@ logrotate_pkg:
     - require:
       - pkg: nginx
 
+# http-context maps ($mw_corp) consumed by snippets/mediawiki-common.conf.
+# Lives in conf.d because `map` is only valid at http level.
+/etc/nginx/conf.d/mediawiki-maps.conf:
+  file.managed:
+    - source: salt://nginx/files/mediawiki-maps.conf.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: nginx
+
 /etc/nginx/snippets/mediawiki-common.conf:
   file.managed:
     - source: salt://nginx/files/mediawiki-common.conf.jinja
@@ -34,6 +46,7 @@ logrotate_pkg:
     - mode: '0644'
     - require:
       - file: /etc/nginx/snippets
+      - file: /etc/nginx/conf.d/mediawiki-maps.conf
 
 /etc/nginx/conf.d/mediawiki-vhosts.conf:
   file.managed:
@@ -104,6 +117,7 @@ nginx_service:
     - enable: True
     - reload: True
     - watch:
+      - file: /etc/nginx/conf.d/mediawiki-maps.conf
       - file: /etc/nginx/snippets/mediawiki-common.conf
       - file: /etc/nginx/conf.d/mediawiki-vhosts.conf
       - file: /etc/nginx/conf.d/custom_domains.conf
