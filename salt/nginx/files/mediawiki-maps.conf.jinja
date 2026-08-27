@@ -1,0 +1,8 @@
+# salt managed, do not modify manually
+map $uri $mw_corp {
+  default                     "";
+  "~^/w/load\.php$"           "cross-origin";
+  "~^/w/api\.php$"            "cross-origin";
+  "~^/w/rest\.php"            "cross-origin";
+  "~^/w/resources/"           "cross-origin";
+}
