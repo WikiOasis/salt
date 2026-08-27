@@ -1,0 +1,63 @@
+{%- set nginx = salt['pillar.get']('nginx', {}) %}
+{%- set doc_root = nginx.get('doc_root', '/srv/mediawiki') %}
+{%- set php_version = salt['pillar.get']('php:version', '8.4') %}
+{%- set fpm_listen = salt['pillar.get']('php:fpm:listen', '') or ('unix:/run/php/php' ~ php_version ~ '-fpm.sock') %}
+{%- set shared = nginx.get('shared_domain', {}) %}
+{%- set server_names = shared.get('server_names', 'accounts.wikioasis.org accounts.betaoasis.xyz') %}
+{%- set fallback = shared.get('fallback_host', 'meta.wikioasis.org') %}
+# salt managed, do not modify manually
+#
+# CentralAuth SUL3 shared login domain (MirahezeFunctions::SHARED_DOMAIN).
+#
+# Here the wiki is identified by the FIRST PATH SEGMENT rather than the
+# hostname -- MirahezeFunctions::getCurrentDatabase() reads it out of
+# REQUEST_URI -- so every MediaWiki entrypoint is reached as
+# /<dbname>/<entrypoint>.php and assets as /<dbname>/versions/<ver>/...
+#
+# Without the locations below those URLs fall through `location /` to
+# /w/index.php, so load.php returns rendered HTML instead of JavaScript and
+# api.php returns HTML instead of JSON. That is why $wgLoadScript previously
+# had to point at the wiki's own canonical domain, which made every
+# ResourceLoader request cross-origin and tripped CORS/CORP in the browser.
+#
+# An exact server_name beats the `.wikioasis.org` wildcard in
+# mediawiki-vhosts.conf, so this block wins for the shared domain.
+server {
+  listen 80;
+  listen [::]:80;
+  server_name {{ server_names }};
+
+  include snippets/mediawiki-common.conf;
+
+  # Nothing sensible to serve without a /<dbname>/ prefix: getCurrentDatabase()
+  # raises E_USER_ERROR when the path has fewer than two segments.
+  location = / {
+    return 302 https://{{ fallback }}/;
+  }
+
+  # /<dbname>/versions/<ver>/... -> the real static asset tree ($wgResourceBasePath,
+  # $wgStylePath, $wgExtensionAssetsPath). Must precede the .php routing so that
+  # skin CSS and Codex SVG icons are served same-origin.
+  location ~ "^/(?!w/)[A-Za-z0-9_-]+(?<mw_asset>/versions/.+)$" {
+    try_files $mw_asset =404;
+  }
+
+  # /<dbname>/wiki/<title> -> $wgArticlePath
+  location ~ "^/(?!w/)[A-Za-z0-9_-]+/wiki/(?<mw_title>.*)$" {
+    rewrite ^ /w/index.php?title=$mw_title&$args last;
+  }
+
+  # /<dbname>/<entrypoint>.php[/path/info] -> /w/<entrypoint>.php
+  # REQUEST_URI keeps the original prefixed path, which is what
+  # getCurrentDatabase() needs to resolve the wiki. The optional trailing group
+  # is required by rest.php (/rest.php/v1/...), img_auth.php and thumb.php,
+  # which carry their arguments in PATH_INFO rather than the query string.
+  location ~ "^/(?!w/)[A-Za-z0-9_-]+/(?<mw_entry>index|load|api|rest|opensearch_desc|thumb|img_auth)\.php(?<mw_pathinfo>/.*)?$" {
+    include fastcgi_params;
+    fastcgi_pass {{ fpm_listen }};
+    fastcgi_param SCRIPT_FILENAME $document_root/w/$mw_entry.php;
+    fastcgi_param SCRIPT_NAME /w/$mw_entry.php;
+    fastcgi_param PATH_INFO $mw_pathinfo;
+    fastcgi_param MW_ENV production;
+  }
+}

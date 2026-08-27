@@ -74,6 +74,19 @@ logrotate_pkg:
       - pkg: nginx
       - file: /etc/nginx/snippets/mediawiki-common.conf
 
+# CentralAuth SUL3 shared login domain. Exact server_name, so it wins over the
+# wildcard vhost in mediawiki-vhosts.conf.
+/etc/nginx/conf.d/shared-domain.conf:
+  file.managed:
+    - source: salt://nginx/files/shared-domain.conf.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: nginx
+      - file: /etc/nginx/snippets/mediawiki-common.conf
+
 /etc/nginx/conf.d/phorge.conf:
   file.managed:
     - source: salt://nginx/files/phorge.conf.jinja
@@ -119,6 +132,7 @@ nginx_service:
       - file: /etc/nginx/snippets/mediawiki-common.conf
       - file: /etc/nginx/conf.d/mediawiki-vhosts.conf
       - file: /etc/nginx/conf.d/custom_domains.conf
+      - file: /etc/nginx/conf.d/shared-domain.conf
       - file: /etc/nginx/conf.d/phorge.conf
       - file: /etc/nginx/conf.d/safety.conf
     - require:
