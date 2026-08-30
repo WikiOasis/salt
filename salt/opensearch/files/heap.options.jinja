@@ -2,3 +2,15 @@
 {%- set heap = cfg.get('heap_size', '1g') %}
 -Xms{{ heap }}
 -Xmx{{ heap }}
+
+# The real-memory circuit breaker (indices.breaker.total.use_real_memory,
+# on by default) measures actual JVM heap usage, garbage included. With the
+# stock G1 defaults (IHOP=30, reserve=25) collections start late enough that
+# uncollected garbage alone can push usage past the breaker's 95% limit,
+# tripping CircuitBreakingException on requests that aren't actually short
+# on memory -- and if a collection starts too late to keep up, that's the
+# OOM. Collect earlier and keep more reserve headroom so evacuation doesn't
+# fail under pressure.
+-XX:+UseG1GC
+-XX:InitiatingHeapOccupancyPercent=20
+-XX:G1ReservePercent=35
