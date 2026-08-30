@@ -25,6 +25,16 @@ tsportal-build-packages:
       - npm
       - composer
 
+# git.latest runs as www-data, and /srv is root-owned, so the clone cannot
+# create its own target — it dies with "could not create work tree dir". The
+# directory has to exist and belong to www-data before the clone runs.
+{{ path }}:
+  file.directory:
+    - user: www-data
+    - group: www-data
+    - mode: '0755'
+    - makedirs: True
+
 tsportal-clone:
   git.latest:
     - name: {{ p.get('repo', 'https://github.com/WikiOasis/TSPortal.git') }}
@@ -34,6 +44,7 @@ tsportal-clone:
     - force_reset: True
     - require:
       - pkg: tsportal-build-packages
+      - file: {{ path }}
 
 {{ path }}/.env:
   file.managed:
