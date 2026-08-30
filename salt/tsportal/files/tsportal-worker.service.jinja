@@ -1,0 +1,29 @@
+{%- set p = salt['pillar.get']('tsportal', {}) %}
+{%- set path = p.get('path', '/srv/tsportal') %}
+{%- set version = salt['pillar.get']('php:version', '8.4') %}
+# Managed by Salt — do not edit manually.
+[Unit]
+Description=TSPortal queue worker
+# The database is on db-other-us-east-011, not this host, so wait for real
+# routing rather than just for the network stack to exist.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory={{ path }}
+# No --tries here on purpose: every job class sets its own $tries and $backoff
+# (SyncToWiki retries 20 times over hours so a wiki that is out for a day
+# replays when it comes back), and a --tries on the command line would only be
+# the fallback for a job that set none. Passing one that disagrees is how a
+# retry budget gets quietly halved.
+#
+# --max-time recycles the process hourly. A long-lived PHP worker accumulates,
+# and an exit here is a clean one between jobs; Restart=always brings it back.
+ExecStart=/usr/bin/php{{ version }} artisan queue:work --queue=default --sleep=3 --max-time=3600
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

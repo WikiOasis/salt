@@ -13,6 +13,7 @@ base:
   'apps*':
     - php
     - nginx
+    - tsportal
     - monitoring.nrpe_nginx
     - monitoring.nrpe_php
     - monitoring.phpfpm_exporter
@@ -26,6 +27,7 @@ base:
     - monitoring.mysqld_exporter
   'db-other-us-east-011*':
     - mariadb.portal_db
+    - mariadb.tsportal_db
   'metal*':
     - metal
     - monitoring.nrpe_metal

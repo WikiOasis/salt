@@ -6,6 +6,7 @@ base:
    'apps*':
       - php
       - php.apps
+      - tsportal
       - private
    'bastion*':
       - users.servers.bastion
@@ -14,6 +15,7 @@ base:
       - private
    'db-other-us-east-011*':
       - mariadb.db-other-us-east-011
+      - tsportal
    'db-pc-us-east-011*':
       - mariadb.db-pc-us-east-011
    'db-c1-us-east-021*':

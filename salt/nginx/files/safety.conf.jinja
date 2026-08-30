@@ -1,6 +1,95 @@
-server {
-    listen 80;
-    server_name safety.wikioasis.org;
+{%- set p = salt['pillar.get']('tsportal', {}) %}
+{%- set path = p.get('path', '/srv/tsportal') %}
+{%- set domain = p.get('domain', 'safety.wikioasis.org') %}
+{%- set att = p.get('attachments', {}) %}
+{%- set php = salt['pillar.get']('php', {}) %}
+{%- set version = php.get('version', '8.4') %}
+{%- set fpm = php.get('fpm', {}) %}
+{%- set listen = fpm.get('listen', '') or ('/run/php/php' ~ version ~ '-fpm.sock') %}
+# salt managed, do not modify manually — see salt/tsportal for the app itself.
+#
+# TSPortal, the Trust & Safety queue. This used to be a 301 to
+# portal.wikioasis.org; the portal now lives here.
 
-    return 301 https://portal.wikioasis.org$request_uri;
+server {
+  listen 80;
+  listen [::]:80;
+
+  server_name {{ domain }};
+  root        {{ path }}/public;
+
+  index index.php;
+  charset utf-8;
+
+  # Evidence arrives base64-encoded inside a signed JSON body from the wiki, so
+  # the request is roughly 1.4x the file. Sized off the per-file cap in
+  # pillar/tsportal, with room for the envelope; php-fpm's post_max_size
+  # (pillar/php) has to be at least this too or nginx just hands the request to
+  # a PHP that refuses it.
+  client_max_body_size {{ ((att.get('max_bytes', 26214400) * 1.5) // 1048576) | int + 8 }}m;
+
+  # Nothing under storage/ is reachable over the web by design: an attachment
+  # is a screenshot of harassment or a photograph of an identity document, and
+  # every read of one is meant to go through the portal so it can be checked
+  # and audited. Belt and braces — the private disk is outside the doc root
+  # already, and evidence is on R2 rather than this box at all.
+  location ~ ^/(storage|bootstrap|vendor)/ {
+    return 404;
+  }
+
+  location ~ /\. {
+    deny all;
+  }
+
+  location ^~ /build/ {
+    try_files $uri =404;
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+  }
+
+  location ~* \.(css|js|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot)$ {
+    try_files $uri =404;
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+  }
+
+  location / {
+    try_files $uri $uri/ /index.php?$query_string;
+  }
+
+  location ~ \.php$ {
+    fastcgi_pass             unix:{{ listen }};
+    fastcgi_index            index.php;
+    fastcgi_param            REDIRECT_STATUS    200;
+    fastcgi_param            SCRIPT_FILENAME    $document_root$fastcgi_script_name;
+    fastcgi_param            QUERY_STRING       $query_string;
+    fastcgi_param            REQUEST_METHOD     $request_method;
+    fastcgi_param            CONTENT_TYPE       $content_type;
+    fastcgi_param            CONTENT_LENGTH     $content_length;
+    fastcgi_param            SCRIPT_NAME        $fastcgi_script_name;
+    fastcgi_param            REQUEST_URI        $request_uri;
+    fastcgi_param            DOCUMENT_URI       $document_uri;
+    fastcgi_param            DOCUMENT_ROOT      $document_root;
+    fastcgi_param            GATEWAY_INTERFACE  CGI/1.1;
+    fastcgi_param            SERVER_SOFTWARE    nginx/$nginx_version;
+    fastcgi_param            REMOTE_ADDR        $remote_addr;
+    fastcgi_param            SERVER_NAME        $server_name;
+    fastcgi_param            SERVER_PROTOCOL    $server_protocol;
+    fastcgi_param            HTTP_X_FORWARDED_PROTO $http_x_forwarded_proto;
+
+    # TLS ends at Cloudflare and haproxy speaks plain HTTP to this box, so PHP
+    # would otherwise build every URL as http:// — which breaks the OAuth
+    # callback (it must match the registered consumer exactly) and gets the
+    # asset tags blocked as mixed content. Set here rather than by trusting
+    # X-Forwarded-Proto: TSPortal does not configure trustProxies, and this
+    # vhost is only ever reachable through the edge.
+    #
+    # SERVER_PORT has to go with it. Symfony only omits the port from a
+    # generated URL when it is standard *for the scheme*, so https + port 80
+    # produces https://safety.wikioasis.org:80/…
+    fastcgi_param            HTTPS              on;
+    fastcgi_param            SERVER_PORT        443;
+
+    fastcgi_read_timeout     120s;
+  }
 }
