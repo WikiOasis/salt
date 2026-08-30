@@ -4,7 +4,7 @@ opensearch:
   # lockstep with the plugin versions below.
   version: 1.3.20
   cluster_name: wikioasis-search
-  heap_size: 3g
+  heap_size: 4g
   http_port: 9200
   transport_port: 9300
   nodes:
