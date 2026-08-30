@@ -60,6 +60,46 @@ mwdeploy_portal:
   reverb_app_key: CHANGE_ME
   reverb_app_secret: CHANGE_ME
 
+# TSPortal, the Trust & Safety queue (salt/tsportal, pillar/tsportal). Every
+# value below is read by salt/tsportal/files/tsportal.env.jinja; the app boots
+# with none of them set but 500s on the first request, because an empty APP_KEY
+# fails the Encrypter's cipher/key-length check. salt/tsportal/init.sls guards
+# the five that are load-bearing.
+tsportal:
+  # `openssl rand -base64 32`, prefixed "base64:" — the format
+  # `php artisan key:generate --show` produces. Rotating it invalidates every
+  # session and everything the app has encrypted at rest.
+  app_key: CHANGE_ME
+  # Must match what mariadb.tsportal_db created on db-other-us-east-011 for
+  # the tsportal_new user in pillar/tsportal db:user.
+  db_password: CHANGE_ME
+  # Shared secret between the wiki and the portal. Anyone holding it can file
+  # reports and read any account's standing, so treat it like a password.
+  s2s_secret: CHANGE_ME
+  # OAuth consumer registered on meta.wikioasis.org for the redirect_uri in
+  # pillar/tsportal. The id is not secret; it lives here to stay next to its
+  # secret.
+  oauth_client_id: CHANGE_ME
+  oauth_client_secret: CHANGE_ME
+  # Cloudflare R2 token scoped to the wikioasis-media bucket. Only needed when
+  # pillar/tsportal attachments:enabled is true; without it uploads fail but
+  # the rest of the portal works.
+  r2_access_key_id: CHANGE_ME
+  r2_secret_access_key: CHANGE_ME
+  # SMTP account for the mail: block in pillar/tsportal (Gmail, submissions
+  # over smtps/465 — an app password, not the account password).
+  mail_username: CHANGE_ME
+  mail_password: CHANGE_ME
+  # Per-category Slack webhooks. `default` is the fallback for any category
+  # without its own; the others may be omitted entirely.
+  slack_webhooks:
+    default: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+    urgent: ""
+    cases: ""
+    actions: ""
+    admin: ""
+    data: ""
+
 mariadb:
   backup:
     # MariaDB user Salt will create on each db* server for backup operations

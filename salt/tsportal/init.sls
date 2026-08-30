@@ -46,6 +46,21 @@ tsportal-clone:
       - pkg: tsportal-build-packages
       - file: {{ path }}
 
+# An unset secret is not a rendering error: pillar.get falls back to '' and the
+# .env below is written with an empty value, so the highstate goes green and the
+# portal 500s on the first request with a cipher/key-length error that names
+# neither APP_KEY nor the pillar. Fail here instead, where the message says
+# which key is missing. Only the five that stop the app working are listed —
+# the R2, mail and Slack values degrade a feature and are left optional.
+tsportal-secrets:
+  test.check_pillar:
+    - present:
+      - tsportal:app_key
+      - tsportal:db_password
+      - tsportal:s2s_secret
+      - tsportal:oauth_client_id
+      - tsportal:oauth_client_secret
+
 {{ path }}/.env:
   file.managed:
     - source: salt://tsportal/files/tsportal.env.jinja
@@ -58,6 +73,7 @@ tsportal-clone:
     - show_changes: False
     - require:
       - git: tsportal-clone
+      - test: tsportal-secrets
 
 # Two states, not one, for each build step. The `onchanges` half is the update
 # path; the `creates` half is what makes a re-run after a failed highstate
