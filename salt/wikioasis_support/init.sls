@@ -61,15 +61,6 @@ wikioasis-support-node:
       - pkg: wikioasis-support-packages
       - file: /opt/nodejs
 
-{{ path }}:
-  file.directory:
-    - user: {{ user }}
-    - group: {{ user }}
-    - mode: '0755'
-    - makedirs: True
-    - require:
-      - user: wikioasis_support_user
-
 # git.latest runs as the service user, and /srv is root-owned, so the target
 # has to exist and belong to it before the clone runs — same trap as tsportal.
 wikioasis-support-clone:
