@@ -14,7 +14,9 @@ base:
     - php
     - nginx
     - tsportal
+    - wikioasis_support
     - monitoring.nrpe_nginx
+    - monitoring.nrpe_wikioasis_support
     - monitoring.nrpe_php
     - monitoring.phpfpm_exporter
     - monitoring.phpopcache_exporter
@@ -28,6 +30,7 @@ base:
   'db-other-us-east-011*':
     - mariadb.portal_db
     - mariadb.tsportal_db
+    - mariadb.wikioasis_support_db
   'metal*':
     - metal
     - monitoring.nrpe_metal

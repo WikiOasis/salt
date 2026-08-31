@@ -1,0 +1,14 @@
+{#- Managed by Salt (wikioasis_support). Do not edit manually — this file is
+   rewritten from pillar/wikioasis_support's `triage` block on every highstate.
+
+   It is the bot's entire configuration: which forum to watch, which roles are
+   support, and the teams, categories and priorities along with the prompt
+   fragment describing each one. src/ai/prompt.ts merges those fragments into
+   the single system prompt the classifier sees, so this file is what you edit
+   to change the bot's judgement.
+
+   Serialised straight from pillar rather than written out key by key, so a new
+   option in the bot only needs adding to pillar — nothing here has to learn
+   about it. The bot validates the result with `--check-config` before Salt is
+   allowed to restart the service onto it. #}
+{{ salt['slsutil.serialize']('json', salt['pillar.get']('wikioasis_support:triage', {}), indent=2) }}

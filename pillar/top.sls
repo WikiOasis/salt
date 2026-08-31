@@ -7,6 +7,7 @@ base:
       - php
       - php.apps
       - tsportal
+      - wikioasis_support
       - private
    'bastion*':
       - users.servers.bastion
@@ -16,6 +17,7 @@ base:
    'db-other-us-east-011*':
       - mariadb.db-other-us-east-011
       - tsportal
+      - wikioasis_support
    'db-pc-us-east-011*':
       - mariadb.db-pc-us-east-011
    'db-c1-us-east-021*':

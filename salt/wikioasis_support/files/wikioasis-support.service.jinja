@@ -1,0 +1,51 @@
+{%- set p = salt['pillar.get']('wikioasis_support', {}) %}
+{%- set path = p.get('path', '/srv/wikioasis-support') %}
+{%- set user = p.get('user', 'wikioasis-support') %}
+{%- set node_version = p.get('node_version', '24.20.0') %}
+{%- set node = '/opt/nodejs/node-v' ~ node_version ~ '-linux-x64/bin/node' %}
+# Managed by Salt — do not edit manually.
+[Unit]
+Description=WikiOasis support forum triage bot
+Documentation=https://github.com/WikiOasis/WikiOasisSupport
+# Talks to Discord, the OpenAI API and db-other-us-east-011 — all off this
+# host, so wait for real routing rather than just for the network stack.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ user }}
+Group={{ user }}
+WorkingDirectory={{ path }}
+EnvironmentFile=/etc/wikioasis-support.env
+# -u so log lines reach journald as they happen rather than in 8KB blocks; the
+# bot writes one JSON object per line and buffering makes a live tail useless.
+ExecStart={{ node }} -u dist/index.js
+Restart=always
+RestartSec=10s
+# A bad token or an unreachable database fails immediately and repeatedly.
+# Without this the unit restarts every 10s for ever and the only sign is the
+# journal; with it, systemd gives up and the unit sits in `failed`, which the
+# NRPE service check can actually see.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# The bot writes nothing to disk — all state is in MariaDB — so it can run
+# against a read-only filesystem.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+# ^ V8 JITs, so it needs writable-executable pages. This is the one hardening
+# option that cannot be turned on for a Node service.
+
+[Install]
+WantedBy=multi-user.target
