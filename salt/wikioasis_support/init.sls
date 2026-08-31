@@ -79,6 +79,7 @@ wikioasis-support-clone:
     - rev: {{ p.get('rev', 'main') }}
     - user: {{ user }}
     - force_reset: True
+    - force_clone: True
     - require:
       - pkg: wikioasis-support-packages
       - file: {{ path }}
