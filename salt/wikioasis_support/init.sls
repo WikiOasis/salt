@@ -73,7 +73,6 @@ wikioasis-support-clone:
     - force_clone: True
     - require:
       - pkg: wikioasis-support-packages
-      - file: {{ path }}
 
 # An unset secret is not a rendering error — pillar.get falls back to '' and the
 # env file is written with an empty value, so the highstate goes green and the
