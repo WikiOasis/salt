@@ -18,9 +18,7 @@ User={{ user }}
 Group={{ user }}
 WorkingDirectory={{ path }}
 EnvironmentFile=/etc/wikioasis-support.env
-# -u so log lines reach journald as they happen rather than in 8KB blocks; the
-# bot writes one JSON object per line and buffering makes a live tail useless.
-ExecStart={{ node }} -u dist/index.js
+ExecStart={{ node }} dist/index.js
 Restart=always
 RestartSec=10s
 # A bad token or an unreachable database fails immediately and repeatedly.

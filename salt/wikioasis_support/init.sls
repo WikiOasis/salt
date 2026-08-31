@@ -61,6 +61,19 @@ wikioasis-support-node:
       - pkg: wikioasis-support-packages
       - file: /opt/nodejs
 
+# The clone died with "destination path '/srv/wikioasis-support' already
+# exists and is not an empty directory" on a directory Salt had created empty
+# microseconds earlier. git's is_empty_dir() reports an unreadable directory as
+# non-empty (dir.c: `if (!dir) return 0;`), so the real fault was that {{ user }}
+# could not traverse /srv. tsportal never hit it because it clones as www-data.
+# /srv is not otherwise managed, so its mode was whatever the image was built
+# with; pin it rather than depend on that.
+/srv:
+  file.directory:
+    - user: root
+    - group: root
+    - mode: '0755'
+
 {{ path }}:
   file.directory:
     - user: {{ user }}
@@ -69,6 +82,7 @@ wikioasis-support-node:
     - makedirs: True
     - require:
       - user: wikioasis_support_user
+      - file: /srv
 
 # git.latest runs as the service user, and /srv is root-owned, so the target
 # has to exist and belong to it before the clone runs — same trap as tsportal.
