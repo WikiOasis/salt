@@ -24,6 +24,9 @@ haproxy:
     - hostname: zep-api.wikioasis.org
       backend: zep-api
       active: true
+    - hostname: id.wikioasis.org
+      backend: authentik
+      active: true
 
   frontends:
     http:
@@ -47,6 +50,8 @@ haproxy:
           backend: apps
         - hostname: console.wikioasis.org
           backend: deploy_portal
+        - hostname: id.wikioasis.org
+          backend: authentik
       default_backend: mediawiki
       options:
         - forwardfor
@@ -120,6 +125,45 @@ haproxy:
         - name: salt-us-east-021.ovvin.wonet
           host: salt-us-east-021.ovvin.wonet
           port: 80
+          check: true
+          weight: 1
+          depooled: false
+    # The identity provider (salt/authentik on auth-us-east-021). Everything
+    # that logs in through id.wikioasis.org comes through here, so it is its
+    # own backend and shares a server with nothing.
+    authentik:
+      balance: roundrobin
+      options:
+        - forwardfor
+        - httpchk
+      # /-/health/live/ is the shallow endpoint on purpose. It answers as soon
+      # as the server process is up, which is the right question for "may this
+      # backend take traffic". Readiness — database reachable, migrations done
+      # — is checked by Icinga over NRPE instead, where a failure pages someone
+      # rather than depooling the only server and turning every login into a
+      # 503.
+      #
+      # rstatus, not status: authentik answers these with 204, and a release
+      # that moved to 200 would take the IdP down on a technicality.
+      http_checks:
+        - send meth GET uri /-/health/live/
+        - expect rstatus ^2
+      # authentik builds absolute URLs from the forwarded scheme — the OIDC
+      # issuer and discovery document, SAML endpoints, every redirect_uri it
+      # checks. Without these it advertises http://, which fails the strict
+      # scheme comparison in most OAuth clients, and its session cookies lose
+      # Secure.
+      http_request:
+        - set-header X-Forwarded-Proto https
+        - set-header X-Forwarded-Port 443
+      # The admin interface and any future outpost hold websockets open; the
+      # default tunnel timeout would drop them. Same reason deploy_portal has
+      # one.
+      timeout_tunnel: 1h
+      servers:
+        - name: auth-us-east-021.ovvin.wonet
+          host: auth-us-east-021.ovvin.wonet
+          port: 9000
           check: true
           weight: 1
           depooled: false

@@ -1,0 +1,31 @@
+{%- set p = salt['pillar.get']('authentik', {}) %}
+{%- set path = p.get('path', '/srv/authentik') %}
+# Managed by Salt (salt/authentik) -- do not edit by hand.
+#
+# Type=oneshot with RemainAfterExit is what keeps `systemctl is-active
+# authentik` meaningful, which is what check_systemd_service.sh reads for the
+# authentik_unit check. The containers themselves stay supervised by dockerd
+# through their `restart: unless-stopped` policy, so a crashed container comes
+# back without systemd being involved, and so does the whole stack after a
+# reboot.
+#
+# TimeoutStartSec=0 because a first start pulls the best part of a gigabyte of
+# images and then runs the initial database migrations.
+[Unit]
+Description=authentik identity provider (docker compose)
+Documentation=https://docs.goauthentik.io
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ path }}
+TimeoutStartSec=0
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose up -d --remove-orphans
+
+[Install]
+WantedBy=multi-user.target

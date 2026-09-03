@@ -1,0 +1,122 @@
+{%- set p = salt['pillar.get']('authentik', {}) %}
+{%- set image = p.get('image', 'ghcr.io/goauthentik/server') %}
+{%- set tag = p.get('version', '2026.8.1') %}
+{%- set pg_image = p.get('postgres_image', 'docker.io/library/postgres:16-alpine') %}
+{%- set http_port = p.get('http_port', 9000) %}
+{%- set https_port = p.get('https_port', 9443) %}
+{%- set metrics_port = p.get('metrics_port', 9300) %}
+{%- set log_opts = p.get('log', {}) %}
+{#- Published ports are pinned to the vrack address rather than 0.0.0.0. These
+    VMs also carry a public IPv6 address (metal.vm_ipv6) and Docker publishes to
+    every interface by default, which would put the admin interface straight on
+    the internet beside the haproxy-fronted copy -- with no Cloudflare in front
+    of it. The same derivation is in monitoring/files/nrpe/authentik.cfg.jinja
+    and in salt/authentik/init.sls. Falling back to loopback rather than
+    0.0.0.0 is deliberate: if the vrack address cannot be found, this should
+    fail closed and show up as a dead haproxy backend. #}
+{%- set private_ips = salt['network.ip_addrs'](cidr='10.0.0.0/8') %}
+{%- set bind = p.get('bind_address') or (private_ips[0] if private_ips else '127.0.0.1') %}
+# Managed by Salt (salt/authentik) -- do not edit by hand.
+#
+# Derived from the upstream Compose file for {{ tag }}, with three changes:
+#
+#   * published ports are bound to {{ bind }} only, not 0.0.0.0 (see above);
+#
+#   * /var/run/docker.sock is NOT mounted into the worker. Upstream mounts it so
+#     authentik can start and manage outpost containers itself. We run no
+#     outposts, and that socket is root-equivalent access to the host from
+#     inside the container holding the identity database -- the single worst
+#     thing to hand out on this particular box. Add it back, together with
+#     `user: root`, if a Docker-hosted outpost is ever wanted;
+#
+#   * /data is a named volume rather than a bind mount, so the container's own
+#     uid never has to be reproduced on the host filesystem. It holds uploaded
+#     media (flow backgrounds, application icons) -- not the identity data,
+#     which is in Postgres and is what authentik-backup dumps.
+#
+# Container logs stay on the default json-file driver with rotation. The
+# journald driver would push every request line into the journal, which
+# monitoring.otelcol ships wholesale to Sentry -- read them with
+# `docker compose logs` instead.
+
+services:
+  postgresql:
+    image: {{ pg_image }}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${PG_DB:-authentik}
+      POSTGRES_USER: ${PG_USER:-authentik}
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    volumes:
+      # A Postgres major-version upgrade is not in-place -- the data directory
+      # belongs to {{ pg_image }}. Moving off it means dump, empty volume,
+      # restore, so the tag is pinned in pillar and changed deliberately.
+      - database:/var/lib/postgresql/data
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: '{{ log_opts.get('max_size', '50m') }}'
+        max-file: '{{ log_opts.get('max_file', 3) }}'
+
+  server:
+    image: {{ image }}:{{ tag }}
+    command: server
+    restart: unless-stopped
+    shm_size: 512mb
+    env_file:
+      - .env
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?database password required}
+    ports:
+      # haproxy talks to the first of these. The HTTPS port is published for
+      # completeness; nothing uses it, since TLS terminates at Cloudflare.
+      - '{{ bind }}:{{ http_port }}:9000'
+      - '{{ bind }}:{{ https_port }}:9443'
+      # Prometheus scrapes this; target list is built in
+      # monitoring/files/prometheus/file_sd/authentik.json.jinja.
+      - '{{ bind }}:{{ metrics_port }}:9300'
+    volumes:
+      - data:/data
+      - ./custom-templates:/templates:ro
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    logging: *logging
+
+  worker:
+    image: {{ image }}:{{ tag }}
+    command: worker
+    restart: unless-stopped
+    shm_size: 512mb
+    env_file:
+      - .env
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__NAME: ${PG_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?database password required}
+    volumes:
+      - data:/data
+      - ./certs:/certs:ro
+      - ./custom-templates:/templates:ro
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    logging: *logging
+
+volumes:
+  database:
+    driver: local
+  data:
+    driver: local

@@ -1,0 +1,17 @@
+{%- set s3 = salt['pillar.get']('authentik:backup:s3', {}) %}
+[default]
+region = {{ s3.get('region', 'gra') }}
+
+# A pg_dump of the identity database is small — megabytes, not the multi-GB
+# streams mariadb uploads — so the defaults would do. Set explicitly anyway so
+# a database that has grown does not quietly start uploading in 8MB parts.
+s3 =
+    multipart_threshold = {{ s3.get('multipart_chunksize', '64MB') }}
+    multipart_chunksize = {{ s3.get('multipart_chunksize', '64MB') }}
+    max_concurrent_requests = {{ s3.get('max_concurrent_requests', 4) }}
+
+# OVHcloud is S3-compatible but not S3. Recent botocore releases send flexible
+# checksums on every request by default, which third-party endpoints reject;
+# older ones ignore both keys, so setting them is safe either way.
+request_checksum_calculation = when_required
+response_checksum_validation = when_supported

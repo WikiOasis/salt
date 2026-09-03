@@ -1,0 +1,78 @@
+#!/bin/bash
+{%- set p = salt['pillar.get']('authentik', {}) %}
+{%- set db = p.get('db', {}) %}
+{%- set path = p.get('path', '/srv/authentik') %}
+{%- set backup = p.get('backup', {}) %}
+{%- set backup_path = backup.get('path', path ~ '/backups') %}
+# Managed by Salt (salt/authentik) -- do not edit by hand.
+#
+# Nightly dump of authentik's Postgres database: every account, group,
+# application, provider, certificate and MFA enrolment. Written locally, then
+# uploaded to OVHcloud Object Storage if a bucket is configured -- a dump that
+# only ever exists on the same host as the database it protects does not survive
+# losing the host, which is the case it most needs to cover.
+#
+# Restore into a running stack with:
+#   docker compose -f {{ path }}/docker-compose.yml exec -T postgresql \
+#     pg_restore -U {{ db.get('user', 'authentik') }} -d {{ db.get('name', 'authentik') }} --clean --if-exists < <dump>
+#
+# Fetch one back with:
+#   aws --endpoint-url "$S3_ENDPOINT" s3 cp s3://$S3_BUCKET/<key> - > restore.dump
+# (source /etc/authentik-backup/s3.env first for those variables and credentials)
+set -euo pipefail
+
+PROJECT_DIR='{{ path }}'
+DEST='{{ backup_path }}'
+DB_NAME='{{ db.get('name', 'authentik') }}'
+DB_USER='{{ db.get('user', 'authentik') }}'
+RETAIN_DAYS='{{ backup.get('retain_days', 14) }}'
+
+# S3 settings and credentials. Absent file means "local only", which is a
+# supported configuration, not a failure.
+if [ -f /etc/authentik-backup/s3.env ]; then
+    set -a
+    . /etc/authentik-backup/s3.env
+    set +a
+fi
+
+cd "$PROJECT_DIR"
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+out="${DEST}/authentik-${stamp}.dump"
+
+# Write to .partial and rename only on success, so a dump interrupted halfway
+# never sits in the directory looking like a usable backup -- and never gets
+# uploaded or counted as the most recent one.
+#
+# -Fc is the custom format: compressed, and pg_restore can read it selectively.
+docker compose exec -T postgresql \
+  pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc > "${out}.partial"
+mv "${out}.partial" "$out"
+
+echo "wrote $out ($(du -h "$out" | cut -f1))"
+
+# The freshness marker check_authentik_backup reads. Written after the dump
+# succeeds and before the upload, so a working dump with a broken upload still
+# reports the dump as fresh -- the upload has its own marker below.
+date +%s > "${DEST}/last_backup"
+
+if [ -n "${S3_BUCKET:-}" ]; then
+    key="${S3_PREFIX:+${S3_PREFIX}/}$(hostname -f)/authentik-${stamp}.dump"
+    aws --endpoint-url "$S3_ENDPOINT" --region "$S3_REGION" \
+        s3 cp "$out" "s3://${S3_BUCKET}/${key}" \
+        --storage-class "$S3_STORAGE_CLASS"
+    echo "uploaded s3://${S3_BUCKET}/${key} (${S3_STORAGE_CLASS})"
+    date +%s > "${DEST}/last_upload"
+else
+    echo "no S3 bucket configured; keeping this dump locally only"
+fi
+
+# LOCAL retention only. Remote objects are deleted by the bucket lifecycle
+# policy and never by this script -- see authentik-backup-lifecycle.json.jinja.
+# Local retention is deliberately shorter than the remote expiry: this disk is
+# for the fast restore, the bucket is for the disaster.
+#
+# Runs after a successful dump only, courtesy of set -e, so a run of failures
+# cannot quietly age out every good backup that came before.
+find "$DEST" -maxdepth 1 -name 'authentik-*.dump' -type f -mtime "+${RETAIN_DAYS}" -print -delete
+find "$DEST" -maxdepth 1 -name 'authentik-*.dump.partial' -type f -mtime +1 -print -delete

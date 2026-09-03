@@ -1,0 +1,51 @@
+{#-
+  OVHcloud Object Storage lifecycle policy for authentik's backup prefix.
+  Applied by authentik-backup-s3-init ONLY when
+  authentik:backup:s3:manage_lifecycle is true.
+
+  ┌─ READ THIS BEFORE ENABLING IT ─────────────────────────────────────────────┐
+  │ put-bucket-lifecycle-configuration REPLACES the bucket's entire policy. It  │
+  │ is not additive and there is no merge. If this bucket is also the MariaDB    │
+  │ backup bucket, applying this wipes mariadb-backups-expiry — whose Filter    │
+  │ Prefix is the mariadb s3:prefix, which defaults to "" and therefore covers  │
+  │ the whole bucket. Nothing would then expire those backup sets or abort      │
+  │ their orphaned multipart uploads, and the bill grows without limit and      │
+  │ without a symptom.                                                          │
+  │                                                                             │
+  │ So: leave manage_lifecycle false when sharing mariadb's bucket. The existing │
+  │ bucket-wide rule already expires these dumps at mariadb's expire_days.      │
+  │ Enable it only for a bucket dedicated to authentik.                          │
+  └─────────────────────────────────────────────────────────────────────────────┘
+
+  This policy expires objects and does not transition them: the dump is PUT
+  straight into Infrequent Access, so a transition rule would have nothing to
+  do. IA is billed for a 730h (30 day) MINIMUM per object with early deletion
+  charged for the remainder, so expire_days is clamped up to min_storage_days.
+
+  Rule 2 aborts orphaned multipart uploads — parts from an upload that died
+  mid-flight are billed but never appear in a listing.
+-#}
+{%- set s3 = salt['pillar.get']('authentik:backup:s3', {}) %}
+{%- set lc = s3.get('lifecycle', {}) %}
+{%- set prefix = s3.get('prefix', 'authentik').strip('/') %}
+{%- set filter_prefix = (prefix ~ '/') if prefix else '' %}
+{%- set min_storage_days = lc.get('min_storage_days', 30)|int %}
+{%- set expire_days = [lc.get('expire_days', 90)|int, min_storage_days]|max %}
+{%- set abort_days = lc.get('abort_incomplete_multipart_days', 7)|int %}
+{
+  "Rules": [
+    {
+      "ID": "authentik-backups-expiry",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "{{ filter_prefix }}" },
+      "Expiration": { "Days": {{ expire_days }} },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": {{ expire_days }} }
+    },
+    {
+      "ID": "authentik-backups-abort-incomplete-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "{{ filter_prefix }}" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": {{ abort_days }} }
+    }
+  ]
+}

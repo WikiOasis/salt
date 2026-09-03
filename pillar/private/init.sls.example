@@ -100,6 +100,18 @@ tsportal:
     admin: ""
     data: ""
 
+authentik:
+  secret_key: CHANGE_ME
+  postgres_password: CHANGE_ME
+  bootstrap_email: CHANGE_ME
+  bootstrap_password: CHANGE_ME
+  bootstrap_token: CHANGE_ME
+  email_password: CHANGE_ME
+  backup:
+    s3:
+      access_key: CHANGE_ME
+      secret_key: CHANGE_ME
+
 wikioasis_support:
   discord_token: CHANGE_ME
   openai_api_key: CHANGE_ME

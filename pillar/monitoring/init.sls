@@ -24,6 +24,10 @@ monitoring:
     host_alerts: true
     services:
       - opensearch
+      # The readiness check from monitoring.nrpe_authentik, not authentik_unit:
+      # the two fire together on a real outage and the unit check is the
+      # diagnostic half, so paging on both just doubles the noise.
+      - authentik
       - nginx_errors
       - nginx_4xx_errors
       - mediawiki

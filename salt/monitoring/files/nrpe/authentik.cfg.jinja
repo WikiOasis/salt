@@ -1,0 +1,12 @@
+{%- set p = salt['pillar.get']('authentik', {}) %}
+{%- set backup = p.get('backup', {}) %}
+{%- set backup_path = backup.get('path', p.get('path', '/srv/authentik') ~ '/backups') %}
+{#- authentik's ports are published on the vrack address, not on loopback, so
+    the check has to ask for them there. Same derivation as
+    authentik/files/docker-compose.yml.jinja. #}
+{%- set private_ips = salt['network.ip_addrs'](cidr='10.0.0.0/8') %}
+{%- set bind = p.get('bind_address') or (private_ips[0] if private_ips else '127.0.0.1') %}
+command[check_authentik]=/usr/lib/nagios/plugins/check_authentik.sh {{ bind }} {{ p.get('http_port', 9000) }}
+command[check_authentik_unit]=/usr/lib/nagios/plugins/check_systemd_service.sh authentik
+command[check_authentik_backup]=/usr/lib/nagios/plugins/check_authentik_backup.sh dump {{ backup_path }}
+command[check_authentik_backup_upload]=/usr/lib/nagios/plugins/check_authentik_backup.sh upload {{ backup_path }}

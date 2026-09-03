@@ -9,6 +9,9 @@ base:
       - tsportal
       - wikioasis_support
       - private
+   'auth*':
+      - authentik
+      - private
    'bastion*':
       - users.servers.bastion
    'db*':

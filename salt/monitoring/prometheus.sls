@@ -51,6 +51,7 @@ prometheus_package:
     ('phpopcache', 'apps/mw/task', 9254),
     ('opensearch', 'opensearch',  9114),
     ('cloudflare', 'monitoring',  9199),
+    ('authentik',  'auth',        9300),
 ] %}
 /etc/prometheus/file_sd/{{ job }}.json:
   file.managed:

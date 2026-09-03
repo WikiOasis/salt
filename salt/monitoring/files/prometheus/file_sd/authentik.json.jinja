@@ -1,0 +1,13 @@
+{%- set dns_hosts = salt['pillar.get']('dns_hosts', {}) %}
+{#- 9300 is authentik's metrics port, published on the vrack address by
+    salt/authentik/files/docker-compose.yml.jinja. Hardcoded here the way the
+    other jobs hardcode theirs: this renders on the monitoring host, which is
+    not assigned the authentik pillar and so cannot read the port from it. #}
+{%- set entries = [] %}
+{%- for hostname, data in dns_hosts.items() if hostname.startswith('auth') %}
+{%- set clean = hostname.split('.')[0] %}
+{%- do entries.append('  {"targets": ["' ~ data.ip ~ ':9300"], "labels": {"instance": "' ~ clean ~ '"}}') %}
+{%- endfor %}
+[
+{{ entries | join(',\n') }}
+]

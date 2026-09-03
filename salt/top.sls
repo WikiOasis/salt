@@ -20,6 +20,9 @@ base:
     - monitoring.nrpe_php
     - monitoring.phpfpm_exporter
     - monitoring.phpopcache_exporter
+  'auth*':
+    - authentik
+    - monitoring.nrpe_authentik
   'db*':
     - mariadb
     - mariadb.monitoring_user
