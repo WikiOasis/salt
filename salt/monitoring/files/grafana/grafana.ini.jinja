@@ -23,8 +23,15 @@ enabled = false
 scopes = openid profile email
 
 [log]
-mode = console
+mode = console file
 level = info
+
+[log.file]
+log_rotate = true
+max_lines = 1000000
+max_size_shift = 28
+daily_rotate = true
+max_days = 7
 
 [feature_toggles]
 grafanaAdvisor = true
