@@ -2,7 +2,7 @@
 [server]
 http_port = 3000
 domain = grafana.wikioasis.org
-root_url = %(protocol)s://%(domain)s/
+root_url = https://grafana.wikioasis.org
 serve_from_sub_path = false
 
 [database]
@@ -18,6 +18,9 @@ allow_sign_up = false
 
 [auth.anonymous]
 enabled = false
+
+[auth.generic_oauth]
+scopes = openid profile email
 
 [log]
 mode = console
