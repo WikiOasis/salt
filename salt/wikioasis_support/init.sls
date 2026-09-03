@@ -109,7 +109,15 @@ wikioasis-support-secrets:
       - wikioasis_support:openai_api_key
       - wikioasis_support:db_password
 
-/etc/wikioasis-support.env:
+/etc/wikioasis-support:
+  file.directory:
+    - user: root
+    - group: {{ user }}
+    - mode: '0750'
+    - require:
+      - user: wikioasis_support_user
+
+/etc/wikioasis-support/.env:
   file.managed:
     - source: salt://wikioasis_support/files/wikioasis-support.env.jinja
     - template: jinja
@@ -120,14 +128,14 @@ wikioasis-support-secrets:
     # the bot anywhere it has access.
     - show_changes: False
     - require:
-      - user: wikioasis_support_user
+      - file: /etc/wikioasis-support
       - test: wikioasis-support-secrets
 
-/etc/wikioasis-support:
-  file.directory:
-    - user: root
-    - group: {{ user }}
-    - mode: '0750'
+# This used to be written one directory up, as /etc/wikioasis-support.env.
+# Reap the old copy rather than leaving the bot token and the OpenAI key
+# sitting in /etc on every host that has already had a highstate.
+/etc/wikioasis-support.env:
+  file.absent: []
 
 # The whole taxonomy — teams, categories, priorities and the prompt fragments
 # that describe each of them — rendered straight out of pillar. This is the
@@ -251,11 +259,11 @@ wikioasis-support:
     - enable: True
     - watch:
       - file: /etc/systemd/system/wikioasis-support.service
-      - file: /etc/wikioasis-support.env
+      - file: /etc/wikioasis-support/.env
       - file: /etc/wikioasis-support/triage.json
       - git: wikioasis-support-clone
     - require:
       - cmd: wikioasis-support-build-update
       - cmd: wikioasis-support-config-check
-      - file: /etc/wikioasis-support.env
+      - file: /etc/wikioasis-support/.env
       - file: /etc/wikioasis-support/triage.json

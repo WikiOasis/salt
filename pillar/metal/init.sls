@@ -75,6 +75,9 @@ dns_hosts:
   apps-us-east-021.ovvin.wonet:
     ip: 10.0.2.70
     mac: bc:24:11:62:c2:3d
+  auth-us-east-021.ovvin.wonet:
+    ip: 10.0.2.80
+    mac: bc:24:11:16:d3:8a
 
 proxmox:
   public_bridge: "vmbr0"
@@ -150,3 +153,6 @@ proxmox:
     apps-us-east-021.ovvin.wonet:
       metal_host: metal-us-east-02
       vmid: 270
+    auth-us-east-021.ovvin.wonet:
+      metal_host: metal-us-east-02
+      vmid: 280
