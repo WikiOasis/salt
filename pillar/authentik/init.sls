@@ -14,6 +14,23 @@ authentik:
 
   bind_address: ''
 
+  # dockerd needs an HTTP proxy to pull images: these VMs have no IPv4 egress
+  # (metal/ip_forwarding does inbound DNAT only, with no MASQUERADE), and
+  # ghcr.io publishes no AAAA record, so the public IPv6 from metal.vm_ipv6
+  # cannot reach it. This points dockerd at the squid already running on the
+  # VM's own metal host, derived from proxmox:vms -> metal_host -> dns_hosts.
+  #
+  # Set enabled: false if the metal hosts ever get a MASQUERADE rule and VMs
+  # have real IPv4 egress. Verify which world you are in from the auth box:
+  #   curl -4 -sS -o /dev/null -w '%{http_code}\n' --max-time 10 https://ghcr.io/v2/
+  # 401 means direct IPv4 works and the proxy is redundant; a timeout means it
+  # is required.
+  registry_proxy:
+    enabled: true
+    port: 3129
+    # url: http://10.0.2.1:3129   # override the derivation outright
+    no_proxy: localhost,127.0.0.1,10.0.0.0/8,.ovvin.wonet
+
   log_level: info
   error_reporting: false
   disable_analytics: true

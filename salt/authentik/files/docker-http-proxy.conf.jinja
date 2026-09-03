@@ -1,0 +1,38 @@
+{%- set p = salt['pillar.get']('authentik', {}) %}
+{%- set rp = p.get('registry_proxy', {}) %}
+{#- Derive the metal host's vrack address the same way metal/vm_ipv6 derives its
+    IPv6 config: this VM -> its metal_host -> that host's dns_hosts entry. Both
+    pillars reach every VM (pillar/top.sls assigns `metal` to
+    '*-us-east-0[0-9][0-9]*'), so this needs nothing hardcoded. #}
+{%- set vm = salt['pillar.get']('proxmox:vms:' ~ grains['id'], {}) %}
+{%- set metal_host = vm.get('metal_host', '') %}
+{%- set metal_ip = salt['pillar.get']('dns_hosts:' ~ metal_host ~ ':ip', '') %}
+{%- set url = rp.get('url') or ('http://' ~ metal_ip ~ ':' ~ rp.get('port', 3129)) %}
+{%- set no_proxy = rp.get('no_proxy', 'localhost,127.0.0.1,10.0.0.0/8,.ovvin.wonet') %}
+# Managed by Salt (salt/authentik) -- do not edit by hand.
+#
+# Gives dockerd a route to IPv4-only container registries.
+#
+# These VMs have no IPv4 egress: metal/ip_forwarding sets up a DNAT chain for
+# inbound port forwards and there is no MASQUERADE or SNAT rule anywhere, so a
+# packet leaving 10.0.2.x with a private source address never comes back. The
+# only egress a VM has is the public IPv6 address metal.vm_ipv6 assigns it.
+#
+# That is enough for apt, because deb.debian.org is dual-stack. It is not enough
+# for ghcr.io, which publishes no AAAA record at all -- so `docker pull
+# ghcr.io/goauthentik/server` fails on the manifest request with a connect
+# timeout, and the whole stack never starts.
+#
+# squid already runs on every metal host (metal.apt_proxy) bound to 0.0.0.0:3129
+# and permits 10.0.0.0/8, and its config defines no Safe_ports/SSL_ports denials,
+# so CONNECT to 443 from the vrack is allowed. Pointing dockerd at it borrows the
+# metal host's IPv4 for image pulls and nothing else.
+#
+# The alternative is a MASQUERADE rule on the metal host, which would give every
+# VM in the fleet general IPv4 egress -- a bigger decision than this state should
+# be making on its own. If that gets added, set
+# authentik:registry_proxy:enabled to false and this file disappears.
+[Service]
+Environment="HTTP_PROXY={{ url }}"
+Environment="HTTPS_PROXY={{ url }}"
+Environment="NO_PROXY={{ no_proxy }}"

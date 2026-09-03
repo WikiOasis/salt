@@ -36,16 +36,52 @@
 # nothing else in the fleet has one, and base owns /etc/apt/sources.list
 # outright, which would fight anything dropped in beside it. curl is for the
 # readiness poll below and for the NRPE check in monitoring.nrpe_authentik.
+#
+# `docker-compose` here is NOT Compose v1. Debian ships Compose v2 under the
+# plain name (2.26.1 in trixie, from the Go rewrite) and has no
+# `docker-compose-v2` package at all -- that name is Ubuntu's. The package
+# installs /usr/libexec/docker/cli-plugins/docker-compose as well as
+# /usr/bin/docker-compose, so `docker compose` as a subcommand works and is
+# what this state uses throughout. Do not "correct" this to docker-compose-v2:
+# it does not exist, and apt fails with "Unable to locate package".
 authentik-packages:
   pkg.installed:
     - pkgs:
       - docker.io
-      - docker-compose-v2
+      - docker-compose
       - curl
+
+{%- if p.get('registry_proxy', {}).get('enabled', True) %}
+# Must exist before dockerd starts, or the first pull is the one that fails.
+# See the file's own header for why an HTTP proxy is involved at all.
+/etc/systemd/system/docker.service.d:
+  file.directory:
+    - user: root
+    - group: root
+    - mode: '0755'
+    - makedirs: True
+    - require:
+      - pkg: authentik-packages
+
+/etc/systemd/system/docker.service.d/http-proxy.conf:
+  file.managed:
+    - source: salt://authentik/files/docker-http-proxy.conf.jinja
+    - template: jinja
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - file: /etc/systemd/system/docker.service.d
+{%- else %}
+/etc/systemd/system/docker.service.d/http-proxy.conf:
+  file.absent: []
+{%- endif %}
 
 docker:
   service.running:
     - enable: True
+    - watch:
+      - file: /etc/systemd/system/docker.service.d/http-proxy.conf
     - require:
       - pkg: authentik-packages
 
