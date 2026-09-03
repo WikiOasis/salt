@@ -29,10 +29,17 @@
 #     thing to hand out on this particular box. Add it back, together with
 #     `user: root`, if a Docker-hosted outpost is ever wanted;
 #
-#   * /data is a named volume rather than a bind mount, so the container's own
-#     uid never has to be reproduced on the host filesystem. It holds uploaded
-#     media (flow backgrounds, application icons) -- not the identity data,
-#     which is in Postgres and is what authentik-backup dumps.
+#   * ./data is created and owned by uid 1000 by the Salt state instead of being
+#     left for Docker to create as root. The image runs as uid 1000 (its config
+#     sets User "1000") and declares no VOLUME, so who owns /data has to be
+#     arranged deliberately -- and a named volume would be worse, mounting
+#     root-owned with no way in. Upstream's compose has the same trap and it
+#     just never surfaces at boot, because /data is only the media store
+#     (storage.file.path in authentik's defaults): a root-owned one serves
+#     perfectly until somebody uploads a brand logo and gets a permission
+#     error. Human accounts on this fleet start at uid 3000 (pillar/users), so
+#     1000 collides with nobody. The identity data is NOT here -- that is in
+#     Postgres, which is what authentik-backup dumps.
 #
 # Container logs stay on the default json-file driver with rotation. The
 # journald driver would push every request line into the journal, which
@@ -87,7 +94,7 @@ services:
       # monitoring/files/prometheus/file_sd/authentik.json.jinja.
       - '{{ bind }}:{{ metrics_port }}:9300'
     volumes:
-      - data:/data
+      - ./data:/data
       - ./custom-templates:/templates:ro
     depends_on:
       postgresql:
@@ -107,7 +114,7 @@ services:
       AUTHENTIK_POSTGRESQL__USER: ${PG_USER:-authentik}
       AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS:?database password required}
     volumes:
-      - data:/data
+      - ./data:/data
       - ./certs:/certs:ro
       - ./custom-templates:/templates:ro
     depends_on:
@@ -117,6 +124,4 @@ services:
 
 volumes:
   database:
-    driver: local
-  data:
     driver: local

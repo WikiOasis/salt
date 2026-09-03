@@ -37,18 +37,36 @@
 # outright, which would fight anything dropped in beside it. curl is for the
 # readiness poll below and for the NRPE check in monitoring.nrpe_authentik.
 #
-# `docker-compose` here is NOT Compose v1. Debian ships Compose v2 under the
-# plain name (2.26.1 in trixie, from the Go rewrite) and has no
-# `docker-compose-v2` package at all -- that name is Ubuntu's. The package
-# installs /usr/libexec/docker/cli-plugins/docker-compose as well as
-# /usr/bin/docker-compose, so `docker compose` as a subcommand works and is
-# what this state uses throughout. Do not "correct" this to docker-compose-v2:
-# it does not exist, and apt fails with "Unable to locate package".
+# Every one of these is listed deliberately, because base writes
+# APT::Install-Recommends "0" into /etc/apt/apt.conf and Debian's docker
+# packaging leans heavily on Recommends:
+#
+#   docker.io       the daemon. Recommends -- does NOT depend on -- docker-cli.
+#   docker-cli      /usr/bin/docker itself. Without it the daemon installs, the
+#                   compose plugin installs, and the unit dies with
+#                   "Unable to locate executable /usr/bin/docker" (203/EXEC).
+#   docker-compose  Compose v2, NOT v1. Debian ships the Go rewrite under the
+#                   plain name (2.26.1 in trixie) and has no
+#                   `docker-compose-v2` package -- that name is Ubuntu's, and
+#                   apt fails with "Unable to locate package" if you use it.
+#                   It installs /usr/libexec/docker/cli-plugins/docker-compose,
+#                   which is what makes `docker compose` work as a subcommand.
+#                   It only Recommends docker-cli too.
+#   ca-certificates also only a Recommends of docker.io, and dockerd needs a CA
+#                   bundle to verify TLS to the registry -- including through
+#                   the CONNECT tunnel from the proxy above. Nothing else on
+#                   these hosts pulls it in, since sources.list is plain http.
+#   curl            the readiness poll below and monitoring.nrpe_authentik.
+#
+# The lesson for the next Docker workload: on this fleet, assume nothing
+# arrives via Recommends.
 authentik-packages:
   pkg.installed:
     - pkgs:
       - docker.io
+      - docker-cli
       - docker-compose
+      - ca-certificates
       - curl
 
 {%- if p.get('registry_proxy', {}).get('enabled', True) %}
@@ -103,6 +121,26 @@ authentik-mount-dirs:
     - user: root
     - group: root
     - mode: '0755'
+    - require:
+      - file: {{ path }}
+
+# authentik's media store (storage.file.path), bind-mounted to /data. Owned by
+# uid 1000 because that is what the image runs as -- its config sets User
+# "1000" and it declares no VOLUME, so nothing arranges this on its own. Left
+# root-owned it looks fine for months: /data is untouched at startup, and the
+# first symptom is an upload failing when somebody sets a brand logo.
+#
+# A numeric uid rather than a name, deliberately. Whether a user with uid 1000
+# exists depends on how the VM template was built, so creating one would fail
+# where it already exists and naming one would fail where it does not.
+# file.directory compares the desired owner against both the name and the
+# numeric uid, so this is idempotent either way. Human accounts here start at
+# uid 3000 (pillar/users), so 1000 will not collide with a person.
+{{ path }}/data:
+  file.directory:
+    - user: 1000
+    - group: 1000
+    - mode: '0750'
     - require:
       - file: {{ path }}
 
@@ -162,6 +200,7 @@ authentik:
       - file: {{ path }}/docker-compose.yml
       - file: {{ path }}/.env
       - file: authentik-mount-dirs
+      - file: {{ path }}/data
 
 # `docker compose up -d` returns as soon as the containers are created, so
 # without this the highstate goes green while the stack is still migrating --
