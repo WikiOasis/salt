@@ -145,8 +145,15 @@ haproxy:
       #
       # rstatus, not status: authentik answers these with 204, and a release
       # that moved to 200 would take the IdP down on a technicality.
+      #
+      # ver/hdr are both spelled out because `http-check send` defaults to
+      # HTTP/1.0 with NO Host header, and this check should look like the
+      # traffic it is standing in for -- everything real arrives from
+      # Cloudflare with a Host. It also keeps the check honest against a Go
+      # HTTP server, which is entitled to reject an HTTP/1.1 request that has
+      # no Host at all. Same reason the mediawiki backend spells them out.
       http_checks:
-        - send meth GET uri /-/health/live/
+        - send meth GET uri /-/health/live/ ver HTTP/1.1 hdr Host id.wikioasis.org
         - expect rstatus ^2
       # authentik builds absolute URLs from the forwarded scheme — the OIDC
       # issuer and discovery document, SAML endpoints, every redirect_uri it
