@@ -48,6 +48,7 @@ monitoring_packages:
       - icingaweb2
       - icingacli
       - icinga-director
+      - icinga-sso-web
       - mariadb-server
       - mariadb-client
       - nginx
@@ -260,6 +261,27 @@ icingaweb2_enable_director:
     - runas: www-data
     - require:
       - file: /etc/icingaweb2/modules/director/config.ini
+
+# icinga-sso-web adds OIDC single sign-on (no SAML2 support). Providers are
+# configured through the Icingaweb2 UI, which writes
+# /etc/icingaweb2/modules/sso/providers.ini itself once the module is enabled.
+/etc/icingaweb2/modules/sso:
+  file.directory:
+    - user: www-data
+    - group: icingaweb2
+    - mode: '2770'
+    - makedirs: True
+    - require:
+      - file: /etc/icingaweb2
+
+icingaweb2_enable_sso:
+  cmd.run:
+    - name: icingacli module enable sso
+    - unless: icingacli module list | grep -q '^sso.*enabled'
+    - runas: www-data
+    - require:
+      - pkg: monitoring_packages
+      - file: /etc/icingaweb2/modules/sso
 
 # ── Nginx ──────────────────────────────────────────────────────────────────────
 
