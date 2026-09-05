@@ -95,13 +95,55 @@ authentik-packages:
   file.absent: []
 {%- endif %}
 
+# Docker networks are IPv4-only unless told otherwise, and this host's only
+# real internet egress is IPv6 -- see docker-http-proxy.conf.jinja's own
+# header for why there is no IPv4 path out at all. ip6tables: true is what
+# makes dockerd manage IPv6 forward/NAT rules for a network with
+# enable_ipv6 (docker-compose.yml.jinja's ipv6-egress, joined only by
+# worker) the same way it already does for IPv4 without anything written
+# here for that side. Docker docs call this out as required alongside the
+# sysctl below: https://docs.docker.com/engine/daemon/ipv6/
+/etc/docker/daemon.json:
+  file.managed:
+    - contents: |
+        {
+          "ip6tables": true
+        }
+    - user: root
+    - group: root
+    - mode: '0644'
+    - require:
+      - pkg: authentik-packages
+
+# The VM only gets a single routed IPv6 address (metal.vm_ipv6), never a
+# forwarding-enabled stack of its own -- that sysctl is set by
+# metal.ipv6_routing, but that state is only included for the 'metal*'
+# minion target in salt/top.sls, i.e. the hypervisors, not 'auth*'. Without
+# it here too, the kernel drops anything Docker's NAT66 tries to route
+# between the ipv6-egress bridge and the VM's own interface.
+/etc/sysctl.d/99-docker-ipv6.conf:
+  file.managed:
+    - contents: |
+        net.ipv6.conf.all.forwarding=1
+    - user: root
+    - group: root
+    - mode: '0644'
+
+apply_docker_ipv6_sysctl:
+  cmd.run:
+    - name: sysctl -p /etc/sysctl.d/99-docker-ipv6.conf
+    - onchanges:
+      - file: /etc/sysctl.d/99-docker-ipv6.conf
+
 docker:
   service.running:
     - enable: True
     - watch:
       - file: /etc/systemd/system/docker.service.d/http-proxy.conf
+      - file: /etc/docker/daemon.json
     - require:
       - pkg: authentik-packages
+      - file: /etc/docker/daemon.json
 
 {{ path }}:
   file.directory:

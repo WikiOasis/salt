@@ -18,7 +18,7 @@
 {%- set bind = p.get('bind_address') or (private_ips[0] if private_ips else '127.0.0.1') %}
 # Managed by Salt (salt/authentik) -- do not edit by hand.
 #
-# Derived from the upstream Compose file for {{ tag }}, with three changes:
+# Derived from the upstream Compose file for {{ tag }}, with four changes:
 #
 #   * published ports are bound to {{ bind }} only, not 0.0.0.0 (see above);
 #
@@ -40,6 +40,17 @@
 #     error. Human accounts on this fleet start at uid 3000 (pillar/users), so
 #     1000 collides with nobody. The identity data is NOT here -- that is in
 #     Postgres, which is what authentik-backup dumps.
+#
+#   * the worker also joins ipv6-egress, a second network with IPv6 turned on.
+#     Docker's networks are IPv4-only unless told otherwise, and this host has
+#     no IPv4 egress at all -- its only route out is the public IPv6 address
+#     metal.vm_ipv6 assigns it (see docker-http-proxy.conf.jinja). Without
+#     this, the worker's outbound calls (SMTP for authentik:email, any
+#     federated source/provider) have no path out; postgresql and server
+#     never originate outbound traffic, so they stay off it. NAT66 for that
+#     network -- rewriting its ULA addresses behind the host's real one -- is
+#     `ip6tables: true` in /etc/docker/daemon.json, set in salt/authentik
+#     alongside the net.ipv6.conf.all.forwarding sysctl it needs to route.
 #
 # Container logs stay on the default json-file driver with rotation. The
 # journald driver would push every request line into the journal, which
@@ -120,8 +131,21 @@ services:
     depends_on:
       postgresql:
         condition: service_healthy
+    networks:
+      - default
+      - ipv6-egress
     logging: *logging
 
 volumes:
   database:
     driver: local
+
+networks:
+  # 'default' is not declared here -- Compose still creates it automatically
+  # and this lets worker join it by name alongside the network below, same as
+  # postgresql and server do implicitly by specifying no networks: at all.
+  ipv6-egress:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd00:a17:1c::/64
