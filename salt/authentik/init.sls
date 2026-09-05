@@ -103,11 +103,18 @@ authentik-packages:
 # worker) the same way it already does for IPv4 without anything written
 # here for that side. Docker docs call this out as required alongside the
 # sysctl below: https://docs.docker.com/engine/daemon/ipv6/
+#
+# experimental: true is also required here -- trixie's docker.io (unlike
+# current upstream Docker, where ip6tables shipped stable in the 27 series)
+# still gates it behind the experimental flag. Without this, dockerd refuses
+# to start at all: "ip6tables rules are only available if experimental
+# features are enabled". Drop it once the packaged daemon no longer needs it.
 /etc/docker/daemon.json:
   file.managed:
     - contents: |
         {
-          "ip6tables": true
+          "ip6tables": true,
+          "experimental": true
         }
     - user: root
     - group: root
