@@ -2,8 +2,8 @@
 # the Trust & Safety queue. Runs on apps-us-east-021 behind the `apps` haproxy
 # backend; the vhost is salt/nginx/files/safety.conf.jinja.
 #
-# Secrets (db_password, app_key, oauth_client_secret, s2s_secret, the R2 keys
-# and the Slack webhooks) live in pillar/private/init.sls — see
+# Secrets (db_password, app_key, authentik_client_secret, s2s_secret, the R2
+# keys and the Slack webhooks) live in pillar/private/init.sls — see
 # pillar/private/init.sls.example for the shape.
 #
 # PHP is deliberately not configured here: TSPortal shares the apps* php-fpm
@@ -21,15 +21,22 @@ tsportal:
     user: tsportal_new
     host: db-other-us-east-011.ovvin.wonet
 
+  # Staff sign-in is Authentik OIDC (salt/authentik, id.wikioasis.org); the
+  # client id and secret are in pillar/private. Group `safety` is what grants
+  # the ts and admin flags, so the provider has to emit a groups claim.
+  authentik:
+    base_url: https://id.wikioasis.org
+    redirect_uri: https://safety.wikioasis.org/auth/oidc/callback
+    scopes: openid profile email
+    # Authentik preferred_username, not a wiki account. Non-empty means that
+    # account gets every flag on each login.
+    bootstrap_admins: "Zippy"
+
   mediawiki:
     central_url: https://meta.wikioasis.org
     api_url: https://meta.wikioasis.org/w/api.php
     rest_url: https://meta.wikioasis.org/w/rest.php
     user_agent: "TSPortal/1.0 (https://safety.wikioasis.org; trustandsafety@wikioasis.org)"
-    oauth:
-      scopes: basic
-      redirect_uri: https://safety.wikioasis.org/auth/mediawiki/callback
-    bootstrap_admins: "Zippy"
     supported_actions: lock,unlock,warn,note,block,unblock,delete-wiki,undelete-wiki,rename,renamestatus,removepii
     centralauth_lock: true
     push_enabled: true
