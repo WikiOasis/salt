@@ -1,6 +1,6 @@
 {%- set p = salt['pillar.get']('authentik', {}) %}
 {%- set image = p.get('image', 'ghcr.io/goauthentik/server') %}
-{%- set tag = p.get('version', '2026.8.1') %}
+{%- set tag = p.get('version', '2026.8.2') %}
 {%- set pg_image = p.get('postgres_image', 'docker.io/library/postgres:16-alpine') %}
 {%- set http_port = p.get('http_port', 9000) %}
 {%- set https_port = p.get('https_port', 9443) %}

@@ -8,5 +8,5 @@
 {%- set bind = p.get('bind_address') or (private_ips[0] if private_ips else '127.0.0.1') %}
 command[check_authentik]=/usr/lib/nagios/plugins/check_authentik.sh {{ bind }} {{ p.get('http_port', 9000) }}
 command[check_authentik_unit]=/usr/lib/nagios/plugins/check_systemd_service.sh authentik
-command[check_authentik_backup]=/usr/lib/nagios/plugins/check_authentik_backup.sh dump {{ backup_path }}
-command[check_authentik_backup_upload]=/usr/lib/nagios/plugins/check_authentik_backup.sh upload {{ backup_path }}
+command[check_authentik_backup]=/usr/bin/sudo /usr/lib/nagios/plugins/check_authentik_backup.sh dump {{ backup_path }}
+command[check_authentik_backup_upload]=/usr/bin/sudo /usr/lib/nagios/plugins/check_authentik_backup.sh upload {{ backup_path }}
