@@ -49,8 +49,31 @@ if [ ! -f "$MARKER" ]; then
     exit 2
 fi
 
-MTIME=$(cat "$MARKER")
+# Read the marker defensively. It is written with a plain `date +%s > file`, so
+# a full disk or an interrupted write can leave it empty or half-written, and an
+# unreadable file is possible too. Arithmetic on a value that is not a plain
+# decimal integer fails, which leaves AGE_H empty, makes both threshold tests
+# below error out, and falls through to the OK branch -- a corrupt marker would
+# report success, which is the exact lie this check exists to catch. A leading
+# zero is rejected with the rest: `date +%s` never emits one, and it would be
+# read as octal and fail the same way.
+MTIME=$(cat "$MARKER" 2>/dev/null)
+case "$MTIME" in
+    ''|*[!0-9]*|0*)
+        echo "CRITICAL: authentik backup ${LABEL} marker ${MARKER} is unreadable or malformed"
+        exit 2
+        ;;
+esac
+
 AGE_H=$(( (NOW - MTIME) / 3600 ))
+
+# A marker dated in the future is either clock skew or a bad write; the age is
+# meaningless either way, and a negative one sits below both thresholds and so
+# would read as a backup that just ran.
+if [ "$AGE_H" -lt 0 ]; then
+    echo "CRITICAL: authentik backup ${LABEL} marker ${MARKER} is dated in the future (${MTIME}); check the clock"
+    exit 2
+fi
 
 if [ "$AGE_H" -ge 28 ]; then
     echo "CRITICAL: last authentik backup ${LABEL} was ${AGE_H}h ago (>28h) | age_hours=${AGE_H}"
