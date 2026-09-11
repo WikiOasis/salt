@@ -40,7 +40,7 @@ object User "webhook-notify" {
 {%- set is_mw          = hostname.startswith('mw') or hostname.startswith('staging') %}
 {%- set is_auth        = hostname.startswith('auth') %}
 {%- set has_nginx      = host_data.get('nginx', is_monitoring or is_mw) %}
-{%- set nrpe_svcs      = ['load', 'disk_root', 'procs', 'swap', 'mem', 'apt', 'salt_minion']
+{%- set nrpe_svcs      = ['load', 'disk_root', 'procs', 'mem', 'apt', 'salt_minion']
                          + (['disk_srv'] if is_db else [])
                          + (['smart', 'raid'] if is_metal else [])
                          + (['php_fpm', 'php_errors', 'mediawiki'] if is_mw else [])
@@ -161,22 +161,20 @@ object Service "procs" {
   retry_interval    = 1m
 }
 
-object Service "swap" {
-  import            "generic-salt-service"
-  host_name         = "{{ hostname }}"
-  check_command     = "nrpe"
-  vars.nrpe_command = "check_swap"
-  check_interval    = 5m
-  retry_interval    = 1m
-}
-
+{#- Alerts on absolute MemAvailable (see monitoring/files/nrpe/mem.cfg), so a
+    host that sits just under the warning threshold is normal rather than a
+    fault. max_check_attempts/retry_interval are overridden here -- and only
+    here -- so a single scrape landing during a page-cache spike has to repeat
+    for three minutes before it notifies. The generic-salt-service template is
+    deliberately left alone: it also covers the checks that page incident.io. #}
 object Service "mem" {
-  import            "generic-salt-service"
-  host_name         = "{{ hostname }}"
-  check_command     = "nrpe"
-  vars.nrpe_command = "check_mem"
-  check_interval    = 1m
-  retry_interval    = 10s
+  import              "generic-salt-service"
+  host_name           = "{{ hostname }}"
+  check_command       = "nrpe"
+  vars.nrpe_command   = "check_mem"
+  max_check_attempts  = 3
+  check_interval      = 1m
+  retry_interval      = 1m
 }
 
 object Service "apt" {

@@ -32,8 +32,5 @@ command[check_procs]=/usr/lib/nagios/plugins/check_procs -w 700 -c 1000
 # users logged in
 command[check_users]=/usr/lib/nagios/plugins/check_users -w 5 -c 10
 
-# swap: warn below 40% free, crit below 20% free
-command[check_swap]=/usr/lib/nagios/plugins/check_swap -w 40% -c 20%
-
 # Role-specific checks (mem, nginx, haproxy, etc.) are loaded from drop-ins
 include_dir=/etc/nagios/nrpe.d
