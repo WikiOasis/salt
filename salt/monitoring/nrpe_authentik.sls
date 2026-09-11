@@ -30,18 +30,32 @@
 # succeeded" whether or not a dump ran, and the upload check could not see a
 # configured bucket and short-circuited to a false OK. Granting sudo on this one
 # script keeps the dumps and the credentials root-only, which is the point of
-# their modes. nrpe.d/authentik.cfg fixes the arguments (dont_blame_nrpe=0), so
-# the grant cannot be used to run the script against attacker-chosen paths.
+# their modes.
 #
-# Nothing else in the tree installs sudo -- users/init.sls only drops files into
-# /etc/sudoers.d -- and visudo below comes from the same package, so pin it here
-# rather than let the grant be silently inert.
+# The grant pins both arguments. The script takes its state directory from $2
+# and then reads "$STATE_DIR/last_backup" as root, so a rule with no argument
+# spec -- which in sudoers permits ANY arguments -- would let anything running
+# as nagios have root stat and read a file of that name anywhere on the box.
+# Two commands on one rule, comma-separated, and nothing else.
+#
+# Those two strings have to match nrpe.d/authentik.cfg character for character
+# or sudo refuses and the checks break, so backup_path is derived here exactly
+# as monitoring/files/nrpe/authentik.cfg.jinja derives it. Change one, change
+# the other.
+#
+# Nothing else in the tree installs sudo (users/init.sls only adds people to the
+# sudo group and writes files into /etc/sudoers.d), and visudo below ships with
+# it, so pin the package here rather than let the grant be silently inert.
+{%- set p = salt['pillar.get']('authentik', {}) %}
+{%- set backup = p.get('backup', {}) %}
+{%- set backup_path = backup.get('path', p.get('path', '/srv/authentik') ~ '/backups') %}
 sudo:
   pkg.installed
 
 /etc/sudoers.d/nagios-authentik-backup:
   file.managed:
-    - contents: "nagios ALL=(root) NOPASSWD: /usr/lib/nagios/plugins/check_authentik_backup.sh\n"
+    - contents: |
+        nagios ALL=(root) NOPASSWD: /usr/lib/nagios/plugins/check_authentik_backup.sh dump {{ backup_path }}, /usr/lib/nagios/plugins/check_authentik_backup.sh upload {{ backup_path }}
     - mode: '0440'
     - user: root
     - group: root
