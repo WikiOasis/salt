@@ -22,6 +22,34 @@
 # The two backup checks are what stop "we have backups" quietly becoming "we
 # had backups" — the cron's only output is a file nobody reads.
 
+# The two backup checks read root-only paths: the dump marker under
+# /srv/authentik/backups (0700 root:root, inside /srv/authentik at 0750
+# root:root) and /etc/authentik-backup/s3.env, which holds S3 credentials.
+# NRPE runs plugins as the unprivileged nagios user, which is in no group that
+# can traverse either, so before this grant the dump check reported "has never
+# succeeded" whether or not a dump ran, and the upload check could not see a
+# configured bucket and short-circuited to a false OK. Granting sudo on this one
+# script keeps the dumps and the credentials root-only, which is the point of
+# their modes. nrpe.d/authentik.cfg fixes the arguments (dont_blame_nrpe=0), so
+# the grant cannot be used to run the script against attacker-chosen paths.
+#
+# Nothing else in the tree installs sudo -- users/init.sls only drops files into
+# /etc/sudoers.d -- and visudo below comes from the same package, so pin it here
+# rather than let the grant be silently inert.
+sudo:
+  pkg.installed
+
+/etc/sudoers.d/nagios-authentik-backup:
+  file.managed:
+    - contents: "nagios ALL=(root) NOPASSWD: /usr/lib/nagios/plugins/check_authentik_backup.sh\n"
+    - mode: '0440'
+    - user: root
+    - group: root
+    # A syntactically broken sudoers file locks everyone out of sudo on the box.
+    - check_cmd: /usr/sbin/visudo -c -f
+    - require:
+      - pkg: sudo
+
 /usr/lib/nagios/plugins/check_authentik.sh:
   file.managed:
     - source: salt://monitoring/files/nrpe/check_authentik.sh
@@ -45,5 +73,6 @@
       - file: /usr/lib/nagios/plugins/check_authentik.sh
       - file: /usr/lib/nagios/plugins/check_authentik_backup.sh
       - file: /usr/lib/nagios/plugins/check_systemd_service.sh
+      - file: /etc/sudoers.d/nagios-authentik-backup
     - watch_in:
       - service: nagios-nrpe-server

@@ -5,6 +5,10 @@
 # The cron writes its output to a file nobody reads, so without this a dump that
 # started failing in March is discovered during the restore.
 #
+# Requires: sudoers entry for nagios to run this script as root -- both the
+# dump marker under /srv/authentik/backups and /etc/authentik-backup/s3.env
+# are root-only, and NRPE runs plugins as the unprivileged nagios user.
+#
 # Usage: check_authentik_backup.sh [dump|upload] [state_dir]
 MODE="${1:-dump}"
 STATE_DIR="${2:-/srv/authentik/backups}"
