@@ -10,6 +10,7 @@ base:
     - monitoring.node_exporter
     - monitoring.otelcol
     - mwdeploy.shim
+    - sysctl.swappiness
   'apps*':
     - php
     - nginx
