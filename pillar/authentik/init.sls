@@ -1,7 +1,7 @@
 authentik:
   path: /srv/authentik
   domain: id.wikioasis.org
-  version: 2026.8.1
+  version: 2026.8.2
   image: ghcr.io/goauthentik/server
   postgres_image: docker.io/library/postgres:16-alpine
   db:
