@@ -15,14 +15,22 @@ WARNING=${1:-512}
 CRITICAL=${2:-256}
 MEMINFO=${MEMINFO:-/proc/meminfo}
 
-read -r total available <<< "$(awk '
+read -r total available have_available <<< "$(awk '
     /^MemTotal:/     { total = $2 }
-    /^MemAvailable:/ { avail = $2 }
-    END { print total+0, avail+0 }
+    /^MemAvailable:/ { avail = $2; have_avail = 1 }
+    END { print total+0, avail+0, have_avail+0 }
 ' "$MEMINFO" 2>/dev/null)"
 
 if [ -z "$total" ] || [ "$total" -eq 0 ]; then
     echo "UNKNOWN: Cannot read ${MEMINFO}"
+    exit 3
+fi
+
+# An absent MemAvailable field (kernels before 3.14) extracts as 0, which is
+# indistinguishable from a host genuinely out of memory; report UNKNOWN rather
+# than a permanent false CRITICAL.
+if [ "$have_available" != "1" ]; then
+    echo "UNKNOWN: ${MEMINFO} has no MemAvailable field"
     exit 3
 fi
 
@@ -32,7 +40,7 @@ avail_mb=$(( available / 1024 ))
 used_mb=$(( used / 1024 ))
 total_mb=$(( total / 1024 ))
 
-perf="mem_available=${avail_mb}MB;${WARNING};${CRITICAL};0;${total_mb}"
+perf="mem_available=${avail_mb}MB;${WARNING}:;${CRITICAL}:;0;${total_mb}"
 perf="${perf} mem_used_pct=${pct}%;;;0;100"
 detail="${avail_mb}MB available, ${pct}% used (${used_mb}MB/${total_mb}MB)"
 
