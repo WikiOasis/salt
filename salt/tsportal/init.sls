@@ -58,8 +58,8 @@ tsportal-secrets:
       - tsportal:app_key
       - tsportal:db_password
       - tsportal:s2s_secret
-      - tsportal:oauth_client_id
-      - tsportal:oauth_client_secret
+      - tsportal:authentik_client_id
+      - tsportal:authentik_client_secret
 
 {{ path }}/.env:
   file.managed:
@@ -68,8 +68,8 @@ tsportal-secrets:
     - user: www-data
     - group: www-data
     - mode: '0640'
-    # Holds MW_S2S_SECRET, the OAuth secret and the R2 keys — anyone with the
-    # first can file reports and read any account's standing.
+    # Holds MW_S2S_SECRET, the Authentik client secret and the R2 keys — anyone
+    # with the first can file reports and read any account's standing.
     - show_changes: False
     - require:
       - git: tsportal-clone
@@ -172,7 +172,7 @@ tsportal-migrate:
 # DatabaseSeeder creates a "Test User" account rather than roles and
 # permissions — running it on every highstate would keep planting a staff
 # account in the Trust & Safety portal. Access is granted through
-# MW_BOOTSTRAP_ADMINS once, then from inside the portal.
+# AUTHENTIK_BOOTSTRAP_ADMINS once, then from inside the portal.
 
 tsportal-optimise:
   cmd.run:

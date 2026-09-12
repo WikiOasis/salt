@@ -76,11 +76,11 @@ tsportal:
   # Shared secret between the wiki and the portal. Anyone holding it can file
   # reports and read any account's standing, so treat it like a password.
   s2s_secret: CHANGE_ME
-  # OAuth consumer registered on meta.wikioasis.org for the redirect_uri in
-  # pillar/tsportal. The id is not secret; it lives here to stay next to its
-  # secret.
-  oauth_client_id: CHANGE_ME
-  oauth_client_secret: CHANGE_ME
+  # OIDC provider registered in Authentik (id.wikioasis.org) for the
+  # redirect_uri in pillar/tsportal. The id is not secret; it lives here to
+  # stay next to its secret.
+  authentik_client_id: CHANGE_ME
+  authentik_client_secret: CHANGE_ME
   # Cloudflare R2 token scoped to the wikioasis-media bucket. Only needed when
   # pillar/tsportal attachments:enabled is true; without it uploads fail but
   # the rest of the portal works.
