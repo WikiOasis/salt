@@ -48,3 +48,15 @@ scrape_configs:
     file_sd_configs:
       - files: ['/etc/prometheus/file_sd/cloudflare.json']
         refresh_interval: 5m
+
+  # authentik publishes its metrics port on the vrack address; targets come from
+  # monitoring/files/prometheus/file_sd/authentik.json.jinja. Only the server
+  # container's port is published, so this is the server's view: the Rust
+  # router's own request histogram plus everything the embedded Python exposes
+  # (flows, policies, django-prometheus, and the DB-derived worker/task gauges).
+  # The worker container has a metrics listener of its own on the same port but
+  # it is not published, so the per-actor dramatiq counters are not collected.
+  - job_name: 'authentik'
+    file_sd_configs:
+      - files: ['/etc/prometheus/file_sd/authentik.json']
+        refresh_interval: 5m

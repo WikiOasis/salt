@@ -1,0 +1,21 @@
+# Managed by Salt — do not edit manually.
+#
+# Dashboards are provisioned from disk rather than created in the UI, so they
+# survive a rebuild of the monitoring host. allowUiUpdates is false: edits made
+# in Grafana are not written back to these files and would be silently reverted
+# on the next highstate, so Grafana marks them read-only instead. Use "Save as"
+# to keep an ad-hoc copy, or change the JSON in
+# salt/monitoring/files/grafana/dashboards/.
+apiVersion: 1
+
+providers:
+  - name: 'salt'
+    orgId: 1
+    folder: 'Infrastructure'
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
