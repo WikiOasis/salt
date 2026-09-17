@@ -55,19 +55,6 @@ grafana_pkg:
     - watch_in:
       - service: grafana-server
 
-/etc/grafana/provisioning/dashboards/salt.yml:
-  file.managed:
-    - source: salt://monitoring/files/grafana/dashboards.yml.jinja
-    - template: jinja
-    - user: root
-    - group: grafana
-    - mode: '0640'
-    - makedirs: True
-    - require:
-      - pkg: grafana_pkg
-    - watch_in:
-      - service: grafana-server
-
 # The provider above polls this directory every 60s, so a changed dashboard is
 # picked up without restarting Grafana. It is owned by grafana rather than root
 # because the provisioner reads it as the grafana user.
