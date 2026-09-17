@@ -13,3 +13,4 @@ mariadb:
     log_file_size: 2G
     flush_log_at_trx_commit: 1
     file_per_table: true
+    snapshot_isolation: false
