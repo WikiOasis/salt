@@ -35,6 +35,10 @@ server {
     return 302 https://{{ fallback }}/;
   }
 
+  location ~ "^/[^/]+$" {
+    return 404;
+  }
+
   # /<dbname>/versions/<ver>/... -> the real static asset tree ($wgResourceBasePath,
   # $wgStylePath, $wgExtensionAssetsPath). Must precede the .php routing so that
   # skin CSS and Codex SVG icons are served same-origin.
