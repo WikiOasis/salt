@@ -37,7 +37,7 @@ tsportal:
     api_url: https://meta.wikioasis.org/w/api.php
     rest_url: https://meta.wikioasis.org/w/rest.php
     user_agent: "TSPortal/1.0 (https://safety.wikioasis.org; trustandsafety@wikioasis.org)"
-    supported_actions: lock,unlock,warn,note,block,unblock,delete-wiki,undelete-wiki,rename,renamestatus,removepii
+    supported_actions: lock,unlock,warn,note,block,unblock,delete-wiki,undelete-wiki,rename,renamestatus,removepii,delete-page,undelete-page
     centralauth_lock: true
     push_enabled: true
     pii:
