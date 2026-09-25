@@ -99,6 +99,8 @@ tsportal:
     actions: ""
     admin: ""
     data: ""
+  # OpenRouter API key for LLM requests.
+  openrouter_api_key: CHANGE_ME
 
 authentik:
   secret_key: CHANGE_ME
