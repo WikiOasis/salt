@@ -112,6 +112,7 @@ innodb_log_file_size    = {{ innodb.get('log_file_size', '2G') }}
 innodb_flush_log_at_trx_commit = {{ innodb.get('flush_log_at_trx_commit', 1) }}
 innodb_file_per_table   = {{ '1' if innodb.get('file_per_table', true) else '0' }}
 innodb_open_files       = {{ innodb.get('open_files', 1000) }}
+innodb_snapshot_isolation = {{ 'ON' if innodb.get('snapshot_isolation', false) else 'OFF' }}
 
 # this is only for embedded server
 [embedded]
