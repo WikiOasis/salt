@@ -60,7 +60,7 @@ nginx:
     bluearchivewiki:
       server_name: 'wiki2.bluearchivewiki.top'
       listen: 80
-      location:'mMWRYAoGTVEq2Ayf_BI8fg'
+      location: 'mMWRYAoGTVEq2Ayf_BI8fg'
       return: 'mMWRYAoGTVEq2Ayf_BI8fg.9wZgSG5Lqox64D1iQ9pNXBbN0eyAyprgyyikjpUddx4'
       database_name: 'bluearchivewiki'
     b1ackwiki:
