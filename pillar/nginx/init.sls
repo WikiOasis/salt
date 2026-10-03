@@ -57,6 +57,12 @@ nginx:
       location: 'Bh0ZAAyEgSf3RU_WOkJROAxRgeiiJb2mDQ95aMLpSLI'
       return: 'Bh0ZAAyEgSf3RU_WOkJROAxRgeiiJb2mDQ95aMLpSLI.3jpn2Xqo6p5__tIrATrzlRSQyozvu9qIdOC4Js-jV9U'
       database_name: 'antecedentswiki'
+    bluearchivewiki:
+      server_name: 'wiki2.bluearchivewiki.top'
+      listen: 80
+      location:'mMWRYAoGTVEq2Ayf_BI8fg'
+      return: 'mMWRYAoGTVEq2Ayf_BI8fg.9wZgSG5Lqox64D1iQ9pNXBbN0eyAyprgyyikjpUddx4'
+      database_name: 'bluearchivewiki'
     b1ackwiki:
       server_name: 'wiki.b1ack.net'
       listen: 80
@@ -93,6 +99,12 @@ nginx:
       location: '0mxcwTJibfwKVSeAYeUb2O5T1WSgC5DnrHdjqOYM98d6LIpjlSj0NIsLkE7qL_Qi'
       return: '0mxcwTJibfwKVSeAYeUb2O5T1WSgC5DnrHdjqOYM98d6LIpjlSj0NIsLkE7qL_Qi.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'drawingwiki'
+    dsswiki:
+      server_name: 'wiki.deltasorna.pl'
+      listen: 80
+      location: 'PqVm77y_q8v94ws78WVmwDzB62VEkoMctJQhHC9WJAuN2CEG6nOkkg12W94vC-5B'
+      return: 'PqVm77y_q8v94ws78WVmwDzB62VEkoMctJQhHC9WJAuN2CEG6nOkkg12W94vC-5B.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
+      database_name: 'dsswiki'
     freshwebsiteswiki:
       server_name: 'freshwebsites.skywiki.org'
       listen: 80
