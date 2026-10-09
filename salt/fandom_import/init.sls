@@ -2,7 +2,6 @@
 {%- set spool = p.get('spool_dir', '/srv/fandom-import') %}
 {%- set venv = p.get('venv', '/opt/fandom-import/venv') %}
 {%- set version = p.get('wikiteam3_version', '4.4.10') %}
-{%- set proxy = p.get('proxy', 'http://10.0.1.1:3129') %}
 {%- set worker = '/opt/fandom-import/fandom_import_worker.py' %}
 {%- set config = '/etc/fandom-import/config.json' %}
 
@@ -30,7 +29,7 @@ fandom_import_venv:
 
 fandom_import_wikiteam3:
   cmd.run:
-    - name: {{ venv }}/bin/pip install --proxy {{ proxy }} wikiteam3=={{ version }}
+    - name: {{ venv }}/bin/pip install wikiteam3=={{ version }}
     - unless: "{{ venv }}/bin/pip show wikiteam3 2>/dev/null | grep -q '^Version: {{ version }}$'"
     - require:
       - cmd: fandom_import_venv

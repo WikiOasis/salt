@@ -5,7 +5,6 @@
   "central_wiki": {{ p.get('central_wiki', 'metawiki') | tojson }},
   "php": {{ p.get('php', '/usr/bin/php') | tojson }},
   "mwscript": {{ p.get('mwscript', '/srv/mediawiki/scripts/mwscript.php') | tojson }},
-  "proxy": {{ p.get('proxy', 'http://10.0.1.1:3129') | tojson }},
   "user_agent": {{ p.get('user_agent', 'WikiOasisFandomImport/1.0 (+https://meta.wikioasis.org/wiki/Special:FandomImport)') | tojson }},
   "image_delay": {{ p.get('image_delay', 1.0) | float }},
   "retries": {{ p.get('retries', 5) | int }},

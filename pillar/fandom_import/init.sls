@@ -5,7 +5,6 @@ fandom_import:
   central_wiki: metawiki
   php: /usr/bin/php
   mwscript: /srv/mediawiki/scripts/mwscript.php
-  proxy: http://10.0.1.1:3129
   user_agent: "WikiOasisFandomImport/1.0 (+https://meta.wikioasis.org/wiki/Special:FandomImport)"
   image_delay: 1.0
   retries: 5

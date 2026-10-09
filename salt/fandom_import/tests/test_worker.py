@@ -520,7 +520,7 @@ class SpoolTestCase(unittest.TestCase):
         spool.mkdir()
         self.now = NOW
         self.cfg = W.Config(spool_dir=spool, central_wiki="metawiki", php=sys.executable,
-                            mwscript=str(self.fake / "mwscript.py"), proxy="http://127.0.0.1:9",
+                            mwscript=str(self.fake / "mwscript.py"),
                             user_agent="test")
         self.worker = W.Worker(self.cfg, clock=lambda: self.now)
         self.worker.ensure_dirs()

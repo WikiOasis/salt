@@ -37,9 +37,6 @@ XML exists, the XML as soon as it is imported, and each image directory as
 soon as importImages is done with it. Failed imports keep their files for
 `failed_retention_days` so a retry can resume, then they are deleted too.
 
-All HTTP goes through the squid proxy on the metal host: this VM has IPv6-only
-egress and neither Fandom nor S3 publish AAAA records.
-
 Notes on the constants below:
 
   * STAGES are shown verbatim by the MediaWiki UI.
@@ -762,7 +759,6 @@ class Config:
     central_wiki: str
     php: str
     mwscript: str
-    proxy: str
     user_agent: str
     image_delay: float = 1.0
     retries: int = 5
@@ -782,7 +778,7 @@ class Config:
         data = read_json_file(path, MAX_MANIFEST_BYTES)
         if not isinstance(data, dict):
             raise ValueError(f"{path}: not a JSON object")
-        for key in ("spool_dir", "central_wiki", "php", "mwscript", "proxy", "user_agent"):
+        for key in ("spool_dir", "central_wiki", "php", "mwscript", "user_agent"):
             if not isinstance(data.get(key), str) or not data[key]:
                 raise ValueError(f"{path}: {key} is required")
         spool = Path(data["spool_dir"])
@@ -790,13 +786,12 @@ class Config:
             raise ValueError(f"{path}: spool_dir must be absolute")
         if not DBNAME_RE.fullmatch(data["central_wiki"]):
             raise ValueError(f"{path}: central_wiki is invalid")
-        defaults = cls(spool, "x", "x", "x", "x", "x")
+        defaults = cls(spool, "x", "x", "x", "x")
         return cls(
             spool_dir=spool,
             central_wiki=data["central_wiki"],
             php=data["php"],
             mwscript=data["mwscript"],
-            proxy=data["proxy"],
             user_agent=data["user_agent"],
             image_delay=float(data.get("image_delay", defaults.image_delay)),
             retries=int(data.get("retries", defaults.retries)),
@@ -1035,13 +1030,12 @@ def _http_date_to_iso(value: Optional[str]) -> Optional[str]:
 
 
 class Http:
-    def __init__(self, proxy: str, user_agent: str, retries: int,
+    def __init__(self, user_agent: str, retries: int,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self.user_agent = user_agent
         self.retries = max(0, retries)
         self.sleep = sleep
-        self.opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({"http": proxy, "https": proxy}), _NoRedirect())
+        self.opener = urllib.request.build_opener(_NoRedirect())
 
     def _backoff(self, attempt: int, retry_after: Optional[str]) -> float:
         if retry_after and retry_after.strip().isdigit():
@@ -1156,7 +1150,7 @@ class Worker:
     @property
     def http(self) -> Http:
         if self._http is None:
-            self._http = Http(self.cfg.proxy, self.cfg.user_agent, self.cfg.retries)
+            self._http = Http(self.cfg.user_agent, self.cfg.retries)
         return self._http
 
     def log_for(self, import_id: int) -> ImportLog:
@@ -1194,10 +1188,9 @@ class Worker:
         for d in (self.cfg.queue_dir, self.cfg.work_dir, self.cfg.logs_dir, self.cfg.tmp_dir):
             d.mkdir(mode=0o750, exist_ok=True)
 
-    def child_env(self, tmpdir: Path, *, network: bool = False) -> dict[str, str]:
-        """A clean environment: nothing from cron's leaks in, temp files stay
-        in the spool, and only network tools get the proxy (PHP must not send
-        MediaWiki's own internal traffic through squid)."""
+    def child_env(self, tmpdir: Path) -> dict[str, str]:
+        """A clean environment: nothing from cron's leaks in, and temp files
+        stay in the spool."""
         env = {
             "PATH": CHILD_PATH,
             "LANG": "C.UTF-8",
@@ -1206,10 +1199,6 @@ class Worker:
             "HOME": str(tmpdir),
             "PYTHONUNBUFFERED": "1",
         }
-        if network:
-            for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
-                env[key] = self.cfg.proxy
-            env["no_proxy"] = env["NO_PROXY"] = "localhost,127.0.0.1,::1"
         return env
 
     def new_state(self, import_id: int, manifest: Optional[Manifest] = None) -> dict[str, Any]:
@@ -1916,7 +1905,7 @@ class ImportRunner:
         return Deferral(DISK_RETRY, "Paused: low disk space",
                         {"disk_free_bytes": free, "disk_min_free_bytes": self.cfg.min_free_bytes})
 
-    def run_tool(self, cmd: Sequence[str], *, label: str, network: bool = False,
+    def run_tool(self, cmd: Sequence[str], *, label: str,
                  line_handler: Optional[Callable[[str], None]] = None,
                  poll: Optional[Callable[[], Optional[str]]] = None,
                  output_file: Optional[Path] = None,
@@ -1942,7 +1931,7 @@ class ImportRunner:
             return poll() if poll else None
 
         try:
-            result = run_streaming(cmd, env=self.w.child_env(self.tmp, network=network), cwd=self.dir,
+            result = run_streaming(cmd, env=self.w.child_env(self.tmp), cwd=self.dir,
                                    on_line=on_line, on_poll=on_poll, pass_fds=self.w.child_fds,
                                    stderr_path=stderr_path)
         finally:
@@ -2472,7 +2461,7 @@ class ImportRunner:
                 return "low disk space"
             return None
 
-        result = self.run_tool(cmd, label="wikiteam3", network=True, poll=poll,
+        result = self.run_tool(cmd, label="wikiteam3", poll=poll,
                                output_file=self.dir / "wikiteam3.log")
         st["summary"]["images_fetched"] = sum(count_files(crawl / d) for d in IMAGE_DIRS)
         self.w.save_state(st)
