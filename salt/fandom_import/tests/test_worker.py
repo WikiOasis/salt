@@ -11,6 +11,7 @@ stage-retry paths run for real against a temporary spool.
 
 from __future__ import annotations
 
+import dataclasses
 import gzip
 import importlib.util
 import io
@@ -384,6 +385,116 @@ class ImportImagesParserTest(unittest.TestCase):
         self.assertFalse(parser.no_files)
 
 
+def entry(name, size, timestamp):
+    return W.ImageEntry(name=name, size=size, timestamp=timestamp)
+
+
+class ImagesTxtTest(unittest.TestCase):
+    def parse(self, text):
+        return W.parse_images_txt(io.StringIO(text))
+
+    def row(self, *fields):
+        return "\t".join(fields) + "\n"
+
+    def test_complete_list_with_nulls(self):
+        text = (self.row("Kermit.png", "https://x/a", "Uploader", "1234", "abc", "2020-01-02T03:04:05Z")
+                + self.row("Ghost.png", "https://x/b", "null", "null", "null", "null")
+                + "--END--\n")
+        listing = self.parse(text)
+        self.assertTrue(listing.complete)
+        self.assertTrue(listing.usable)
+        self.assertEqual(listing.malformed, [])
+        self.assertEqual(listing.entries, [entry("Kermit.png", 1234, "2020-01-02T03:04:05Z"),
+                                           entry("Ghost.png", 0, None)])
+        self.assertEqual(listing.total_bytes, 1234)
+
+    def test_missing_end_marker(self):
+        listing = self.parse(self.row("A.png", "u", "x", "1", "s", "2020-01-02T03:04:05Z"))
+        self.assertFalse(listing.complete)
+        self.assertFalse(listing.usable)
+        self.assertEqual(len(listing.entries), 1)
+        self.assertFalse(self.parse("").complete)
+
+    def test_end_marker_must_be_last(self):
+        text = "--END--\n" + self.row("A.png", "u", "x", "1", "s", "2020-01-02T03:04:05Z")
+        self.assertFalse(self.parse(text).complete)
+
+    def test_reading_stops_at_a_blank_line_like_wikiteam3(self):
+        text = self.row("A.png", "u", "x", "1", "s", "null") + "\n" + "--END--\n"
+        listing = self.parse(text)
+        self.assertFalse(listing.complete)
+
+    def test_malformed_lines_are_reported_and_left_out(self):
+        text = (self.row("Good.png", "u", "x", "10", "s", "2020-01-02T03:04:05Z")
+                + self.row("Short.png", "u", "x", "10", "s")
+                + self.row("BadSize.png", "u", "x", "ten", "s", "2020-01-02T03:04:05Z")
+                + self.row("BadTime.png", "u", "x", "10", "s", "2020-01-02 03:04:05")
+                + "no tabs at all\n"
+                + self.row("", "u", "x", "10", "s", "null")
+                + "--END--\n")
+        listing = self.parse(text)
+        self.assertTrue(listing.complete)
+        self.assertEqual(listing.malformed, [2, 3, 4, 5, 6])
+        self.assertFalse(listing.usable)
+        self.assertEqual([e.name for e in listing.entries], ["Good.png"])
+
+
+class WindowPlanTest(unittest.TestCase):
+    def plan(self, entries, max_bytes=1000, max_files=1000):
+        return W.plan_image_windows(entries, max_bytes, max_files)
+
+    def test_byte_limit(self):
+        entries = [entry(f"f{i}.png", 400, f"2020-01-01T00:00:0{i}Z") for i in range(5)]
+        windows = self.plan(entries, max_bytes=1000)
+        self.assertEqual([w["files"] for w in windows], [2, 2, 1])
+        self.assertEqual([w["bytes"] for w in windows], [800, 800, 400])
+        self.assertTrue(all(w["done"] is False for w in windows))
+
+    def test_file_limit(self):
+        entries = [entry(f"f{i}.png", 1, f"2020-01-01T00:00:0{i}Z") for i in range(7)]
+        windows = self.plan(entries, max_files=3)
+        self.assertEqual([w["files"] for w in windows], [3, 3, 1])
+
+    def test_open_first_and_last_bounds_and_inner_bounds(self):
+        entries = [entry("a", 600, "2020-01-01T00:00:00Z"), entry("b", 600, "2021-01-01T00:00:00Z"),
+                   entry("c", 300, "2022-01-01T00:00:00Z"), entry("d", 300, "2023-01-01T00:00:00Z")]
+        windows = self.plan(entries)
+        self.assertEqual([(w["start"], w["end"]) for w in windows], [
+            ("1970-01-01T00:00:00Z", "2020-01-01T00:00:00Z"),
+            ("2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"),
+            ("2023-01-01T00:00:00Z", "9999-12-31T23:59:59Z"),
+        ])
+        self.assertEqual(W.window_interval(windows[0]), "1970-01-01T00:00:00Z/2020-01-01T00:00:00Z")
+
+    def test_single_window_covers_everything(self):
+        windows = self.plan([entry("a", 1, "2020-01-01T00:00:00Z"), entry("b", 1, "2020-06-01T00:00:00Z")])
+        self.assertEqual([(w["start"], w["end"]) for w in windows],
+                         [("1970-01-01T00:00:00Z", "9999-12-31T23:59:59Z")])
+
+    def test_same_second_group_is_never_split(self):
+        same = "2020-01-01T00:00:05Z"
+        entries = ([entry("a", 100, "2020-01-01T00:00:01Z")]
+                   + [entry(f"s{i}", 100, same) for i in range(5)]
+                   + [entry("z", 100, "2020-01-01T00:00:09Z")])
+        windows = self.plan(entries, max_bytes=250, max_files=3)
+        self.assertEqual([w["files"] for w in windows], [1, 5, 1])
+        self.assertEqual((windows[1]["start"], windows[1]["end"]), (same, same))
+        self.assertEqual(windows[1]["bytes"], 500)
+
+    def test_unsorted_input_and_null_timestamps(self):
+        entries = [entry("late", 10, "2024-01-01T00:00:00Z"), entry("ghost", 99999, None),
+                   entry("early", 10, "2019-01-01T00:00:00Z")]
+        windows = self.plan(entries, max_bytes=10)
+        self.assertEqual([w["files"] for w in windows], [1, 1])
+        self.assertEqual(windows[0]["end"], "2019-01-01T00:00:00Z")
+        self.assertEqual(windows[1]["start"], "2024-01-01T00:00:00Z")
+        self.assertEqual(sum(w["bytes"] for w in windows), 20)
+
+    def test_nothing_to_plan(self):
+        self.assertEqual(self.plan([]), [])
+        self.assertEqual(self.plan([entry("ghost", 5, None)]), [])
+
+
 class PrepareOutputTest(unittest.TestCase):
     def test_valid(self):
         line = json.dumps({"namespaces": [0, 2, 1, 0], "upload_user": "Maintenance script",
@@ -502,8 +613,37 @@ from pathlib import Path
 here = Path(__file__).resolve().parent
 with open(here / "calls.jsonl", "a") as f:
     f.write(json.dumps(sys.argv[1:]) + "\\n")
-if sys.argv[2] == "WikiOasisMagic:FandomImportCallback" and (here / "fail-callbacks").exists():
+script = sys.argv[2]
+if script == "WikiOasisMagic:FandomImportCallback" and (here / "fail-callbacks").exists():
     sys.exit(1)
+if script == "importImages":
+    marker = here / "fail-importImages-once"
+    if marker.exists():
+        marker.unlink()
+        print("PHP Fatal error: simulated crash")
+        sys.exit(255)
+    folder = Path(sys.argv[-1])
+    names = sorted(p.name for p in folder.rglob("*") if p.is_file())
+    wiki = here / "on-wiki.json"
+    on_wiki = set(json.loads(wiki.read_text())) if wiki.exists() else set()
+    added = skipped = 0
+    for name in names:
+        if name in on_wiki:
+            print(name + " exists, skipping")
+            skipped += 1
+            continue
+        print("Importing " + name + "...done.")
+        added += 1
+        on_wiki.add(name)
+        with open(here / "imported.jsonl", "a") as f:
+            f.write(json.dumps(name) + "\\n")
+    wiki.write_text(json.dumps(sorted(on_wiki)))
+    print()
+    print("Found: " + str(len(names)))
+    if added:
+        print("Added: " + str(added))
+    if skipped:
+        print("Skipped: " + str(skipped))
 '''
 
 
@@ -734,6 +874,208 @@ class StageMachineTest(SpoolTestCase):
         self.assertEqual(self.events(), ["started", "stage", "stage", "stage", "stage", "stage", "stage", "done"])
         self.assertTrue(any(argv[1] == "initSiteStats" and "--wiki=muppetwiki" in argv for argv in self.calls()))
         self.assertTrue((self.cfg.logs_dir / "42.log").is_file())
+
+
+FAKE_WIKITEAM3 = '''\
+import json, sys
+from datetime import datetime
+from pathlib import Path
+here = Path(__file__).resolve().parent
+args = sys.argv[1:]
+def opt(name):
+    return args[args.index(name) + 1]
+path = Path(opt("--path"))
+interval = opt("--image-timestamp-interval")
+resume = "--resume" in args
+images = path / "images"
+mismatch = path / "images_mismatch"
+present = sorted(p.name for d in (images, mismatch) if d.is_dir() for p in d.iterdir())
+with open(here / "wt3-calls.jsonl", "a") as f:
+    f.write(json.dumps({"interval": interval, "resume": resume, "present": present}) + "\\n")
+listfile = path / "muppet.fandom.com-20261009-images.txt"
+if not resume:
+    path.mkdir()
+    (path / "config.json").write_text("{}")
+    with open(listfile, "w") as f:
+        for e in json.loads((here / "catalog.json").read_text()):
+            f.write("\\t".join([e["name"], "https://static.wikia.nocookie.net/x", "Uploader",
+                               str(e["size"]), "null", e["timestamp"]]) + "\\n")
+        if (here / "no-end-once").exists():
+            (here / "no-end-once").unlink()
+        else:
+            f.write("--END--\\n")
+fmt = "%Y-%m-%dT%H:%M:%SZ"
+low, high = (datetime.strptime(x, fmt) for x in interval.split("/"))
+images.mkdir(exist_ok=True)
+mismatch.mkdir(exist_ok=True)
+written = 0
+for line in listfile.read_text().splitlines():
+    if line == "--END--":
+        continue
+    name, url, uploader, size, sha1, ts = line.split("\\t")
+    if ts != "null" and not low <= datetime.strptime(ts, fmt) <= high:
+        continue
+    target = (mismatch if name.startswith("mm_") else images) / name
+    if target.exists():
+        continue
+    target.write_bytes(b"x" * int(size))
+    written += 1
+    if resume and written == 1 and (here / "crash-once").exists():
+        (here / "crash-once").unlink()
+        print("simulated crash")
+        sys.exit(1)
+'''
+
+CATALOG = [
+    {"name": "a.png", "size": 100, "timestamp": "2020-01-01T00:00:00Z"},
+    {"name": "b.png", "size": 100, "timestamp": "2020-01-01T00:00:01Z"},
+    {"name": "c.png", "size": 100, "timestamp": "2020-01-01T00:00:01Z"},
+    {"name": "mm_d.png", "size": 100, "timestamp": "2021-06-01T00:00:00Z"},
+    {"name": "e.png", "size": 500, "timestamp": "2022-01-01T00:00:00Z"},
+    {"name": "f.png", "size": 100, "timestamp": "2023-01-01T00:00:00Z"},
+    {"name": "n.png", "size": 50, "timestamp": "null"},
+]
+LIST_INTERVAL = "1970-01-01T00:00:00Z/1970-01-01T00:00:01Z"
+WINDOWS = [
+    "1970-01-01T00:00:00Z/2020-01-01T00:00:00Z",
+    "2020-01-01T00:00:01Z/2020-01-01T00:00:01Z",
+    "2021-06-01T00:00:00Z/2021-06-01T00:00:00Z",
+    "2022-01-01T00:00:00Z/2022-01-01T00:00:00Z",
+    "2023-01-01T00:00:00Z/9999-12-31T23:59:59Z",
+]
+
+
+class ImageBatchTest(SpoolTestCase):
+    """The images/upload stages against a fake wikiteam3 and fake MediaWiki.
+
+    With 250-byte batches the catalog plans into five windows: a | b+c (same
+    second) | mm_d (lands in images_mismatch) | e (500 bytes, alone) | f, and
+    n.png has a "null" timestamp, so it is in none.
+    """
+
+    def setUp(self):
+        super().setUp()
+        wt3 = self.fake / "wikiteam3"
+        wt3.write_text(f"#!{sys.executable}\n" + FAKE_WIKITEAM3)
+        wt3.chmod(0o755)
+        (self.fake / "catalog.json").write_text(json.dumps(CATALOG))
+        self.cfg = dataclasses.replace(self.cfg, wikiteam3=str(wt3), image_batch_bytes=250,
+                                       image_batch_files=1000, disk_headroom_bytes=0, min_free_bytes=0)
+        self.worker.close_logs()
+        self.worker = W.Worker(self.cfg, clock=lambda: self.now)
+        self.free = 10 ** 12
+        patcher = mock.patch.object(W.ImportRunner, "free_bytes", lambda _runner: self.free)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.queue(good_manifest())
+        st = self.worker.claim(42)
+        st["completed"] = ["resolve", "prepare", "dump", "pages"]
+        st["stage_data"]["prepare"] = {"namespaces": [0, 6], "upload_user": "Fandom import"}
+        st["summary"]["fandom_files"] = len(CATALOG)
+        self.worker.save_state(st)
+
+    def run_import(self):
+        W.ImportRunner(self.worker, self.worker.load_state(42)).run()
+        return self.worker.load_state(42)
+
+    def wt3_calls(self):
+        path = self.fake / "wt3-calls.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def imported(self):
+        path = self.fake / "imported.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def done_data(self):
+        argv = [a for a in self.calls() if "--event=done" in a][-1]
+        return json.loads(next(a for a in argv if a.startswith("--data="))[len("--data="):])
+
+    def assert_finished(self):
+        self.assertFalse(self.worker.work_dir(42).exists())
+        self.assertEqual(sorted(self.imported()), sorted(e["name"] for e in CATALOG))
+        self.assertEqual(self.imported()[-1], "n.png", "null-timestamp files go in the final sweep")
+        data = self.done_data()
+        self.assertEqual((data["images_total"], data["images_bytes_total"]), (7, 1050))
+        self.assertEqual((data["batches_total"], data["batches_done"]), (5, 5))
+        self.assertEqual((data["images_fetched"], data["images_added"]), (7, 7))
+        self.assertEqual((data["images_skipped"], data["images_failed"]), (0, 0))
+
+    def test_each_batch_is_downloaded_imported_and_deleted(self):
+        self.assertIsNone(self.run_import())
+        calls = self.wt3_calls()
+        self.assertEqual([(c["interval"], c["resume"]) for c in calls],
+                         [(LIST_INTERVAL, False)] + [(w, True) for w in WINDOWS])
+        for call in calls[1:]:
+            self.assertEqual(call["present"], ["n.png"], "the previous batch must be gone")
+        self.assert_finished()
+        progress = [a for a in self.calls() if "--event=progress" in a]
+        self.assertTrue(any('"batches_total":5' in a for argv in progress for a in argv))
+
+    def test_disk_check_is_per_batch(self):
+        self.free = 300
+        st = self.run_import()
+        self.assertEqual([w["done"] for w in st["stage_data"]["images"]["windows"]],
+                         [True, True, True, False, False])
+        self.assertEqual(st["status"], "running")
+        self.assertEqual(st["waiting_for"], "disk")
+        self.assertEqual(st["attempts"], {})
+        self.assertEqual(st["next_try"], W.iso(self.now + timedelta(hours=1)))
+        self.assertEqual(st["pending_progress"]["message"], "Waiting for disk space")
+        self.assertEqual(st["pending_progress"]["data"]["disk_needed_bytes"], 500)
+        self.assertEqual(len(self.wt3_calls()), 4)
+        self.assertEqual(st["summary"]["batches_done"], 3)
+        self.free = 10 ** 12
+        self.now += timedelta(minutes=61)
+        self.assertEqual(W.pick_next({42: st}, [], self.now), ("resume", 42))
+        self.run_import()
+        self.assertEqual([c["interval"] for c in self.wt3_calls()], [LIST_INTERVAL] + WINDOWS)
+        self.assert_finished()
+
+    def test_crash_during_download_reruns_the_same_batch(self):
+        (self.fake / "crash-once").touch()
+        st = self.run_import()
+        self.assertEqual(st["attempts"], {"images": 1})
+        self.assertFalse(st["stage_data"]["images"]["windows"][0].get("fetched"))
+        self.now += timedelta(minutes=16)
+        self.run_import()
+        calls = self.wt3_calls()
+        self.assertEqual([c["interval"] for c in calls], [LIST_INTERVAL, WINDOWS[0]] + WINDOWS)
+        self.assertEqual(calls[2]["present"], ["a.png", "n.png"])
+        self.assert_finished()
+
+    def test_crash_during_import_resumes_at_the_import(self):
+        (self.fake / "fail-importImages-once").touch()
+        st = self.run_import()
+        window = st["stage_data"]["images"]["windows"][0]
+        self.assertTrue(window["fetched"])
+        self.assertFalse(window["done"])
+        self.assertTrue((self.worker.work_dir(42) / "crawl" / "batch" / "images" / "a.png").exists())
+        self.now += timedelta(minutes=16)
+        self.run_import()
+        self.assertEqual([c["interval"] for c in self.wt3_calls()], [LIST_INTERVAL] + WINDOWS)
+        self.assert_finished()
+
+    def test_list_without_end_marker_is_retried_from_scratch(self):
+        (self.fake / "no-end-once").touch()
+        st = self.run_import()
+        self.assertEqual(st["attempts"], {"images": 1})
+        self.assertIn("--END--", st["error"])
+        self.now += timedelta(minutes=16)
+        self.run_import()
+        calls = self.wt3_calls()
+        self.assertEqual([(c["interval"], c["resume"]) for c in calls],
+                         [(LIST_INTERVAL, False), (LIST_INTERVAL, False)] + [(w, True) for w in WINDOWS])
+        self.assert_finished()
+
+    def test_no_files_skips_wikiteam3(self):
+        st = self.worker.load_state(42)
+        st["summary"]["fandom_files"] = 0
+        self.worker.save_state(st)
+        self.run_import()
+        self.assertEqual(self.wt3_calls(), [])
+        self.assertFalse(self.worker.work_dir(42).exists())
+        data = self.done_data()
+        self.assertEqual((data["images_total"], data["batches_total"], data["images_added"]), (0, 0, 0))
 
 
 if __name__ == "__main__":

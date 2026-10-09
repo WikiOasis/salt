@@ -11,8 +11,9 @@ MediaWiki:
   prepare   FandomImportPrepare: namespaces and extensions on the target wiki
   dump      find a usable Fandom XML dump on S3 and download it
   pages     drop unwanted namespaces, importDump, rebuild RC and site stats
-  images    list the source wiki's files and download them with wikiteam3
-  upload    importImages whatever wikiteam3 downloaded
+  images    list the source wiki's files with wikiteam3, then download and
+            importImages them one batch at a time
+  upload    final sweep: import files no batch covered, delete the crawl
   finalize  initSiteStats, report `done`, delete every working file
 
 and reports back by running the FandomImportCallback maintenance script on the
@@ -33,9 +34,24 @@ long one holds the lock for hours or days, so it does the cheap housekeeping
 for the others (discards, expiries, callback retries) from its poll loops.
 
 Disk space is the scarce resource: the dump is deleted as soon as the filtered
-XML exists, the XML as soon as it is imported, and each image directory as
-soon as importImages is done with it. Failed imports keep their files for
+XML exists, the XML as soon as it is imported, and the disk never holds more
+than one batch of images. Failed imports keep their files for
 `failed_retention_days` so a retry can resume, then they are deleted too.
+
+Images are batched by upload time. A first wikiteam3 run with an
+--image-timestamp-interval that matches no real file (the first second of
+1970) only writes the complete images.txt. That list is then the source of
+truth: its entries are sorted by timestamp and grouped into windows of at most
+`image_batch_bytes` and `image_batch_files` (a group of files sharing one
+second is never split), with the first window opened back to 1970 and the last
+forward to 9999. The plan is saved in state.json once. For each window the
+worker checks the disk, runs `wikiteam3 --resume` with that window's interval
+(wikiteam3 reuses the finished list and skips files outside the window),
+moves the window's files into crawl/batch/, runs importImages on
+batch/images and then batch/images_mismatch, and deletes both. Files with a
+"null" timestamp belong to no window and wikiteam3 downloads them on every
+run, so they stay in crawl/images (where wikiteam3 finds and skips them) and
+the `upload` stage's final sweep imports them once at the end.
 
 Notes on the constants below:
 
@@ -133,7 +149,14 @@ DUMP_URL = "https://s3.amazonaws.com/wikia_xml_dumps/{first}/{first2}/{wikiid}_p
 DUMP_FILE = "dump.xml.7z"
 PAGES_FILE = "pages.xml.gz"
 CRAWL_DIR = "crawl"
+BATCH_DIR = "batch"
 IMAGE_DIRS = ("images", "images_mismatch")
+WT3_TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+WT3_NULL = "null"
+WT3_LIST_END = "--END--"
+LIST_PASS_INTERVAL = "1970-01-01T00:00:00Z/1970-01-01T00:00:01Z"
+WINDOW_FIRST_START = "1970-01-01T00:00:00Z"
+WINDOW_LAST_END = "9999-12-31T23:59:59Z"
 TOMBSTONE_KEEP = frozenset({"state.json", "manifest.json"})
 
 CHILD_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -632,6 +655,130 @@ def parse_prepare_output(line: str) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True)
+class ImageEntry:
+    """One line of wikiteam3's images.txt. `timestamp` is None for "null"."""
+    name: str
+    size: int
+    timestamp: Optional[str]
+
+
+@dataclass
+class ImageList:
+    entries: list[ImageEntry]
+    complete: bool
+    malformed: list[int]
+
+    @property
+    def total_bytes(self) -> int:
+        return sum(e.size for e in self.entries)
+
+    @property
+    def usable(self) -> bool:
+        return self.complete and not self.malformed
+
+
+def parse_images_txt(lines: Iterable[str]) -> ImageList:
+    """Parse wikiteam3's <prefix>-<date>-images.txt.
+
+    Tab-separated: filename (underscored), url, uploader, size, sha1,
+    timestamp, with the literal "null" for unknown values and "--END--" as
+    the last line once the list is complete. Reading stops at the first blank
+    line, as wikiteam3's own resume does, so both agree on completeness.
+
+    A line is malformed if it does not have six fields, has no file name, or
+    has a size or timestamp wikiteam3 itself could not parse (it would crash
+    on it); such lines are reported by line number and left out of `entries`.
+    """
+    entries: list[ImageEntry] = []
+    malformed: list[int] = []
+    last = ""
+    for lineno, raw in enumerate(lines, start=1):
+        line = raw.rstrip()
+        if not line:
+            break
+        last = line
+        if line == WT3_LIST_END:
+            continue
+        fields = line.split("\t")
+        if len(fields) != 6 or not fields[0]:
+            malformed.append(lineno)
+            continue
+        name, _url, _uploader, size, _sha1, timestamp = fields
+        if size == WT3_NULL:
+            size_value = 0
+        elif size.isdigit():
+            size_value = int(size)
+        else:
+            malformed.append(lineno)
+            continue
+        if timestamp == WT3_NULL:
+            ts: Optional[str] = None
+        else:
+            try:
+                datetime.strptime(timestamp, WT3_TIME_FORMAT)
+            except ValueError:
+                malformed.append(lineno)
+                continue
+            ts = timestamp
+        entries.append(ImageEntry(name=name, size=size_value, timestamp=ts))
+    return ImageList(entries=entries, complete=(last == WT3_LIST_END), malformed=malformed)
+
+
+def plan_image_windows(entries: Iterable[ImageEntry], max_bytes: int, max_files: int) -> list[dict[str, Any]]:
+    """Group files into timestamp windows for batched downloading.
+
+    Files are sorted by upload time and added greedily to the current window
+    until the next same-second group would push it past `max_bytes` or
+    `max_files`. A same-second group is never split, because wikiteam3 can
+    only select files by a whole-second interval, so one oversized group
+    becomes an oversized window. Each window runs from its first timestamp to
+    its last (wikiteam3 intervals are inclusive at both ends), except that the
+    first starts at 1970-01-01T00:00:00Z and the last ends at
+    9999-12-31T23:59:59Z. Files with a "null" timestamp are in no window:
+    wikiteam3 downloads those on every run regardless of the interval.
+
+    The fixed-width ISO timestamps sort chronologically as strings.
+    """
+    groups: dict[str, list[int]] = {}
+    for entry in entries:
+        if entry.timestamp is None:
+            continue
+        group = groups.setdefault(entry.timestamp, [0, 0])
+        group[0] += 1
+        group[1] += entry.size
+    spans: list[dict[str, Any]] = []
+    current: Optional[dict[str, Any]] = None
+    for timestamp in sorted(groups):
+        files, nbytes = groups[timestamp]
+        if current is not None and (current["files"] + files > max_files
+                                    or current["bytes"] + nbytes > max_bytes):
+            spans.append(current)
+            current = None
+        if current is None:
+            current = {"first": timestamp, "last": timestamp, "files": 0, "bytes": 0}
+        current["files"] += files
+        current["bytes"] += nbytes
+        current["last"] = timestamp
+    if current is not None:
+        spans.append(current)
+    windows = []
+    for index, span in enumerate(spans):
+        windows.append({
+            "start": WINDOW_FIRST_START if index == 0 else span["first"],
+            "end": WINDOW_LAST_END if index == len(spans) - 1 else span["last"],
+            "files": span["files"],
+            "bytes": span["bytes"],
+            "done": False,
+        })
+    return windows
+
+
+def window_interval(window: Mapping[str, Any]) -> str:
+    """The --image-timestamp-interval argument for a planned window."""
+    return f"{window['start']}/{window['end']}"
+
+
 class ImportImagesParser:
     """Reads importImages.php output line by line.
 
@@ -770,6 +917,8 @@ class Config:
     dump_recheck_hours: float = 24
     dump_max_wait_days: float = 14
     prefer_full_history: bool = True
+    image_batch_bytes: int = 1 * GiB
+    image_batch_files: int = 1000
     wikiteam3: str = "wikiteam3dumpgenerator"
     sevenzip: str = "7z"
 
@@ -803,6 +952,8 @@ class Config:
             dump_recheck_hours=float(data.get("dump_recheck_hours", defaults.dump_recheck_hours)),
             dump_max_wait_days=float(data.get("dump_max_wait_days", defaults.dump_max_wait_days)),
             prefer_full_history=bool(data.get("prefer_full_history", defaults.prefer_full_history)),
+            image_batch_bytes=max(1, int(data.get("image_batch_bytes", defaults.image_batch_bytes))),
+            image_batch_files=max(1, int(data.get("image_batch_files", defaults.image_batch_files))),
             wikiteam3=str(data.get("wikiteam3", defaults.wikiteam3)),
             sevenzip=str(data.get("sevenzip", defaults.sevenzip)),
         )
@@ -2373,68 +2524,32 @@ class ImportRunner:
         os.replace(tmp_gz, gz)
         return stats
 
-    def list_source_files(self) -> tuple[int, int]:
-        """(count, bytes) of the source wiki's files, via list=allimages."""
-        params: dict[str, str] = {"action": "query", "list": "allimages", "aiprop": "size",
-                                  "ailimit": "500", "format": "json", "formatversion": "2"}
-        total = 0
-        size = 0
-        requests = 0
-        while True:
-            if requests:
-                time.sleep(self.cfg.image_delay)
-            data = self.w.http.get_json(self.manifest.source.api_url, params)
-            requests += 1
-            query = data.get("query") if isinstance(data, dict) else None
-            images = query.get("allimages") if isinstance(query, dict) else None
-            if not isinstance(images, list):
-                raise StageError("list=allimages response has no query.allimages")
-            for image in images:
-                total += 1
-                if isinstance(image, dict) and is_int(image.get("size")):
-                    size += image["size"]
-            cont = data.get("continue")
-            if not isinstance(cont, dict):
-                return total, size
-            for key, value in cont.items():
-                if isinstance(key, str) and isinstance(value, (str, int)):
-                    params[key] = str(value)
-            if requests % 20 == 0:
-                self.w.maybe_housekeep()
+    def find_images_txt(self, crawl: Path) -> Optional[Path]:
+        """wikiteam3's <prefix>-<date>-images.txt in the crawl dir, if any.
 
-    def stage_images(self) -> Any:
-        """List the source files, then download them with wikiteam3.
-
-        wikiteam3 mkdir()s --path and then writes config.json into it, so a
-        crawl dir without config.json is from a run that died in between: it
-        can neither be resumed (no config) nor started in (wikiteam3 would ask
-        on stdin), and is deleted. --force skips wikiteam3's "already on the
-        Internet Archive" check, which would exit 88 for any wiki archived in
-        the last year.
+        The date is fixed in config.json by the list pass, so there is one;
+        should there ever be several, the newest wins.
         """
-        st = self.st
-        sd = st["stage_data"].setdefault("images", {})
-        if "total" not in sd:
-            total, nbytes = self.list_source_files()
-            sd.update(total=total, bytes=nbytes)
-            st["summary"].update(images_total=total, images_bytes_total=nbytes)
-            self.w.save_state(st)
-            self.log.event(logging.INFO, f"source wiki has {total} files ({human_bytes(nbytes)})")
-            self.w.progress(st, {"images_total": total, "images_bytes_total": nbytes})
-        crawl = self.dir / CRAWL_DIR
-        if sd["total"] == 0:
-            st["summary"]["images_fetched"] = 0
+        candidates = [p for p in crawl.glob("*-images.txt") if p.is_file() and not p.is_symlink()]
+        if not candidates:
             return None
+        if len(candidates) > 1:
+            self.log.warning(f"several image lists in {crawl}; using the newest")
+        return max(candidates, key=lambda p: p.stat().st_mtime)
 
-        on_disk = tree_size(crawl) if crawl.is_dir() else 0
-        deferral = self.need_disk(max(0, sd["bytes"] - on_disk) + self.cfg.disk_headroom_bytes, "image download")
-        if deferral:
-            return deferral
+    def read_image_list(self, crawl: Path) -> Optional[ImageList]:
+        """The parsed image list, or None when there is no resumable crawl."""
+        if not (crawl / "config.json").is_file():
+            return None
+        path = self.find_images_txt(crawl)
+        if path is None:
+            return None
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return parse_images_txt(f)
 
-        config_file = crawl / "config.json"
-        if crawl.exists() and not config_file.is_file():
-            self.w.rmtree(crawl, self.log)
-        resume = config_file.is_file()
+    def wikiteam3_cmd(self, crawl: Path, interval: str, *, resume: bool) -> list[str]:
+        """--force skips wikiteam3's "already on the Internet Archive" check,
+        which would exit 88 for any wiki archived in the last year."""
         src = self.manifest.source
         cmd = [
             self.cfg.wikiteam3,
@@ -2446,30 +2561,225 @@ class ImportRunner:
             "--retries", str(self.cfg.retries),
             "--user-agent", self.cfg.user_agent,
             "--api_chunksize", str(WIKITEAM3_CHUNKSIZE),
+            "--image-timestamp-interval", interval,
             "--force",
         ]
         if resume:
             cmd.append("--resume")
-        fetched = {"count": -1}
+        return cmd
+
+    @staticmethod
+    def window_files(crawl: Path, null_names: Collection[str]) -> list[Path]:
+        """Files in the crawl's images/ and images_mismatch/ that belong to
+        the batch in progress: everything except "null"-timestamp files,
+        which wikiteam3 fetches on every run and which stay put until the
+        final sweep."""
+        found: list[Path] = []
+        for name in IMAGE_DIRS:
+            try:
+                it = os.scandir(crawl / name)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            with it:
+                for entry in it:
+                    if entry.is_file(follow_symlinks=False) and entry.name not in null_names:
+                        found.append(Path(entry.path))
+        return found
+
+    def run_wikiteam3(self, crawl: Path, interval: str, *, resume: bool, fetched_before: int = 0,
+                      null_names: Collection[str] = frozenset()) -> Optional[Deferral]:
+        """Run one wikiteam3 pass, reporting cumulative images_fetched while
+        it runs and stopping it if free space drops below the floor."""
+        st = self.st
+        seen = {"count": -1}
 
         def poll() -> Optional[str]:
-            count = sum(count_files(crawl / d) for d in IMAGE_DIRS)
-            if count != fetched["count"]:
-                fetched["count"] = count
-                self.w.progress(st, {"images_fetched": count, "images_total": sd["total"]})
+            count = len(self.window_files(crawl, null_names))
+            if count != seen["count"]:
+                seen["count"] = count
+                self.w.progress(st, {"images_fetched": fetched_before + count})
             if self.free_bytes() < self.cfg.min_free_bytes:
                 return "low disk space"
             return None
 
-        result = self.run_tool(cmd, label="wikiteam3", poll=poll,
-                               output_file=self.dir / "wikiteam3.log")
-        st["summary"]["images_fetched"] = sum(count_files(crawl / d) for d in IMAGE_DIRS)
-        self.w.save_state(st)
+        result = self.run_tool(self.wikiteam3_cmd(crawl, interval, resume=resume), label="wikiteam3",
+                               poll=poll, output_file=self.dir / "wikiteam3.log")
         if result.terminated:
             return self.low_disk()
         if result.returncode != 0:
             raise StageError(self.describe_wikiteam3_exit(result))
-        self.log.event(logging.INFO, f"wikiteam3 finished: {st['summary']['images_fetched']} files on disk")
+        return None
+
+    def list_pass(self, crawl: Path) -> "ImageList | Deferral":
+        """Build the complete images.txt with a fresh wikiteam3 run whose
+        interval (the first second of 1970) matches no real file, so nothing
+        is downloaded except files with a "null" timestamp.
+
+        wikiteam3 mkdir()s --path and then writes config.json into it, and it
+        would ask on stdin if --path already existed, so any old crawl dir is
+        deleted first. Returns a Deferral if wikiteam3 had to be stopped for
+        low disk space.
+        """
+        if crawl.exists():
+            self.w.rmtree(crawl, self.log)
+        self.log.event(logging.INFO, "listing the source wiki's files with wikiteam3")
+        outcome = self.run_wikiteam3(crawl, LIST_PASS_INTERVAL, resume=False)
+        if outcome is not None:
+            return outcome
+        listing = self.read_image_list(crawl)
+        if listing is None or not listing.complete:
+            raise StageError("wikiteam3 did not write a complete images.txt (no --END--)")
+        if listing.malformed:
+            raise StageError(f"images.txt has {len(listing.malformed)} malformed lines "
+                             f"(first at line {listing.malformed[0]})")
+        return listing
+
+    def image_totals(self) -> tuple[dict[str, int], list[str]]:
+        """Cumulative counts over every batch plus the final sweep, derived
+        from state so a re-run batch is never counted twice."""
+        stage_data = self.st["stage_data"]
+        windows = (stage_data.get("images") or {}).get("windows") or []
+        sweep = (stage_data.get("upload") or {}).get("dirs") or {}
+        results = [r for w in windows for r in (w.get("dirs") or {}).values()] + list(sweep.values())
+        totals = {
+            "images_fetched": sum(int(w.get("fetched_files", 0)) for w in windows)
+                              + sum(int(r.get("files", 0)) for r in sweep.values()),
+            "images_added": sum(int(r.get("added", 0)) for r in results),
+            "images_skipped": sum(int(r.get("skipped", 0)) for r in results),
+            "images_failed": sum(int(r.get("failed", 0)) for r in results),
+            "images_overwritten": sum(int(r.get("overwritten", 0)) for r in results),
+            "images_unsupported": sum(int(r.get("unsupported", 0)) for r in results),
+        }
+        failed_files = [name for r in results for name in r.get("failed_files", [])]
+        return totals, failed_files[:FAILED_FILES_KEEP]
+
+    def import_and_clear(self, base: Path, record: dict[str, Any], label: str) -> None:
+        """importImages base/images then base/images_mismatch, deleting each
+        as soon as its counts are saved. Fandom recompresses files, so many
+        good ones land in images_mismatch. A directory already recorded in
+        `record` is not imported again; it is only deleted if still there."""
+        user = self.upload_user()
+        for name in IMAGE_DIRS:
+            path = base / name
+            if name not in record:
+                files = count_files(path) if path.is_dir() else 0
+                added_before = self.image_totals()[0]["images_added"]
+                record[name] = (self.import_images_dir(path, name, files, user, label=label,
+                                                       added_before=added_before)
+                                if files else {"files": 0})
+                self.w.save_state(self.st)
+            if path.exists():
+                self.w.rmtree(path, self.log)
+
+    def stage_window_files(self, crawl: Path, batch: Path, null_names: Collection[str]) -> None:
+        """Move the batch's files from the crawl into batch/images and
+        batch/images_mismatch (same filesystem, so a rename). Idempotent, so
+        a crash halfway is finished by the next run."""
+        for path in self.window_files(crawl, null_names):
+            target = batch / path.parent.name
+            target.mkdir(mode=0o750, parents=True, exist_ok=True)
+            os.replace(path, target / path.name)
+
+    def stage_images(self) -> Any:
+        """Download and upload the source wiki's files in small batches.
+
+        A list pass writes the complete images.txt, which is the source of
+        truth from then on: its entries are grouped into timestamp windows of
+        at most image_batch_bytes / image_batch_files (plan_image_windows)
+        and the plan is saved once. Each window then gets its own disk check
+        and a `wikiteam3 --resume --image-timestamp-interval` run. Its files
+        are moved into crawl/batch/, importImages runs on batch/images and
+        then batch/images_mismatch, and both are deleted, so the disk never
+        holds more than one batch. Within a window the download, the import
+        of each directory and the window itself are recorded as they finish,
+        so a crash resumes the same window at the step it was in.
+
+        Files with a "null" timestamp are in no window. wikiteam3 downloads
+        them on every run, so they are left in images/ (where it finds them
+        and skips them) for the `upload` stage's final sweep, instead of
+        being downloaded and imported again with every batch.
+
+        If the crawl is lost after planning (no config.json or no usable
+        images.txt), the list pass runs again and the windows are re-planned;
+        windows identical to finished ones stay finished.
+        """
+        st = self.st
+        sd = st["stage_data"].setdefault("images", {})
+        crawl = self.dir / CRAWL_DIR
+        batch = crawl / BATCH_DIR
+        if st["summary"].get("fandom_files") == 0:
+            st["summary"].update(images_total=0, images_bytes_total=0, batches_total=0,
+                                 batches_done=0, images_fetched=0)
+            self.w.save_state(st)
+            self.log.event(logging.INFO, "the source wiki has no files; skipping wikiteam3")
+            return None
+
+        listing = self.read_image_list(crawl)
+        if "windows" not in sd or listing is None or not listing.usable:
+            old_windows = sd.get("windows") or []
+            if old_windows:
+                self.log.event(logging.WARNING, "the crawl directory is incomplete; listing again")
+            listed = self.list_pass(crawl)
+            if isinstance(listed, Deferral):
+                return listed
+            listing = listed
+            windows = plan_image_windows(listing.entries, self.cfg.image_batch_bytes, self.cfg.image_batch_files)
+            finished = {(w["start"], w["end"], w["files"], w["bytes"]): w for w in old_windows if w.get("done")}
+            for index, window in enumerate(windows):
+                key = (window["start"], window["end"], window["files"], window["bytes"])
+                if key in finished:
+                    windows[index] = finished[key]
+            sd.update(windows=windows, total=len(listing.entries), bytes=listing.total_bytes,
+                      null_files=sum(1 for e in listing.entries if e.timestamp is None))
+            st["summary"].update(images_total=sd["total"], images_bytes_total=sd["bytes"],
+                                 batches_total=len(windows))
+            self.w.save_state(st)
+            self.log.event(logging.INFO, f"{sd['total']} files ({human_bytes(sd['bytes'])}) in "
+                                         f"{len(windows)} batches, {sd['null_files']} without a timestamp")
+            self.w.progress(st, {"images_total": sd["total"], "images_bytes_total": sd["bytes"],
+                                 "batches_total": len(windows)})
+
+        null_names = frozenset(e.name for e in listing.entries if e.timestamp is None)
+        windows = sd["windows"]
+        for index, window in enumerate(windows):
+            if window.get("done"):
+                continue
+            label = f"batch {index + 1}/{len(windows)}"
+            if not window.get("fetched"):
+                on_disk = (sum(p.stat().st_size for p in self.window_files(crawl, null_names))
+                           + (tree_size(batch) if batch.is_dir() else 0))
+                deferral = self.need_disk(max(0, int(window["bytes"]) - on_disk) + self.cfg.disk_headroom_bytes,
+                                          f"image {label}")
+                if deferral:
+                    return deferral
+                self.log.event(logging.INFO, f"downloading {label}: {window['files']} files, "
+                                             f"{human_bytes(int(window['bytes']))}, {window_interval(window)}")
+                outcome = self.run_wikiteam3(crawl, window_interval(window), resume=True,
+                                             fetched_before=self.image_totals()[0]["images_fetched"],
+                                             null_names=null_names)
+                if outcome is not None:
+                    return outcome
+                window["fetched"] = True
+                self.w.save_state(st)
+            self.stage_window_files(crawl, batch, null_names)
+            if "fetched_files" not in window:
+                window["fetched_files"] = count_files(batch)
+                self.w.save_state(st)
+            self.import_and_clear(batch, window.setdefault("dirs", {}), label)
+            if batch.exists():
+                self.w.rmtree(batch, self.log)
+            window["done"] = True
+            totals, failed_files = self.image_totals()
+            done = sum(1 for w in windows if w.get("done"))
+            st["summary"].update(totals, failed_files=failed_files, batches_done=done)
+            self.w.save_state(st)
+            self.log.event(logging.INFO, f"{label} finished: {totals}")
+            self.w.progress(st, {"batches_done": done, "batches_total": len(windows),
+                                 "images_fetched": totals["images_fetched"],
+                                 "images_added": totals["images_added"],
+                                 "images_skipped": totals["images_skipped"],
+                                 "images_failed": totals["images_failed"],
+                                 "failed_files": failed_files})
         return None
 
     @staticmethod
@@ -2484,50 +2794,32 @@ class ImportRunner:
         return text + (f": {detail}" if detail else "")
 
     def stage_upload(self) -> None:
-        """importImages images/ then images_mismatch/, deleting each when done.
-
-        Fandom recompresses files, so many good ones land in images_mismatch.
-        A directory's counts are recorded before it is deleted, so a crash in
-        between cannot lose them.
-        """
+        """Final sweep after the batches: import whatever is still in the
+        crawl's images/ or images_mismatch/ (files with a "null" timestamp,
+        which belong to no window), delete it, then delete the whole crawl
+        dir and finish the image counts in the summary."""
         st = self.st
         sd = st["stage_data"].setdefault("upload", {})
-        dirs_done: dict[str, Any] = sd.setdefault("dirs", {})
         crawl = self.dir / CRAWL_DIR
-        user = self.upload_user()
-        for name in IMAGE_DIRS:
-            path = crawl / name
-            if name not in dirs_done:
-                files = count_files(path) if path.is_dir() else 0
-                dirs_done[name] = self.import_images_dir(path, name, files, user) if files else {"files": 0}
-                self.w.save_state(st)
-            if path.exists():
-                self.w.rmtree(path, self.log)
-
-        totals = {"images_added": 0, "images_skipped": 0, "images_failed": 0,
-                  "images_overwritten": 0, "images_unsupported": 0}
-        failed_files: list[str] = []
-        for result in dirs_done.values():
-            totals["images_added"] += int(result.get("added", 0))
-            totals["images_skipped"] += int(result.get("skipped", 0))
-            totals["images_failed"] += int(result.get("failed", 0))
-            totals["images_overwritten"] += int(result.get("overwritten", 0))
-            totals["images_unsupported"] += int(result.get("unsupported", 0))
-            failed_files.extend(result.get("failed_files", []))
-        st["summary"].update(totals, failed_files=failed_files[:FAILED_FILES_KEEP])
+        self.import_and_clear(crawl, sd.setdefault("dirs", {}), "final sweep")
+        totals, failed_files = self.image_totals()
+        st["summary"].update(totals, failed_files=failed_files)
         if crawl.exists():
             self.w.rmtree(crawl, self.log)
         self.w.save_state(st)
-        self.log.event(logging.INFO, f"upload: {totals}")
-        self.w.progress(st, totals)
+        self.log.event(logging.INFO, f"images: {totals}")
+        self.w.progress(st, {**totals, "failed_files": failed_files})
 
-    def import_images_dir(self, path: Path, name: str, files: int, user: str) -> dict[str, Any]:
+    def import_images_dir(self, path: Path, name: str, files: int, user: str, *,
+                          label: str = "", added_before: int = 0) -> dict[str, Any]:
         """Run importImages on one directory and return its counts.
 
         importImages exits 1 when any file failed, or when no file had an
         allowed extension; both are results, not a broken stage. Files whose
         extension the target wiki does not allow are not even "found", so
-        they are counted as `unsupported` to make the summary add up.
+        they are counted as `unsupported` to make the summary add up. While
+        it runs, images_added is reported cumulatively (`added_before` plus
+        this run's).
         """
         parser = ImportImagesParser()
         reported = {"added": -1}
@@ -2535,7 +2827,7 @@ class ImportRunner:
         def poll() -> None:
             if parser.done_lines != reported["added"]:
                 reported["added"] = parser.done_lines
-                self.w.progress(self.st, {"images_uploaded": parser.done_lines})
+                self.w.progress(self.st, {"images_added": added_before + parser.done_lines})
 
         summary = self.manifest.summary
         result = self.mw_tool("importImages", "--search-recursively", f"--user={user}",
@@ -2548,10 +2840,11 @@ class ImportRunner:
         counts = parser.result()
         counts["unsupported"] = max(0, files - counts["found"]) if counts["found"] or parser.no_files else 0
         counts["files"] = files
-        self.log.event(logging.INFO, f"importImages {name}: {files} files, added {counts['added']}, "
+        where = f"{label} {name}".strip()
+        self.log.event(logging.INFO, f"importImages {where}: {files} files, added {counts['added']}, "
                                      f"skipped {counts['skipped']}, failed {counts['failed']}")
         for failed in counts["failed_files"]:
-            self.log.warning(f"importImages {name}: failed: {failed}")
+            self.log.warning(f"importImages {where}: failed: {failed}")
         return counts
 
     def stage_finalize(self) -> str:

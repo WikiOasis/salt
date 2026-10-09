@@ -16,6 +16,8 @@
   "dump_recheck_hours": {{ p.get('dump_recheck_hours', 24) | float }},
   "dump_max_wait_days": {{ p.get('dump_max_wait_days', 14) | float }},
   "prefer_full_history": {{ 'true' if p.get('prefer_full_history', True) else 'false' }},
+  "image_batch_bytes": {{ p.get('image_batch_bytes', 1073741824) | int }},
+  "image_batch_files": {{ p.get('image_batch_files', 1000) | int }},
   "wikiteam3": {{ (venv ~ '/bin/wikiteam3dumpgenerator') | tojson }},
   "sevenzip": "/usr/bin/7z"
 }

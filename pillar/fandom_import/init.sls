@@ -16,3 +16,5 @@ fandom_import:
   dump_recheck_hours: 24
   dump_max_wait_days: 14
   prefer_full_history: True
+  image_batch_bytes: 1073741824
+  image_batch_files: 1000
