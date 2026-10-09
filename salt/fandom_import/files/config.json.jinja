@@ -1,0 +1,22 @@
+{%- set p = salt['pillar.get']('fandom_import', {}) %}
+{%- set venv = p.get('venv', '/opt/fandom-import/venv') %}
+{
+  "spool_dir": {{ p.get('spool_dir', '/srv/fandom-import') | tojson }},
+  "central_wiki": {{ p.get('central_wiki', 'metawiki') | tojson }},
+  "php": {{ p.get('php', '/usr/bin/php') | tojson }},
+  "mwscript": {{ p.get('mwscript', '/srv/mediawiki/scripts/mwscript.php') | tojson }},
+  "proxy": {{ p.get('proxy', 'http://10.0.1.1:3129') | tojson }},
+  "user_agent": {{ p.get('user_agent', 'WikiOasisFandomImport/1.0 (+https://meta.wikioasis.org/wiki/Special:FandomImport)') | tojson }},
+  "image_delay": {{ p.get('image_delay', 1.0) | float }},
+  "retries": {{ p.get('retries', 5) | int }},
+  "max_stage_attempts": {{ p.get('max_stage_attempts', 3) | int }},
+  "min_free_bytes": {{ p.get('min_free_bytes', 10737418240) | int }},
+  "disk_headroom_bytes": {{ p.get('disk_headroom_bytes', 5368709120) | int }},
+  "failed_retention_days": {{ p.get('failed_retention_days', 3) | float }},
+  "log_retention_days": {{ p.get('log_retention_days', 30) | float }},
+  "dump_recheck_hours": {{ p.get('dump_recheck_hours', 24) | float }},
+  "dump_max_wait_days": {{ p.get('dump_max_wait_days', 14) | float }},
+  "prefer_full_history": {{ 'true' if p.get('prefer_full_history', True) else 'false' }},
+  "wikiteam3": {{ (venv ~ '/bin/wikiteam3dumpgenerator') | tojson }},
+  "sevenzip": "/usr/bin/7z"
+}

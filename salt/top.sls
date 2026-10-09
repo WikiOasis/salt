@@ -75,6 +75,7 @@ base:
     - sentry_relay
     - mediawiki.target
     - mediawiki.jobrunner
+    - fandom_import
     - monitoring.nrpe_nginx
     - monitoring.nrpe_php
     - monitoring.phpfpm_exporter

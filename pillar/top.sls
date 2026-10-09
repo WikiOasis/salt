@@ -54,6 +54,7 @@ base:
       - nginx
       - mediawiki
       - mediawiki.jobrunner
+      - fandom_import
 
    'staging*':
       - php.staging
