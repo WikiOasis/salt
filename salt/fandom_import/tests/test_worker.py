@@ -891,7 +891,9 @@ images = path / "images"
 mismatch = path / "images_mismatch"
 present = sorted(p.name for d in (images, mismatch) if d.is_dir() for p in d.iterdir())
 with open(here / "wt3-calls.jsonl", "a") as f:
-    f.write(json.dumps({"interval": interval, "resume": resume, "present": present}) + "\\n")
+    threshold = opt("--index-check-threshold") if "--index-check-threshold" in args else None
+    f.write(json.dumps({"interval": interval, "resume": resume, "present": present,
+                        "threshold": threshold}) + "\\n")
 listfile = path / "muppet.fandom.com-20261009-images.txt"
 if not resume:
     path.mkdir()
@@ -917,6 +919,8 @@ for line in listfile.read_text().splitlines():
         continue
     target = (mismatch if name.startswith("mm_") else images) / name
     if target.exists():
+        continue
+    if resume and (here / "blocked-once").exists():
         continue
     target.write_bytes(b"x" * int(size))
     written += 1
@@ -1041,6 +1045,24 @@ class ImageBatchTest(SpoolTestCase):
         calls = self.wt3_calls()
         self.assertEqual([c["interval"] for c in calls], [LIST_INTERVAL, WINDOWS[0]] + WINDOWS)
         self.assertEqual(calls[2]["present"], ["a.png", "n.png"])
+        self.assert_finished()
+
+    def test_wikiteam3_is_told_to_skip_its_index_php_check(self):
+        self.run_import()
+        self.assertEqual({c["threshold"] for c in self.wt3_calls()}, {"0"})
+
+    def test_a_batch_with_no_files_fetched_fails_and_is_downloaded_again(self):
+        (self.fake / "blocked-once").touch()
+        st = self.run_import()
+        self.assertEqual(st["attempts"], {"images": 1})
+        self.assertIn("Fandom sent none of the 1 files in batch 1/5", st["error"])
+        window = st["stage_data"]["images"]["windows"][0]
+        self.assertFalse(window.get("fetched"))
+        self.assertNotIn("fetched_files", window)
+        (self.fake / "blocked-once").unlink()
+        self.now += timedelta(minutes=16)
+        self.run_import()
+        self.assertEqual([c["interval"] for c in self.wt3_calls()], [LIST_INTERVAL, WINDOWS[0]] + WINDOWS)
         self.assert_finished()
 
     def test_crash_during_import_resumes_at_the_import(self):

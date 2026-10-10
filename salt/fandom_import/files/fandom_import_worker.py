@@ -2549,12 +2549,18 @@ class ImportRunner:
 
     def wikiteam3_cmd(self, crawl: Path, interval: str, *, resume: bool) -> list[str]:
         """--force skips wikiteam3's "already on the Internet Archive" check,
-        which would exit 88 for any wiki archived in the last year."""
+        which would exit 88 for any wiki archived in the last year.
+
+        --index-check-threshold 0 skips its index.php heuristic. Fandom
+        serves its HTML pages behind a Cloudflare challenge, so the check
+        scores 0.15-0.2 and wikiteam3 would exit 11, but an image-only crawl
+        lists files through api.php and never needs index.php."""
         src = self.manifest.source
         cmd = [
             self.cfg.wikiteam3,
             "--api", src.api_url,
             "--index", src.index_url,
+            "--index-check-threshold", "0",
             "--images",
             "--path", str(crawl),
             "--delay", f"{self.cfg.image_delay:g}",
@@ -2765,6 +2771,13 @@ class ImportRunner:
             if "fetched_files" not in window:
                 window["fetched_files"] = count_files(batch)
                 self.w.save_state(st)
+            if int(window["files"]) > 0 and not window["fetched_files"]:
+                window.pop("fetched", None)
+                window.pop("fetched_files", None)
+                self.w.save_state(st)
+                raise StageError(f"Fandom sent none of the {window['files']} files in {label}. Its image "
+                                 "server may be refusing this host; see wikiteam3.log and errors.log in "
+                                 "the crawl directory.")
             self.import_and_clear(batch, window.setdefault("dirs", {}), label)
             if batch.exists():
                 self.w.rmtree(batch, self.log)
