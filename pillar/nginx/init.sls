@@ -111,6 +111,12 @@ nginx:
       location: 'EZQDzRwzkbZa7zGrPP5Buh_nm8HmS7B-FJ_THBLs2ZT6LzXWTrkuSy67zitIOn0i'
       return: 'EZQDzRwzkbZa7zGrPP5Buh_nm8HmS7B-FJ_THBLs2ZT6LzXWTrkuSy67zitIOn0i.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'freshwebsiteswiki'
+    indyadirakwiki:
+      server_Name: 'wiki.indyadirak.com'
+      listen: 80
+      location: '7GE2i2YxYnnDAb7qI3PGMg'
+      return: '7GE2i2YxYnnDAb7qI3PGMg.9Y1-0ZkR-Rsc9UdhMEQo1OgKATKUPw627Q1H14MaHuI'
+      database_name: 'indyadirakwiki'
     hisdarkmaterialswiki:
       server_name: 'hdm-wiki.de'
       listen: 80
