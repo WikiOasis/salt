@@ -3,7 +3,7 @@
 {%- set secret = private.get('secret', '') %}
 
 sal:
-  server_url: http://salt-us-east-021.ovvin.wonet:8740
+  server_url: http://10.0.2.124:8740
   host_token: {{ (secret ~ ':' ~ grains['id']) | sha256 if secret else "''" }}
   db:
     host: db-other-us-east-011.ovvin.wonet

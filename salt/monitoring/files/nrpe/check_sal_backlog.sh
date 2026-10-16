@@ -1,7 +1,7 @@
 #!/bin/bash
 WARN=${1:-20}
 CRIT=${2:-100}
-URL=${SAL_HEALTH_URL:-http://salt-us-east-021.ovvin.wonet:8740/healthz}
+URL=${SAL_HEALTH_URL:-http://10.0.2.124:8740/healthz}
 
 body=$(curl -fsS --max-time 10 "$URL" 2>&1) || { echo "CRITICAL: SAL health endpoint unreachable: ${body}"; exit 2; }
 
