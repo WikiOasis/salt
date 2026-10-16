@@ -1,0 +1,6 @@
+sal:
+  secret: CHANGE_ME
+  db_password: CHANGE_ME
+  wiki_user: SALBot@sal
+  wiki_password: CHANGE_ME
+  phorge_token: CHANGE_ME

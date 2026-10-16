@@ -3,6 +3,7 @@ base:
       - base
       - users
       - private
+      - sal
    'apps*':
       - php
       - php.apps
@@ -21,6 +22,7 @@ base:
       - mariadb.db-other-us-east-011
       - tsportal
       - wikioasis_support
+      - sal.db
    'db-pc-us-east-011*':
       - mariadb.db-pc-us-east-011
    'db-c1-us-east-021*':
@@ -48,6 +50,7 @@ base:
       - incidentio_sync
    'salt*':
       - mwdeploy_portal
+      - sal.server
    'task*':
       - users.servers.mediawiki
       - php

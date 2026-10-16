@@ -11,6 +11,7 @@ base:
     - monitoring.otelcol
     - mwdeploy.shim
     - sysctl.swappiness
+    - sal.client
   'apps*':
     - php
     - nginx
@@ -35,6 +36,7 @@ base:
     - mariadb.portal_db
     - mariadb.tsportal_db
     - mariadb.wikioasis_support_db
+    - mariadb.sal_db
   'metal*':
     - metal
     - monitoring.nrpe_metal
@@ -94,5 +96,7 @@ base:
     - mwdeploy.portal
     - mwdeploy.portal.nginx
     - mwdeploy.portal.master_acl
+    - sal.server
+    - monitoring.nrpe_sal_server
   '*-us-east-0[0-9][0-9]*':
     - metal.vm_ipv6

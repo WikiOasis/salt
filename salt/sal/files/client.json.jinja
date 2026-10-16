@@ -1,0 +1,2 @@
+{%- set sal = salt['pillar.get']('sal', {}) -%}
+{{ {"server_url": sal.get('server_url', 'http://salt-us-east-021.ovvin.wonet:8740'), "host": grains['id'], "token": sal.get('host_token', '')} | tojson }}

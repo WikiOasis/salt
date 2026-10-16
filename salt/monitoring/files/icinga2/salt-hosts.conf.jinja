@@ -53,7 +53,7 @@ object User "webhook-notify" {
                          + (['mariadb'] if is_db else [])
                          + (['nginx_errors', 'nginx_4xx_errors'] if has_nginx else [])
                          + (['redis'] if is_redis else [])
-                         + (['salt_master'] if is_salt_master else []) %}
+                         + (['salt_master', 'sal_server', 'sal_backlog'] if is_salt_master else []) %}
 
 # -- {{ hostname }} ({{ host_data.ip }}) ----------------------------------------
 
@@ -234,6 +234,24 @@ object Service "salt_master" {
   vars.nrpe_command = "check_salt_master"
   check_interval    = 1m
   retry_interval    = 10s
+}
+
+object Service "sal_server" {
+  import            "generic-salt-service"
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_sal_server"
+  check_interval    = 1m
+  retry_interval    = 10s
+}
+
+object Service "sal_backlog" {
+  import            "generic-salt-service"
+  host_name         = "{{ hostname }}"
+  check_command     = "nrpe"
+  vars.nrpe_command = "check_sal_backlog"
+  check_interval    = 5m
+  retry_interval    = 1m
 }
 {%- endif %}
 
