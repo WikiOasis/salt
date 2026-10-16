@@ -87,11 +87,13 @@ location ~ ^/w/rest\.php(/|$) {
   include fastcgi_params;
 }
 
-location ~ ^/w/(cw_cache|docs|cache|config|includes|vendor|language|maintenance|tests|mw-config)/ {
+location ~ ^/(?:w/)?(cw_cache|docs|cache|config|includes|vendor|language|maintenance|tests|mw-config)/ {
   deny all;
 }
 
-location ~ /w/(composer\.json|composer\.lock|LocalSettings\.php)$ { deny all; }
+location ~ /(?:w/)?(composer\.json|composer\.lock|LocalSettings\.php)$ {
+  deny all;
+}
 
 error_log /var/log/nginx/error.log;
 access_log /var/log/nginx/access.log;
