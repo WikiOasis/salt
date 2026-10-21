@@ -22,6 +22,7 @@ users:
         ssh-keys:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAKWvAxYvkaVdWezSktHSkz7LelSH+kOSaEkJclwkrM/ pisces@wikioasis
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFRow/qpcyGrFZUmHo91Q3yhq399X0Ig+xSR8IkBdd4D pisces@wikioasis+side
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJeM5wAN8K5rvgwAukPU3/Q0VE+lWMrwqGHZoL6bnPw pisces@wikioasis+mobile
         uid: 3003
         gid: 3003
     reception:
