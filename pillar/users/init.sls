@@ -35,12 +35,12 @@ groups:
     ops:
         gid: 7000
         description: root, on all servers
-        members: [thomas, unai, reception]
+        members: [thomas, unai, reception, pisces]
         privileges: ['ALL = (ALL) NOPASSWD: ALL']
     mediawiki-admins:
         gid: 7001
         description: elevated permissions on webservers
-        members: [pisces]
+        members: []
         privileges: ['ALL = (www-data) NOPASSWD: ALL',
                 'ALL = (ALL) NOPASSWD: /usr/local/bin/mwdeploy *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
