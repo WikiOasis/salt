@@ -63,7 +63,7 @@ haproxy:
   # back to false is the whole rollback.
   backends:
     apps:
-      maintenance: true
+      maintenance: false
       balance: roundrobin
       options:
         - forwardfor
@@ -75,7 +75,7 @@ haproxy:
           weight: 1
           depooled: false
     mediawiki:
-      maintenance: true
+      maintenance: false
       balance: roundrobin
       options:
         - forwardfor
@@ -112,7 +112,7 @@ haproxy:
     # that backend, and depooling the box serving this portal would take the
     # dashboard down mid-deploy.
     deploy_portal:
-      maintenance: true
+      maintenance: false
       balance: roundrobin
       options:
         - forwardfor
@@ -204,7 +204,7 @@ haproxy:
           weight: 1
           depooled: false
     staging:
-      maintenance: true
+      maintenance: false
       balance: roundrobin
       options:
         - forwardfor
