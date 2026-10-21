@@ -46,3 +46,6 @@ groups:
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service php8.4-fpm *',
                 'ALL = (ALL) NOPASSWD: /bin/journalctl *']
+
+server_groups:
+    - ops
