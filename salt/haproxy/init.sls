@@ -18,6 +18,16 @@ socat:
     - require:
       - pkg: haproxy
 
+/etc/haproxy/errors/maintenance.html:
+  file.managed:
+    - source: salt://haproxy/files/errors/maintenance.html
+    - makedirs: True
+    - user: root
+    - group: haproxy
+    - mode: '0644'
+    - require:
+      - pkg: haproxy
+
 {%- if has_routes %}
 /etc/haproxy/routes.map:
   file.managed:
@@ -37,6 +47,7 @@ haproxy_service:
     - reload: True
     - watch:
       - file: /etc/haproxy/haproxy.cfg
+      - file: /etc/haproxy/errors/maintenance.html
 {%- if has_routes %}
       - file: /etc/haproxy/routes.map
 {%- endif %}

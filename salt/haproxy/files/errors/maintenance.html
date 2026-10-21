@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/x-icon" href="https://cdn.wikioasis.org/images/metawiki/1/18/favicon.ico" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title id="page-title">Maintenance • WikiOasis</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif:wght@500;600;700&display=swap" rel="stylesheet">
+    <script src="https://api.dashboard.instatus.com/widget?host=status.wikioasis.org&code=3a58baa4&locale=en">
+    </script>
+    <style type="text/css">
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 48px 10%;
+            background: #1a2532;
+            color: #e8ecef;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Decorative geometric cluster, bottom-right */
+        .decor {
+            position: fixed;
+            right: 0;
+            bottom: 0;
+            width: min(440px, 42vw);
+            height: auto;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            z-index: 1;
+            max-width: 620px;
+        }
+
+        .logo {
+            width: 150px;
+            height: auto;
+            margin-bottom: 64px;
+        }
+
+        h1 {
+            font-family: 'Noto Serif', serif;
+            font-size: clamp(40px, 5.5vw, 60px);
+            font-weight: 600;
+            line-height: 1.08;
+            letter-spacing: -0.5px;
+            color: #e8ecef;
+            max-width: 16ch;
+        }
+
+        .description {
+            font-size: 15px;
+            color: rgba(255, 255, 255, 0.45);
+            margin-top: 14px;
+            max-width: 46ch;
+        }
+
+        .cf-error-wrap {
+            margin-top: 40px;
+            max-width: 480px;
+        }
+
+        .cf-error-box {
+            padding: 18px 22px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        /* Override CF's injected styles */
+        .cf-error-box,
+        .cf-error-box * {
+            background: transparent !important;
+            color: #e8ecef !important;
+            font-family: 'Inter', sans-serif !important;
+            border-color: transparent !important;
+        }
+
+        .cf-error-box h2 {
+            font-size: 16px !important;
+            font-weight: 600 !important;
+            margin-bottom: 8px !important;
+        }
+
+        .cf-error-box p {
+            font-size: 13px !important;
+            color: rgba(255, 255, 255, 0.55) !important;
+            margin-bottom: 10px !important;
+            line-height: 1.5 !important;
+        }
+
+        .cf-error-box ul {
+            padding-left: 18px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 4px !important;
+        }
+
+        .cf-error-box li {
+            font-size: 12px !important;
+            color: rgba(255, 255, 255, 0.45) !important;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 40px;
+        }
+
+        .btn {
+            padding: 11px 28px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            color: #ffffff;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.14);
+            border-color: rgba(255, 255, 255, 0.18);
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 56px 24px 32px;
+                align-items: flex-start;
+            }
+
+            .decor {
+                width: min(360px, 75vw);
+                opacity: 0.8;
+            }
+
+            .logo {
+                margin-bottom: 40px;
+            }
+        }
+    </style>
+    <link rel="shortcut icon" href="https://cdn.wikioasis.org/metawiki/1/18/favicon.ico" />
+</head>
+<body>
+
+<svg class="decor" viewBox="0 0 560 560" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="gA" x1="0.15" y1="0" x2="0.85" y2="1">
+            <stop offset="0" stop-color="#6fc5f1"/><stop offset="1" stop-color="#2f8fd6"/>
+        </linearGradient>
+        <linearGradient id="gB" x1="0.15" y1="0" x2="0.85" y2="1">
+            <stop offset="0" stop-color="#4aa8e8"/><stop offset="1" stop-color="#2470bd"/>
+        </linearGradient>
+        <linearGradient id="gC" x1="0.15" y1="0" x2="0.85" y2="1">
+            <stop offset="0" stop-color="#2c6fb0"/><stop offset="1" stop-color="#184f86"/>
+        </linearGradient>
+    </defs>
+    <!-- quarter-fans only, tessellated bottom-right -->
+    <path d="M560,0 L560,140 A140,140 0 0 1 420,0 Z" fill="url(#gA)"/>
+    <path d="M560,140 L560,280 A140,140 0 0 1 420,140 Z" fill="url(#gB)"/>
+    <path d="M560,420 L420,420 A140,140 0 0 1 560,280 Z" fill="url(#gA)"/>
+    <path d="M420,420 L560,420 A140,140 0 0 1 420,560 Z" fill="url(#gB)"/>
+    <path d="M280,280 L280,140 A140,140 0 0 1 420,280 Z" fill="url(#gA)"/>
+    <path d="M420,280 L420,420 A140,140 0 0 1 280,280 Z" fill="url(#gA)"/>
+    <path d="M280,560 L280,420 A140,140 0 0 1 420,560 Z" fill="url(#gB)"/>
+    <path d="M280,140 L280,280 A140,140 0 0 1 140,140 Z" fill="url(#gC)"/>
+    <path d="M280,420 L140,420 A140,140 0 0 1 280,280 Z" fill="url(#gB)"/>
+    <path d="M280,420 L280,560 A140,140 0 0 1 140,420 Z" fill="url(#gC)"/>
+    <path d="M0,560 L0,420 A140,140 0 0 1 140,560 Z" fill="url(#gA)"/>
+</svg>
+
+<div class="container">
+    <img class="logo" src="https://cdn.wikioasis.org/metawiki/3/38/WikiOasis_Logo.png" alt="WikiOasis Logo" />
+    <h1 id="error-heading">Down for Maintenance</h1>
+    <p class="description" id="error-description">WikiOasis is currently undergoing scheduled maintenance. We'll be back shortly &mdash; check our status page or Discord for updates.</p>
+    <div class="buttons">
+        <a href="https://discord.gg/GrrTcsVC2x" class="btn">Discord</a>
+        <a href="https://status.wikioasis.org/" class="btn">Status</a>
+    </div>
+</div>
+
+</body>
+</html>

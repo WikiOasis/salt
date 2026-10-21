@@ -57,8 +57,13 @@ haproxy:
         - forwardfor
         - http-server-close
 
+  # Backends with `maintenance: true` answer every request with
+  # salt/haproxy/files/errors/maintenance.html (503 + Retry-After) instead of
+  # proxying. Servers and health checks stay configured, so flipping the flag
+  # back to false is the whole rollback.
   backends:
     apps:
+      maintenance: true
       balance: roundrobin
       options:
         - forwardfor
@@ -70,6 +75,7 @@ haproxy:
           weight: 1
           depooled: false
     mediawiki:
+      maintenance: true
       balance: roundrobin
       options:
         - forwardfor
@@ -106,6 +112,7 @@ haproxy:
     # that backend, and depooling the box serving this portal would take the
     # dashboard down mid-deploy.
     deploy_portal:
+      maintenance: true
       balance: roundrobin
       options:
         - forwardfor
@@ -197,6 +204,7 @@ haproxy:
           weight: 1
           depooled: false
     staging:
+      maintenance: true
       balance: roundrobin
       options:
         - forwardfor

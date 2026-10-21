@@ -63,9 +63,13 @@ backend {{ name }}
 {%- for option in backend.get('options', []) %}
     option {{ option }}
 {%- endfor %}
+{%- if backend.get('maintenance') %}
+    http-request return status 503 content-type "text/html; charset=utf-8" file /etc/haproxy/errors/maintenance.html hdr Retry-After 3600 hdr Cache-Control no-store
+{%- else %}
 {%- for line in backend.get('http_request', []) %}
     http-request {{ line }}
 {%- endfor %}
+{%- endif %}
 {%- for check in backend.get('http_checks', []) %}
     http-check {{ check }}
 {%- endfor %}
