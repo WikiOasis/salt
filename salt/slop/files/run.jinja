@@ -1,0 +1,8 @@
+#!/bin/sh
+{%- set s = salt['pillar.get']('slop', {}) %}
+export SLOP_MASTER={{ s.get('master', '') }}
+export SLOP_CONFIG={{ s.get('path', '/opt/slop') }}/config
+export PYTHONPATH={{ s.get('path', '/opt/slop') }}/src
+export HOME=/home/{{ s.get('user', 'mwdeploy') }}
+cd "$HOME" || exit 1
+exec /usr/bin/python3 -m Slop "$@"

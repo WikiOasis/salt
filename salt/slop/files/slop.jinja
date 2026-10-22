@@ -1,0 +1,16 @@
+#!/bin/sh
+{%- set s = salt['pillar.get']('slop', {}) %}
+{%- set master = s.get('master', '') %}
+export SLOP_MASTER={{ master }}
+export SLOP_CONFIG={{ s.get('path', '/opt/slop') }}/config
+export PYTHONPATH={{ s.get('path', '/opt/slop') }}/src
+if [ "$(id -un)" = "{{ s.get('user', 'mwdeploy') }}" ]; then
+    exec /usr/bin/python3 -m Slop "$@"
+fi
+case " $(hostname) $(hostname -f 2>/dev/null) " in
+    *" {{ master }} "*|*" {{ master.split('.')[0] }} "*)
+        export SLOP_INVOKER="${SLOP_INVOKER:-$(id -un)@$(hostname -s)}"
+        exec sudo -n -u {{ s.get('user', 'mwdeploy') }} /usr/local/lib/slop/run "$@"
+        ;;
+esac
+exec /usr/bin/python3 -m Slop "$@"

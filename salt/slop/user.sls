@@ -1,4 +1,3 @@
-# proxy* servers — deploy user in haproxy group for socket access
 {%- set mw = salt['pillar.get']('mediawiki', {}) %}
 {%- set deploy_user = mw.get('deploy_user', 'mwdeploy') %}
 
@@ -8,8 +7,6 @@
     - shell: /bin/bash
     - home: /home/{{ deploy_user }}
     - createhome: true
-    - groups:
-      - haproxy
   group.present: []
 
 /home/{{ deploy_user }}/.ssh:
@@ -29,4 +26,3 @@
     - require:
       - file: /home/{{ deploy_user }}/.ssh
 {%- endif %}
-

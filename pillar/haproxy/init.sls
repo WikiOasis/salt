@@ -48,8 +48,6 @@ haproxy:
           backend: apps
         - hostname: portal.wikioasis.org
           backend: apps
-        - hostname: console.wikioasis.org
-          backend: deploy_portal
         - hostname: id.wikioasis.org
           backend: authentik
       default_backend: mediawiki
@@ -108,33 +106,6 @@ haproxy:
           check: true
           weight: 1
           depooled: false
-    # Deliberately NOT in the mediawiki backend: a rollout depools servers from
-    # that backend, and depooling the box serving this portal would take the
-    # dashboard down mid-deploy.
-    deploy_portal:
-      maintenance: false
-      balance: roundrobin
-      options:
-        - forwardfor
-        - httpchk
-      http_checks:
-        - send meth GET uri /up
-        - expect status 200
-      # A deployment's live dashboard holds a websocket open for the length of
-      # a rollout (tens of minutes); the default tunnel/server timeouts would
-      # drop it and silently degrade the dashboard to polling.
-      timeout_tunnel: 1h
-      timeout_server: 120s
-      http_request:
-        - set-header X-Forwarded-Proto https
-        - set-header X-Forwarded-Port 443
-      servers:
-        - name: salt-us-east-021.ovvin.wonet
-          host: salt-us-east-021.ovvin.wonet
-          port: 80
-          check: true
-          weight: 1
-          depooled: false
     # The identity provider (salt/authentik on auth-us-east-021). Everything
     # that logs in through id.wikioasis.org comes through here, so it is its
     # own backend and shares a server with nothing.
@@ -171,8 +142,7 @@ haproxy:
         - set-header X-Forwarded-Proto https
         - set-header X-Forwarded-Port 443
       # The admin interface and any future outpost hold websockets open; the
-      # default tunnel timeout would drop them. Same reason deploy_portal has
-      # one.
+      # default tunnel timeout would drop them.
       timeout_tunnel: 1h
       servers:
         - name: auth-us-east-021.ovvin.wonet

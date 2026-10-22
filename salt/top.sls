@@ -9,7 +9,7 @@ base:
     - monitoring.nrpe_salt
     - monitoring.node_exporter
     - monitoring.otelcol
-    - mwdeploy.shim
+    - mwdeploy.retire_shim
     - sysctl.swappiness
     - sal.client
   'apps*':
@@ -33,7 +33,6 @@ base:
     - mariadb.nrpe_backup
     - monitoring.mysqld_exporter
   'db-other-us-east-011*':
-    - mariadb.portal_db
     - mariadb.tsportal_db
     - mariadb.wikioasis_support_db
     - mariadb.sal_db
@@ -44,7 +43,7 @@ base:
     - haproxy
     - monitoring.nrpe_haproxy
     - monitoring.haproxy_exporter
-    - mediawiki.proxy
+    - mwdeploy.retire_proxy
   'monitoring*':
     - monitoring
     - monitoring.director
@@ -56,7 +55,16 @@ base:
     - incidentio_sync
   'staging*':
     - mediawiki
-    - mwdeploy.staging
+    - slop.master
+    - mwdeploy.retire_rsyncd
+
+  'mw* or mediawiki* or task* or staging* or apps*':
+    - match: compound
+    - slop
+    - mwdeploy.retire_legacy
+
+  'apps*':
+    - slop.user
 
   'mw*':
     - mediawiki.target
@@ -93,9 +101,7 @@ base:
     - monitoring.redis_exporter
   'salt*':
     - monitoring.nrpe_salt_master
-    - mwdeploy.portal
-    - mwdeploy.portal.nginx
-    - mwdeploy.portal.master_acl
+    - mwdeploy.retire_portal
     - sal.server
     - monitoring.nrpe_sal_server
   '*-us-east-0[0-9][0-9]*':

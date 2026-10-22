@@ -7,6 +7,7 @@ base:
    'apps*':
       - php
       - php.apps
+      - mediawiki
       - tsportal
       - wikioasis_support
       - private
@@ -49,7 +50,6 @@ base:
       - private
       - incidentio_sync
    'salt*':
-      - mwdeploy_portal
       - sal.server
    'task*':
       - users.servers.mediawiki
@@ -61,6 +61,11 @@ base:
 
    'staging*':
       - php.staging
+      - slop.master
+
+   'mw* or mediawiki* or task* or staging* or apps*':
+      - match: compound
+      - slop
 
    'opensearch*':
       - opensearch

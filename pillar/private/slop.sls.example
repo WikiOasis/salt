@@ -1,0 +1,5 @@
+slop:
+  config_deploy_key: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    CHANGE_ME
+    -----END OPENSSH PRIVATE KEY-----

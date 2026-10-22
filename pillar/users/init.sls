@@ -42,7 +42,6 @@ groups:
         description: elevated permissions on webservers
         members: []
         privileges: ['ALL = (www-data) NOPASSWD: ALL',
-                'ALL = (ALL) NOPASSWD: /usr/local/bin/mwdeploy *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service php8.4-fpm *',
                 'ALL = (ALL) NOPASSWD: /bin/journalctl *']

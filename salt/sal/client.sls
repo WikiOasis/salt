@@ -3,6 +3,7 @@
 {%- for group in salt['pillar.get']('server_groups', ['ops']) %}
   {%- do members.extend(salt['pillar.get']('groups', {}).get(group, {}).get('members', [])) %}
 {%- endfor %}
+{%- do members.extend(salt['pillar.get']('sal:local_users', [])) %}
 {%- set members = members | unique | list %}
 
 include:
