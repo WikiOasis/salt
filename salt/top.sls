@@ -17,6 +17,7 @@ base:
     - nginx
     - tsportal
     - wikioasis_support
+    - slop.user
     - monitoring.nrpe_nginx
     - monitoring.nrpe_wikioasis_support
     - monitoring.nrpe_php
@@ -62,9 +63,6 @@ base:
     - match: compound
     - slop
     - mwdeploy.retire_legacy
-
-  'apps*':
-    - slop.user
 
   'mw*':
     - mediawiki.target
