@@ -159,9 +159,7 @@ def http_get(url: str, timeout: int = 30) -> bytes:
     not an option and every poll pulls the whole document. gzip roughly halves
     it, which matters at a 15s poll interval.
     """
-    request = urllib.request.Request(
-        url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"}
-    )
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         raw = response.read()
         if response.headers.get("Content-Encoding") == "gzip":
@@ -272,9 +270,7 @@ def parse_ts(value: str | None) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def normalise_incident(
-    raw: dict, base_url: str, names: dict, default_kind: str = "incident"
-) -> dict | None:
+def normalise_incident(raw: dict, base_url: str, names: dict, default_kind: str = "incident") -> dict | None:
     """Turn a page-model incident/maintenance into our internal shape.
 
     Also accepts the flatter shape /api/v1/summary returns, which carries only
@@ -459,9 +455,7 @@ def fetch_model(base_url: str, state: dict) -> dict:
                 "group": {
                     "name": c["group"],
                     "hidden": False,
-                    "components": [
-                        {"component_id": c["id"], "name": c["name"], "hidden": False}
-                    ],
+                    "components": [{"component_id": c["id"], "name": c["name"], "hidden": False}],
                 },
             }
             for c in cached
@@ -505,10 +499,7 @@ def separator(spacing: int = 1) -> dict:
 
 def format_updates(updates: list[dict], budget: int) -> str:
     """Render the update timeline newest-last, dropping oldest lines to fit."""
-    lines = [
-        f"[<t:{u['ts']}:R>] • **{humanise(u['status'])}** • {u['message']}".strip()
-        for u in updates
-    ]
+    lines = [f"[<t:{u['ts']}:R>] • **{humanise(u['status'])}** • {u['message']}".strip() for u in updates]
 
     while lines:
         rendered = "\n".join(lines)
@@ -852,9 +843,7 @@ def close_disappeared(model: dict, state: dict, config: dict) -> bool:
         if not entry.get("message_id"):
             entry["closed"] = True
             continue
-        final = fetch_final_incident(
-            config["base_url"], incident_id, entry.get("kind", "incident"), names
-        )
+        final = fetch_final_incident(config["base_url"], incident_id, entry.get("kind", "incident"), names)
         if final is None:
             continue  # try again next poll rather than leaving a stale message
         if sync_incident(final, state, config["webhook"], config["status_page_url"]):
@@ -910,17 +899,13 @@ def poll_once(config: dict) -> int:
         log.error("Could not read %s: %s", config["base_url"], exc)
         return 1
 
-    log.debug(
-        "%d components, %d live incidents", len(model["roster"]), len(model["incidents"])
-    )
+    log.debug("%d components, %d live incidents", len(model["roster"]), len(model["incidents"]))
 
     failures = 0
     posted = False
     for incident in model["incidents"]:
         try:
-            result = sync_incident(
-                incident, state, config["webhook"], config["status_page_url"]
-            )
+            result = sync_incident(incident, state, config["webhook"], config["status_page_url"])
             if result:
                 posted = posted or result == "posted"
                 save_state(config["state_path"], state)  # persist per incident, so a
@@ -971,8 +956,7 @@ def main() -> int:
         "status_page_url": urllib.parse.urlparse(base_url).netloc or base_url,
         "state_path": Path(os.environ.get("STATE_FILE", "state.json")).expanduser(),
         "prune_days": int(os.environ.get("PRUNE_AFTER_DAYS", "30")),
-        "overview_enabled": os.environ.get("OVERVIEW_ENABLED", "1").strip().lower()
-        not in ("0", "false", "no", ""),
+        "overview_enabled": os.environ.get("OVERVIEW_ENABLED", "1").strip().lower() not in ("0", "false", "no", ""),
     }
 
     # POLL_INTERVAL turns this into a long-running daemon that polls on its own

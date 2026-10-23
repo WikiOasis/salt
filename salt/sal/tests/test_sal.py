@@ -113,7 +113,9 @@ class RenderTest(unittest.TestCase):
 
     def test_command_rendering(self):
         line = S.render_line(entry(message="systemctl restart nginx", is_command=1, exit_code=3), "p")
-        self.assertEqual(line, "* 14:02 thomas@mw-us-east-021: <code><nowiki>systemctl restart nginx</nowiki></code> (exit 3)")
+        self.assertEqual(
+            line, "* 14:02 thomas@mw-us-east-021: <code><nowiki>systemctl restart nginx</nowiki></code> (exit 3)"
+        )
 
     def test_ref_extraction(self):
         self.assertEqual(S.extract_refs("T1 T1, see D22/rMWabcdef1 T0 xT5 url/T9 P3."), ["T1", "D22", "P3"])
@@ -129,7 +131,9 @@ class RenderTest(unittest.TestCase):
     def test_apply_update_and_delete(self):
         row = entry()
         text, line = S.apply_wiki_op(PAGE, row, "p")
-        edited, new_line = S.apply_wiki_op(text, entry(message="restarted nginx", wiki_op="update", wiki_line=line), "p")
+        edited, new_line = S.apply_wiki_op(
+            text, entry(message="restarted nginx", wiki_op="update", wiki_line=line), "p"
+        )
         self.assertNotIn(line, edited)
         self.assertIn(new_line, edited)
         removed, gone = S.apply_wiki_op(edited, entry(wiki_op="delete", deleted=1, wiki_line=new_line), "p")
@@ -233,9 +237,11 @@ class WorkerTest(unittest.TestCase):
 
 class ClientTest(unittest.TestCase):
     def test_log_takes_everything_verbatim(self):
-        with mock.patch.object(C, "load_config", return_value={}), mock.patch.object(
-            C, "post", return_value={"id": 5, "user": "u", "host": "h", "message": "m"}
-        ) as post, mock.patch("sys.stdout", new=io.StringIO()):
+        with (
+            mock.patch.object(C, "load_config", return_value={}),
+            mock.patch.object(C, "post", return_value={"id": 5, "user": "u", "host": "h", "message": "m"}) as post,
+            mock.patch("sys.stdout", new=io.StringIO()),
+        ):
             self.assertEqual(C.main_log(["restarted", "nginx", "-f", "--search", "x"]), 0)
         self.assertEqual(post.call_args[0][1], "restarted nginx -f --search x")
 
@@ -263,7 +269,9 @@ class ClientTest(unittest.TestCase):
     def test_format_entry(self):
         data = S.serialize(entry(id=42, phorge_refs="T1"))
         line = C.format_entry(json.loads(json.dumps(data)), verbose=True)
-        self.assertEqual(line, "2026-10-16 14:02  #42     thomas@mw-us-east-021: restarted php-fpm  [wiki:pending phorge:pending T1]")
+        self.assertEqual(
+            line, "2026-10-16 14:02  #42     thomas@mw-us-east-021: restarted php-fpm  [wiki:pending phorge:pending T1]"
+        )
 
 
 if __name__ == "__main__":

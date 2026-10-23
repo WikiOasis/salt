@@ -107,7 +107,7 @@ from typing import Any, Callable, Collection, Iterable, Mapping, Optional, Seque
 
 LOG = logging.getLogger("fandom_import")
 
-GiB = 1024 ** 3
+GiB = 1024**3
 
 STAGES: tuple[str, ...] = ("resolve", "prepare", "dump", "pages", "images", "upload", "finalize")
 
@@ -191,8 +191,7 @@ class StageError(Exception):
 class ManifestError(ValueError):
     """An unusable manifest. Carries whatever could be trusted for reporting."""
 
-    def __init__(self, message: str, import_id: Optional[int] = None,
-                 central_wiki: Optional[str] = None) -> None:
+    def __init__(self, message: str, import_id: Optional[int] = None, central_wiki: Optional[str] = None) -> None:
         super().__init__(message)
         self.import_id = import_id
         self.central_wiki = central_wiki
@@ -217,6 +216,7 @@ class WorkerInterrupted(BaseException):
 @dataclass
 class Deferral:
     """Stop for now and come back later without counting a failed attempt."""
+
     seconds: int
     message: Optional[str] = None
     data: dict[str, Any] = field(default_factory=dict)
@@ -225,6 +225,7 @@ class Deferral:
 @dataclass
 class Rewind:
     """Something an earlier stage produced is gone: run that stage again."""
+
     stage: str
     reason: str
 
@@ -337,8 +338,7 @@ def _strictly_inside(real: str, root: Path) -> bool:
     return real != root_real and real.startswith(root_real.rstrip(os.sep) + os.sep)
 
 
-def safe_rmtree(path: Path, roots: Iterable[Path],
-                log: Optional[Callable[[str], None]] = None) -> int:
+def safe_rmtree(path: Path, roots: Iterable[Path], log: Optional[Callable[[str], None]] = None) -> int:
     """The only way this worker deletes anything. Returns the bytes freed.
 
     Refuses symlinks outright and anything whose real path is not strictly
@@ -405,8 +405,7 @@ class Manifest:
     prefer_full_history: Optional[bool]
 
 
-def validate_manifest(data: Any, *, expected_id: Optional[int] = None,
-                      central_wiki: Optional[str] = None) -> Manifest:
+def validate_manifest(data: Any, *, expected_id: Optional[int] = None, central_wiki: Optional[str] = None) -> Manifest:
     """Check every field of a v1 manifest. Raises ManifestError.
 
     The error carries the id and central wiki only when both can be trusted,
@@ -418,12 +417,15 @@ def validate_manifest(data: Any, *, expected_id: Optional[int] = None,
         raise ManifestError("manifest is not a JSON object")
 
     raw_id = data.get("id")
-    import_id = raw_id if is_int(raw_id) and 0 < raw_id < 10 ** 18 else None
+    import_id = raw_id if is_int(raw_id) and 0 < raw_id < 10**18 else None
     if expected_id is not None and import_id != expected_id:
         raise ManifestError(f"manifest id {raw_id!r} does not match its file name ({expected_id})")
     raw_central = data.get("central_wiki")
-    central_ok = (isinstance(raw_central, str) and DBNAME_RE.fullmatch(raw_central) is not None
-                  and (central_wiki is None or raw_central == central_wiki))
+    central_ok = (
+        isinstance(raw_central, str)
+        and DBNAME_RE.fullmatch(raw_central) is not None
+        and (central_wiki is None or raw_central == central_wiki)
+    )
     known_central = raw_central if central_ok else None
 
     def bad(message: str) -> ManifestError:
@@ -483,8 +485,7 @@ def validate_manifest(data: Any, *, expected_id: Optional[int] = None,
         id=import_id,
         central_wiki=raw_central,
         target_wiki=target,
-        source=Source(key=expected_key, subdomain=subdomain, lang=lang,
-                      base_url=base_url, api_url=api_url),
+        source=Source(key=expected_key, subdomain=subdomain, lang=lang, base_url=base_url, api_url=api_url),
         username_prefix=prefix,
         upload_user=upload_user,
         summary=summary,
@@ -508,8 +509,7 @@ def dump_candidates(wikiid: str, prefer_full_history: bool) -> list[tuple[str, s
     if not DBNAME_RE.fullmatch(wikiid):
         raise ValueError(f"invalid Fandom wiki id {wikiid!r}")
     variants = ("full", "current") if prefer_full_history else ("current", "full")
-    return [(v, DUMP_URL.format(first=wikiid[0], first2=wikiid[:2], wikiid=wikiid, variant=v))
-            for v in variants]
+    return [(v, DUMP_URL.format(first=wikiid[0], first2=wikiid[:2], wikiid=wikiid, variant=v)) for v in variants]
 
 
 @dataclass
@@ -527,9 +527,13 @@ _STRUCTURAL_MAX = 64
 _MAX_PAGE_HEADER_LINES = 1000
 
 
-def filter_dump_lines(lines: Iterable[str], write: Callable[[str], Any], keep: Collection[int],
-                      check: Optional[Callable[[], None]] = None,
-                      check_every: int = 10000) -> FilterStats:
+def filter_dump_lines(
+    lines: Iterable[str],
+    write: Callable[[str], Any],
+    keep: Collection[int],
+    check: Optional[Callable[[], None]] = None,
+    check_every: int = 10000,
+) -> FilterStats:
     """Copy a MediaWiki XML export, dropping <page>s outside `keep`.
 
     Export XML puts <page>, <ns> and </page> on lines of their own, and page
@@ -618,7 +622,7 @@ def parse_7z_listing_size(output: str) -> Optional[int]:
             continue
         if in_entries and line.startswith("Size = "):
             try:
-                total += int(line[len("Size = "):].strip())
+                total += int(line[len("Size = ") :].strip())
                 found = True
             except ValueError:
                 continue
@@ -631,8 +635,7 @@ def parse_prepare_output(line: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("not a JSON object")
     namespaces = data.get("namespaces")
-    if (not isinstance(namespaces, list) or not namespaces
-            or not all(is_int(ns) for ns in namespaces)):
+    if not isinstance(namespaces, list) or not namespaces or not all(is_int(ns) for ns in namespaces):
         raise ValueError("namespaces must be a non-empty list of integers")
     upload_user = validate_user_name(data.get("upload_user"))
     extensions = data.get("enabled_extensions", [])
@@ -640,8 +643,8 @@ def parse_prepare_output(line: str) -> dict[str, Any]:
         raise ValueError("enabled_extensions must be a list of strings")
     created = data.get("created_namespaces", [])
     if not isinstance(created, list) or not all(
-            isinstance(c, dict) and is_int(c.get("id")) and isinstance(c.get("name"), str)
-            for c in created):
+        isinstance(c, dict) and is_int(c.get("id")) and isinstance(c.get("name"), str) for c in created
+    ):
         raise ValueError("created_namespaces must be a list of {id, name}")
     warnings = data.get("warnings", [])
     if not isinstance(warnings, list) or not all(isinstance(w, str) for w in warnings):
@@ -658,6 +661,7 @@ def parse_prepare_output(line: str) -> dict[str, Any]:
 @dataclass(frozen=True)
 class ImageEntry:
     """One line of wikiteam3's images.txt. `timestamp` is None for "null"."""
+
     name: str
     size: int
     timestamp: Optional[str]
@@ -751,8 +755,7 @@ def plan_image_windows(entries: Iterable[ImageEntry], max_bytes: int, max_files:
     current: Optional[dict[str, Any]] = None
     for timestamp in sorted(groups):
         files, nbytes = groups[timestamp]
-        if current is not None and (current["files"] + files > max_files
-                                    or current["bytes"] + nbytes > max_bytes):
+        if current is not None and (current["files"] + files > max_files or current["bytes"] + nbytes > max_bytes):
             spans.append(current)
             current = None
         if current is None:
@@ -764,13 +767,15 @@ def plan_image_windows(entries: Iterable[ImageEntry], max_bytes: int, max_files:
         spans.append(current)
     windows = []
     for index, span in enumerate(spans):
-        windows.append({
-            "start": WINDOW_FIRST_START if index == 0 else span["first"],
-            "end": WINDOW_LAST_END if index == len(spans) - 1 else span["last"],
-            "files": span["files"],
-            "bytes": span["bytes"],
-            "done": False,
-        })
+        windows.append(
+            {
+                "start": WINDOW_FIRST_START if index == 0 else span["first"],
+                "end": WINDOW_LAST_END if index == len(spans) - 1 else span["last"],
+                "files": span["files"],
+                "bytes": span["bytes"],
+                "done": False,
+            }
+        )
     return windows
 
 
@@ -825,7 +830,7 @@ class ImportImagesParser:
                 self._outcome(match.group("name"), outcome)
             return
         if text.startswith("Importing ") and "..." in text:
-            name = text[len("Importing "):text.index("...")]
+            name = text[len("Importing ") : text.index("...")]
             if "failed. (" in text:
                 self._fail(name)
                 self._pending = None
@@ -866,8 +871,9 @@ class ImportImagesParser:
         }
 
 
-def pick_next(states: Mapping[int, Mapping[str, Any]], queue: Sequence[tuple[int, float]],
-              now: datetime) -> Optional[tuple[str, int]]:
+def pick_next(
+    states: Mapping[int, Mapping[str, Any]], queue: Sequence[tuple[int, float]], now: datetime
+) -> Optional[tuple[str, int]]:
     """Which import this run works on, if any.
 
     1. a running import whose next_try is due (crash recovery, backoff,
@@ -1048,11 +1054,17 @@ def terminate_process_group(proc: subprocess.Popen, grace: float = 30) -> None:
             continue
 
 
-def run_streaming(cmd: Sequence[str], *, env: Mapping[str, str], cwd: Path,
-                  on_line: Callable[[str], None],
-                  on_poll: Optional[Callable[[], Optional[str]]] = None,
-                  poll_seconds: float = POLL_INTERVAL, pass_fds: Sequence[int] = (),
-                  stderr_path: Optional[Path] = None) -> ToolResult:
+def run_streaming(
+    cmd: Sequence[str],
+    *,
+    env: Mapping[str, str],
+    cwd: Path,
+    on_line: Callable[[str], None],
+    on_poll: Optional[Callable[[], Optional[str]]] = None,
+    poll_seconds: float = POLL_INTERVAL,
+    pass_fds: Sequence[int] = (),
+    stderr_path: Optional[Path] = None,
+) -> ToolResult:
     """Run a tool, hand every output line to `on_line` (from a reader thread)
     and call `on_poll` from this thread every `poll_seconds`. If `on_poll`
     returns a reason, the tool is terminated and the reason is reported.
@@ -1067,9 +1079,14 @@ def run_streaming(cmd: Sequence[str], *, env: Mapping[str, str], cwd: Path,
     stderr_file = open(stderr_path, "ab") if stderr_path else None
     try:
         proc = subprocess.Popen(
-            list(cmd), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            list(cmd),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=stderr_file if stderr_file else subprocess.STDOUT,
-            env=dict(env), cwd=str(cwd), pass_fds=tuple(pass_fds), start_new_session=True,
+            env=dict(env),
+            cwd=str(cwd),
+            pass_fds=tuple(pass_fds),
+            start_new_session=True,
         )
     finally:
         if stderr_file:
@@ -1119,9 +1136,16 @@ class MediaWiki:
     def command(self, script: str, wiki: str, *args: str) -> list[str]:
         return [self.php, self.mwscript, "maintenance/run.php", script, f"--wiki={wiki}", *args]
 
-    def callback_command(self, central_wiki: str, import_id: int, event: str, *,
-                         stage: Optional[str] = None, data: Optional[dict[str, Any]] = None,
-                         message: Optional[str] = None) -> list[str]:
+    def callback_command(
+        self,
+        central_wiki: str,
+        import_id: int,
+        event: str,
+        *,
+        stage: Optional[str] = None,
+        data: Optional[dict[str, Any]] = None,
+        message: Optional[str] = None,
+    ) -> list[str]:
         args = [f"--id={import_id}", f"--event={event}"]
         if stage:
             args.append(f"--stage={stage}")
@@ -1167,8 +1191,12 @@ class DumpCheck:
         return text
 
     def to_callback(self) -> dict[str, Any]:
-        return {"variant": self.variant, "status": self.status,
-                "storage_class": self.storage_class, "last_modified": self.last_modified}
+        return {
+            "variant": self.variant,
+            "status": self.status,
+            "storage_class": self.storage_class,
+            "last_modified": self.last_modified,
+        }
 
 
 def _http_date_to_iso(value: Optional[str]) -> Optional[str]:
@@ -1181,8 +1209,7 @@ def _http_date_to_iso(value: Optional[str]) -> Optional[str]:
 
 
 class Http:
-    def __init__(self, user_agent: str, retries: int,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+    def __init__(self, user_agent: str, retries: int, sleep: Callable[[float], None] = time.sleep) -> None:
         self.user_agent = user_agent
         self.retries = max(0, retries)
         self.sleep = sleep
@@ -1191,12 +1218,17 @@ class Http:
     def _backoff(self, attempt: int, retry_after: Optional[str]) -> float:
         if retry_after and retry_after.strip().isdigit():
             return min(int(retry_after.strip()), 300)
-        return min(2 ** attempt * 2, 60)
+        return min(2**attempt * 2, 60)
 
-    def open(self, url: str, *, headers: Optional[Mapping[str, str]] = None,
-             method: str = "GET", timeout: float = API_TIMEOUT):
-        req = urllib.request.Request(url, method=method,
-                                     headers={"User-Agent": self.user_agent, **(headers or {})})
+    def open(
+        self,
+        url: str,
+        *,
+        headers: Optional[Mapping[str, str]] = None,
+        method: str = "GET",
+        timeout: float = API_TIMEOUT,
+    ):
+        req = urllib.request.Request(url, method=method, headers={"User-Agent": self.user_agent, **(headers or {})})
         return self.opener.open(req, timeout=timeout)
 
     def get_json(self, url: str, params: Mapping[str, str], *, timeout: float = API_TIMEOUT) -> Any:
@@ -1227,11 +1259,15 @@ class Http:
                 status, location, retry_after = e.code, e.headers.get("Location"), e.headers.get("Retry-After")
                 e.close()
                 if 300 <= status < 400:
-                    raise StageError(f"{url} redirects to {clean_text(location or '?', 200)}; "
-                                     f"the wiki may have moved or been renamed", permanent=True) from None
+                    raise StageError(
+                        f"{url} redirects to {clean_text(location or '?', 200)}; "
+                        f"the wiki may have moved or been renamed",
+                        permanent=True,
+                    ) from None
                 if status in (404, 410):
-                    raise StageError(f"{url} returned HTTP {status}; the wiki does not seem to exist",
-                                     permanent=True) from None
+                    raise StageError(
+                        f"{url} returned HTTP {status}; the wiki does not seem to exist", permanent=True
+                    ) from None
                 if status != 429 and status < 500:
                     raise StageError(f"{url} returned HTTP {status}") from None
                 last = f"HTTP {status}"
@@ -1330,8 +1366,7 @@ class Worker:
         return self.work_dir(import_id) / "tmp"
 
     def rmtree(self, path: Path, log: Optional[ImportLog] = None) -> int:
-        return safe_rmtree(path, (self.cfg.work_dir, self.cfg.queue_dir),
-                           log=log.info if log else None)
+        return safe_rmtree(path, (self.cfg.work_dir, self.cfg.queue_dir), log=log.info if log else None)
 
     def ensure_dirs(self) -> None:
         if not self.cfg.spool_dir.is_dir():
@@ -1390,11 +1425,14 @@ class Worker:
             data = read_json_file(self.state_path(import_id), MAX_JSON_BYTES)
         except (OSError, ValueError):
             return None
-        if (not isinstance(data, dict) or data.get("id") != import_id
-                or data.get("status") not in KNOWN_STATUSES
-                or not isinstance(data.get("central_wiki"), str)
-                or not DBNAME_RE.fullmatch(data["central_wiki"])
-                or not isinstance(data.get("pending_callbacks", []), list)):
+        if (
+            not isinstance(data, dict)
+            or data.get("id") != import_id
+            or data.get("status") not in KNOWN_STATUSES
+            or not isinstance(data.get("central_wiki"), str)
+            or not DBNAME_RE.fullmatch(data["central_wiki"])
+            or not isinstance(data.get("pending_callbacks", []), list)
+        ):
             return None
         state = self.new_state(import_id)
         state.update(data)
@@ -1443,18 +1481,28 @@ class Worker:
     def _deliver(self, st: dict[str, Any], cb: Mapping[str, Any]) -> bool:
         import_id = st["id"]
         log = self.log_for(import_id)
-        cmd = self.mw.callback_command(st["central_wiki"], import_id, cb["event"],
-                                       stage=cb.get("stage"), data=cb.get("data"),
-                                       message=cb.get("message"))
+        cmd = self.mw.callback_command(
+            st["central_wiki"],
+            import_id,
+            cb["event"],
+            stage=cb.get("stage"),
+            data=cb.get("data"),
+            message=cb.get("message"),
+        )
         wd = self.work_dir(import_id)
         tmp = self.tmp_dir(import_id)
         if not tmp.is_dir():
             tmp = self.cfg.tmp_dir
         try:
             proc = subprocess.run(
-                cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                env=self.child_env(tmp), cwd=str(wd if wd.is_dir() else self.cfg.spool_dir),
-                timeout=CALLBACK_TIMEOUT, pass_fds=self.child_fds,
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=self.child_env(tmp),
+                cwd=str(wd if wd.is_dir() else self.cfg.spool_dir),
+                timeout=CALLBACK_TIMEOUT,
+                pass_fds=self.child_fds,
             )
         except (OSError, subprocess.TimeoutExpired) as e:
             log.event(logging.WARNING, f"callback {cb['event']} failed: {clean_text(e, 300)}")
@@ -1466,8 +1514,15 @@ class Worker:
         log.info(f"callback {cb['event']} delivered")
         return True
 
-    def queue_callback(self, st: dict[str, Any], event: str, *, stage: Optional[str] = None,
-                       data: Optional[dict[str, Any]] = None, message: Optional[str] = None) -> None:
+    def queue_callback(
+        self,
+        st: dict[str, Any],
+        event: str,
+        *,
+        stage: Optional[str] = None,
+        data: Optional[dict[str, Any]] = None,
+        message: Optional[str] = None,
+    ) -> None:
         """Persist a terminal callback; flush_callbacks() delivers it in order.
 
         Any queued waiting-dump notice is dropped first: it is stale the
@@ -1510,8 +1565,15 @@ class Worker:
             self.save_state(st)
         return True
 
-    def notify(self, st: dict[str, Any], event: str, *, stage: Optional[str] = None,
-               data: Optional[dict[str, Any]] = None, message: Optional[str] = None) -> bool:
+    def notify(
+        self,
+        st: dict[str, Any],
+        event: str,
+        *,
+        stage: Optional[str] = None,
+        data: Optional[dict[str, Any]] = None,
+        message: Optional[str] = None,
+    ) -> bool:
         """Best-effort, non-terminal callback. Skipped while terminal callbacks
         are still queued, so it can never overtake one of them."""
         if not self.flush_callbacks(st):
@@ -1519,8 +1581,9 @@ class Worker:
             return False
         return self._deliver(st, {"event": event, "stage": stage, "data": data, "message": message})
 
-    def progress(self, st: dict[str, Any], data: Optional[Mapping[str, Any]] = None,
-                 message: Optional[str] = None) -> None:
+    def progress(
+        self, st: dict[str, Any], data: Optional[Mapping[str, Any]] = None, message: Optional[str] = None
+    ) -> None:
         """Merge into the pending progress update and send it if allowed."""
         pending = st.get("pending_progress") or {"data": {}, "message": None}
         if data:
@@ -1590,15 +1653,17 @@ class Worker:
                 self.rmtree(queued, log)
             except (OSError, UnsafePathError):
                 pass
-            self.reject(import_id, ManifestError(f"worker could not claim the request: {e}",
-                                                 import_id, self.cfg.central_wiki))
+            self.reject(
+                import_id, ManifestError(f"worker could not claim the request: {e}", import_id, self.cfg.central_wiki)
+            )
             return None
         if not incoming.is_file():
             return None
 
         try:
-            manifest = validate_manifest(read_json_file(incoming, MAX_MANIFEST_BYTES),
-                                         expected_id=import_id, central_wiki=self.cfg.central_wiki)
+            manifest = validate_manifest(
+                read_json_file(incoming, MAX_MANIFEST_BYTES), expected_id=import_id, central_wiki=self.cfg.central_wiki
+            )
         except (OSError, ValueError) as e:
             self.rmtree(incoming, log)
             err = e if isinstance(e, ManifestError) else ManifestError(f"unreadable manifest: {e}")
@@ -1613,18 +1678,20 @@ class Worker:
             except (OSError, ValueError):
                 old_manifest = None
         resumable = (
-            st is not None and st["status"] not in TOMBSTONE_STATUSES and old_manifest is not None
+            st is not None
+            and st["status"] not in TOMBSTONE_STATUSES
+            and old_manifest is not None
             and old_manifest.target_wiki == manifest.target_wiki
             and old_manifest.source == manifest.source
         )
         if resumable:
             assert st is not None
-            log.event(logging.INFO, f"retry requested; resuming from {self._next_stage(st)} "
-                                    f"(was {st['status']})")
+            log.event(logging.INFO, f"retry requested; resuming from {self._next_stage(st)} (was {st['status']})")
             self.reset_for_retry(st)
         else:
-            carried = [c for c in (st or {}).get("pending_callbacks", [])
-                       if c.get("event") not in ("failed", "waiting-dump")]
+            carried = [
+                c for c in (st or {}).get("pending_callbacks", []) if c.get("event") not in ("failed", "waiting-dump")
+            ]
             if st is not None:
                 log.event(logging.INFO, f"starting over (previous state was {st['status']})")
                 self.purge_work_files(import_id, keep={"incoming.json", "state.json"})
@@ -1648,11 +1715,23 @@ class Worker:
         return next((s for s in STAGES if s not in done), STAGES[-1])
 
     def reset_for_retry(self, st: dict[str, Any]) -> None:
-        st.update(status=STATUS_RUNNING, attempts={}, interruptions={}, inflight=None,
-                  next_try=None, waiting_for=None, next_check=None, waiting_since=None,
-                  failed_at=None, files_expire=None, error=None, announced_stage=None)
-        st["pending_callbacks"] = [c for c in st.get("pending_callbacks") or []
-                                   if c.get("event") not in ("failed", "waiting-dump")]
+        st.update(
+            status=STATUS_RUNNING,
+            attempts={},
+            interruptions={},
+            inflight=None,
+            next_try=None,
+            waiting_for=None,
+            next_check=None,
+            waiting_since=None,
+            failed_at=None,
+            files_expire=None,
+            error=None,
+            announced_stage=None,
+        )
+        st["pending_callbacks"] = [
+            c for c in st.get("pending_callbacks") or [] if c.get("event") not in ("failed", "waiting-dump")
+        ]
 
     def reject(self, import_id: int, err: ManifestError) -> None:
         """Report an unusable manifest as `failed`, if it can be attributed.
@@ -1677,15 +1756,15 @@ class Worker:
             wd.mkdir(mode=0o750, exist_ok=True)
             st = self.new_state(import_id)
             st["status"] = STATUS_REJECTED
-            self.queue_callback(st, "failed", stage=STAGES[0], message=message,
-                                data={"files_expire": None})
+            self.queue_callback(st, "failed", stage=STAGES[0], message=message, data={"files_expire": None})
         elif st["status"] in (STATUS_RUNNING, STATUS_WAITING_DUMP):
             log.warning("ignoring the invalid retry request; the import is still active")
             return
         else:
             expire = st.get("files_expire") if st["status"] == STATUS_FAILED else None
-            self.queue_callback(st, "failed", stage=st.get("stage") or STAGES[0], message=message,
-                                data={"files_expire": expire})
+            self.queue_callback(
+                st, "failed", stage=st.get("stage") or STAGES[0], message=message, data={"files_expire": expire}
+            )
         self.flush_callbacks(st, force=True)
         self.finish_tombstone(st)
 
@@ -1735,10 +1814,17 @@ class Worker:
             st = self.new_state(import_id)
         else:
             if st["status"] in (STATUS_RUNNING, STATUS_WAITING_DUMP):
-                st.update(status=STATUS_FAILED, failed_at=iso(self.clock()), files_expire=None,
-                          error="Import discarded", next_try=None, inflight=None)
-                self.queue_callback(st, "failed", stage=st.get("stage"), message="Import discarded",
-                                    data={"files_expire": None})
+                st.update(
+                    status=STATUS_FAILED,
+                    failed_at=iso(self.clock()),
+                    files_expire=None,
+                    error="Import discarded",
+                    next_try=None,
+                    inflight=None,
+                )
+                self.queue_callback(
+                    st, "failed", stage=st.get("stage"), message="Import discarded", data={"files_expire": None}
+                )
             self.purge_work_files(import_id)
         st["status"] = STATUS_DELETED
         st["pending_progress"] = None
@@ -1939,8 +2025,7 @@ class ImportRunner:
                 self.fail(stage, f"The worker was interrupted {count} times during this stage")
                 return
         if recheck or st["status"] == STATUS_WAITING_DUMP:
-            st["pending_callbacks"] = [c for c in st.get("pending_callbacks") or []
-                                       if c.get("event") != "waiting-dump"]
+            st["pending_callbacks"] = [c for c in st.get("pending_callbacks") or [] if c.get("event") != "waiting-dump"]
             st["announced_stage"] = None
             st["next_check"] = None
         st.update(status=STATUS_RUNNING, next_try=None, waiting_for=None)
@@ -2014,16 +2099,28 @@ class ImportRunner:
         retry_at = self.w.clock() + timedelta(seconds=delay)
         st.update(status=STATUS_RUNNING, next_try=iso(retry_at), waiting_for=None)
         self.w.save_state(st)
-        self.log.event(logging.WARNING, f"stage {stage} failed (attempt {attempts}/"
-                                        f"{self.cfg.max_stage_attempts}): {message}; retrying at {iso(retry_at)}")
+        self.log.event(
+            logging.WARNING,
+            f"stage {stage} failed (attempt {attempts}/"
+            f"{self.cfg.max_stage_attempts}): {message}; retrying at {iso(retry_at)}",
+        )
 
     def fail(self, stage: str, message: str) -> None:
         st = self.st
         now = self.w.clock()
         expire = now + timedelta(days=self.cfg.failed_retention_days)
         message = clean_text(message, 1000)
-        st.update(status=STATUS_FAILED, stage=stage, failed_at=iso(now), files_expire=iso(expire),
-                  error=message, next_try=None, inflight=None, waiting_for=None, pending_progress=None)
+        st.update(
+            status=STATUS_FAILED,
+            stage=stage,
+            failed_at=iso(now),
+            files_expire=iso(expire),
+            error=message,
+            next_try=None,
+            inflight=None,
+            waiting_for=None,
+            pending_progress=None,
+        )
         self.log.event(logging.ERROR, f"failed in stage {stage}: {message} (files kept until {iso(expire)})")
         self.w.queue_callback(st, "failed", stage=stage, message=message, data={"files_expire": iso(expire)})
         self.w.flush_callbacks(st, force=True)
@@ -2044,23 +2141,30 @@ class ImportRunner:
         free = self.free_bytes()
         if free >= needed:
             return None
-        self.log.event(logging.WARNING, f"{what} needs {human_bytes(needed)} free, "
-                                        f"only {human_bytes(free)} available")
-        return Deferral(DISK_RETRY, "Waiting for disk space",
-                        {"disk_free_bytes": free, "disk_needed_bytes": needed})
+        self.log.event(logging.WARNING, f"{what} needs {human_bytes(needed)} free, only {human_bytes(free)} available")
+        return Deferral(DISK_RETRY, "Waiting for disk space", {"disk_free_bytes": free, "disk_needed_bytes": needed})
 
     def low_disk(self) -> Deferral:
         free = self.free_bytes()
-        self.log.event(logging.WARNING, f"paused: only {human_bytes(free)} free "
-                                        f"(floor {human_bytes(self.cfg.min_free_bytes)})")
-        return Deferral(DISK_RETRY, "Paused: low disk space",
-                        {"disk_free_bytes": free, "disk_min_free_bytes": self.cfg.min_free_bytes})
+        self.log.event(
+            logging.WARNING, f"paused: only {human_bytes(free)} free (floor {human_bytes(self.cfg.min_free_bytes)})"
+        )
+        return Deferral(
+            DISK_RETRY,
+            "Paused: low disk space",
+            {"disk_free_bytes": free, "disk_min_free_bytes": self.cfg.min_free_bytes},
+        )
 
-    def run_tool(self, cmd: Sequence[str], *, label: str,
-                 line_handler: Optional[Callable[[str], None]] = None,
-                 poll: Optional[Callable[[], Optional[str]]] = None,
-                 output_file: Optional[Path] = None,
-                 stderr_path: Optional[Path] = None) -> ToolResult:
+    def run_tool(
+        self,
+        cmd: Sequence[str],
+        *,
+        label: str,
+        line_handler: Optional[Callable[[str], None]] = None,
+        poll: Optional[Callable[[], Optional[str]]] = None,
+        output_file: Optional[Path] = None,
+        stderr_path: Optional[Path] = None,
+    ) -> ToolResult:
         """Run a long tool with output going to the import log (or a file in
         the work dir for the chatty ones), housekeeping while it runs."""
         self.log.info(f"running: {shlex.join(cmd)}")
@@ -2082,21 +2186,28 @@ class ImportRunner:
             return poll() if poll else None
 
         try:
-            result = run_streaming(cmd, env=self.w.child_env(self.tmp), cwd=self.dir,
-                                   on_line=on_line, on_poll=on_poll, pass_fds=self.w.child_fds,
-                                   stderr_path=stderr_path)
+            result = run_streaming(
+                cmd,
+                env=self.w.child_env(self.tmp),
+                cwd=self.dir,
+                on_line=on_line,
+                on_poll=on_poll,
+                pass_fds=self.w.child_fds,
+                stderr_path=stderr_path,
+            )
         finally:
             if sink:
                 sink.close()
-        self.log.info(f"{label} exited with {result.returncode}"
-                      + (f" (terminated: {result.terminated})" if result.terminated else ""))
+        self.log.info(
+            f"{label} exited with {result.returncode}"
+            + (f" (terminated: {result.terminated})" if result.terminated else "")
+        )
         if result.returncode != 0 and output_file:
             for line in result.tail[-20:]:
                 self.log.tool(label, line)
         return result
 
-    def mw_tool(self, script: str, *args: str, label: Optional[str] = None,
-                **kwargs: Any) -> ToolResult:
+    def mw_tool(self, script: str, *args: str, label: Optional[str] = None, **kwargs: Any) -> ToolResult:
         cmd = self.w.mw.command(script, self.manifest.target_wiki, *args)
         return self.run_tool(cmd, label=label or script, **kwargs)
 
@@ -2126,8 +2237,7 @@ class ImportRunner:
         rights = query.get("rightsinfo") if isinstance(query.get("rightsinfo"), dict) else {}
         wikiid = general.get("wikiid")
         if not isinstance(wikiid, str) or not DBNAME_RE.fullmatch(wikiid):
-            raise StageError(f"Fandom reported an unusable wiki id {clean_text(repr(wikiid), 80)}",
-                             permanent=True)
+            raise StageError(f"Fandom reported an unusable wiki id {clean_text(repr(wikiid), 80)}", permanent=True)
         write_json_atomic(self.dir / "siteinfo.json", data)
         info = {
             "fandom_wikiid": wikiid,
@@ -2138,8 +2248,11 @@ class ImportRunner:
         }
         self.st["summary"].update(info)
         self.w.save_state(self.st)
-        self.log.event(logging.INFO, f"resolved {self.manifest.source.base_url}: wikiid {wikiid}, "
-                                     f"{info['fandom_pages']} pages, {info['fandom_files']} files")
+        self.log.event(
+            logging.INFO,
+            f"resolved {self.manifest.source.base_url}: wikiid {wikiid}, "
+            f"{info['fandom_pages']} pages, {info['fandom_files']} files",
+        )
         self.w.progress(self.st, info)
 
     def stage_prepare(self) -> Optional[Rewind]:
@@ -2152,9 +2265,14 @@ class ImportRunner:
             if line.lstrip().startswith("{"):
                 last_json[:] = [line.strip()]
 
-        result = self.mw_tool("WikiOasisMagic:FandomImportPrepare", f"--siteinfo={siteinfo.resolve()}",
-                              f"--upload-user={self.manifest.upload_user}", label="prepare",
-                              line_handler=on_line, stderr_path=self.tmp / "prepare-stderr.log")
+        result = self.mw_tool(
+            "WikiOasisMagic:FandomImportPrepare",
+            f"--siteinfo={siteinfo.resolve()}",
+            f"--upload-user={self.manifest.upload_user}",
+            label="prepare",
+            line_handler=on_line,
+            stderr_path=self.tmp / "prepare-stderr.log",
+        )
         self._log_file_tail(self.tmp / "prepare-stderr.log", "prepare(stderr)")
         self.require_success(result, "FandomImportPrepare")
         if not last_json:
@@ -2173,8 +2291,13 @@ class ImportRunner:
             self.log.event(logging.WARNING, f"prepare: {warning}")
         if prepared["upload_user"] != self.manifest.upload_user:
             self.log.event(logging.INFO, f"files will be uploaded as {prepared['upload_user']!r}")
-        self.w.progress(self.st, {"enabled_extensions": prepared["enabled_extensions"],
-                                  "created_namespaces": prepared["created_namespaces"]})
+        self.w.progress(
+            self.st,
+            {
+                "enabled_extensions": prepared["enabled_extensions"],
+                "created_namespaces": prepared["created_namespaces"],
+            },
+        )
         return None
 
     def _log_file_tail(self, path: Path, label: str, limit: int = 64 * 1024) -> None:
@@ -2239,16 +2362,26 @@ class ImportRunner:
 
         if sd.get("url") != usable.url or sd.get("etag") != usable.etag:
             self.w.rmtree(part, self.log)
-        sd.update(variant=usable.variant, url=usable.url, bytes=usable.content_length,
-                  md5=usable.md5, etag=usable.etag, last_modified=usable.last_modified, complete=False)
+        sd.update(
+            variant=usable.variant,
+            url=usable.url,
+            bytes=usable.content_length,
+            md5=usable.md5,
+            etag=usable.etag,
+            last_modified=usable.last_modified,
+            complete=False,
+        )
         self.w.save_state(st)
 
         have = part.stat().st_size if part.is_file() else 0
         deferral = self.need_disk(usable.content_length - have + self.cfg.disk_headroom_bytes, "dump download")
         if deferral:
             return deferral
-        self.log.event(logging.INFO, f"downloading {usable.variant} dump ({human_bytes(usable.content_length)}"
-                                     f", last modified {usable.last_modified})")
+        self.log.event(
+            logging.INFO,
+            f"downloading {usable.variant} dump ({human_bytes(usable.content_length)}"
+            f", last modified {usable.last_modified})",
+        )
         outcome = self.download(usable, part)
         if outcome is not None:
             return outcome
@@ -2265,11 +2398,16 @@ class ImportRunner:
                 raise StageError("dump MD5 does not match x-amz-meta-md5; deleted, will download again")
         os.replace(part, dump_file)
         sd["complete"] = True
-        st["summary"].update(dump_variant=usable.variant, dump_url=usable.url,
-                             dump_date=usable.last_modified, dump_bytes=usable.content_length)
+        st["summary"].update(
+            dump_variant=usable.variant,
+            dump_url=usable.url,
+            dump_date=usable.last_modified,
+            dump_bytes=usable.content_length,
+        )
         self.w.save_state(st)
-        self.w.progress(st, {"dump_variant": usable.variant, "dump_date": usable.last_modified,
-                             "dump_bytes": usable.content_length})
+        self.w.progress(
+            st, {"dump_variant": usable.variant, "dump_date": usable.last_modified, "dump_bytes": usable.content_length}
+        )
         return None
 
     def wait_for_dump(self, checks: list[DumpCheck]) -> str:
@@ -2281,16 +2419,29 @@ class ImportRunner:
         if now >= deadline:
             raise StageError(
                 f"No usable Fandom XML dump appeared within {self.cfg.dump_max_wait_days:g} days "
-                f"({details}). Ask Fandom to generate a new dump, then retry.", permanent=True)
+                f"({details}). Ask Fandom to generate a new dump, then retry.",
+                permanent=True,
+            )
         next_check = min(now + timedelta(hours=self.cfg.dump_recheck_hours), deadline)
-        st.update(status=STATUS_WAITING_DUMP, waiting_since=iso(since), next_check=iso(next_check),
-                  waiting_for="dump", next_try=None, announced_stage=None, inflight=None)
+        st.update(
+            status=STATUS_WAITING_DUMP,
+            waiting_since=iso(since),
+            next_check=iso(next_check),
+            waiting_for="dump",
+            next_try=None,
+            announced_stage=None,
+            inflight=None,
+        )
         self.log.event(logging.INFO, f"no usable dump ({details}); checking again at {iso(next_check)}")
-        self.w.queue_callback(st, "waiting-dump", data={
-            "next_check": iso(next_check),
-            "waiting_since": iso(since),
-            "dumps": [c.to_callback() for c in checks],
-        })
+        self.w.queue_callback(
+            st,
+            "waiting-dump",
+            data={
+                "next_check": iso(next_check),
+                "waiting_since": iso(since),
+                "dumps": [c.to_callback() for c in checks],
+            },
+        )
         self.w.flush_callbacks(st, force=True)
         return WAITING
 
@@ -2354,8 +2505,9 @@ class ImportRunner:
                 if status == 416:
                     self.w.rmtree(part, self.log)
                 elif status in (403, 404):
-                    raise StageError(f"dump download refused with HTTP {status} "
-                                     f"(it may have moved to cold storage)") from None
+                    raise StageError(
+                        f"dump download refused with HTTP {status} (it may have moved to cold storage)"
+                    ) from None
                 failures += 1
                 last_error = f"HTTP {status}"
             except OSError as e:
@@ -2369,7 +2521,7 @@ class ImportRunner:
             if failures > self.cfg.retries:
                 raise StageError(f"dump download failed {failures} times: {last_error}")
             self.log.warning(f"dump download interrupted ({last_error}); resuming")
-            time.sleep(min(5 * 2 ** failures, 300))
+            time.sleep(min(5 * 2**failures, 300))
 
     def namespaces(self) -> Optional[list[int]]:
         prepared = self.st["stage_data"].get("prepare") or {}
@@ -2401,13 +2553,23 @@ class ImportRunner:
             outcome = self.filter_dump(dump_file, gz, namespaces)
             if isinstance(outcome, Deferral):
                 return outcome
-            sd.update(filtered=True, pages_kept=outcome.pages_kept, pages_skipped=outcome.pages_skipped,
-                      skipped_namespaces=outcome.skipped_namespaces)
-            st["summary"].update(pages_kept=outcome.pages_kept, pages_skipped=outcome.pages_skipped,
-                                 skipped_namespaces=outcome.skipped_namespaces)
+            sd.update(
+                filtered=True,
+                pages_kept=outcome.pages_kept,
+                pages_skipped=outcome.pages_skipped,
+                skipped_namespaces=outcome.skipped_namespaces,
+            )
+            st["summary"].update(
+                pages_kept=outcome.pages_kept,
+                pages_skipped=outcome.pages_skipped,
+                skipped_namespaces=outcome.skipped_namespaces,
+            )
             self.w.save_state(st)
-            self.log.event(logging.INFO, f"filtered dump: {outcome.pages_kept} pages kept, "
-                                         f"{outcome.pages_skipped} skipped {outcome.skipped_namespaces}")
+            self.log.event(
+                logging.INFO,
+                f"filtered dump: {outcome.pages_kept} pages kept, "
+                f"{outcome.pages_skipped} skipped {outcome.skipped_namespaces}",
+            )
         if dump_file.exists():
             self.w.rmtree(dump_file, self.log)
 
@@ -2425,9 +2587,15 @@ class ImportRunner:
                     reported["pages"] = imported["pages"]
                     self.w.progress(st, {"pages_imported": imported["pages"]})
 
-            result = self.mw_tool("importDump", f"--username-prefix={self.manifest.username_prefix}",
-                                  "--no-local-users", "--report=1000", str(gz.resolve()),
-                                  line_handler=on_line, poll=poll)
+            result = self.mw_tool(
+                "importDump",
+                f"--username-prefix={self.manifest.username_prefix}",
+                "--no-local-users",
+                "--report=1000",
+                str(gz.resolve()),
+                line_handler=on_line,
+                poll=poll,
+            )
             self.require_success(result, "importDump")
             sd["imported"] = True
             self.w.save_state(st)
@@ -2440,16 +2608,27 @@ class ImportRunner:
 
         if gz.exists():
             self.w.rmtree(gz, self.log)
-        self.w.progress(st, {"pages_kept": sd.get("pages_kept", 0), "pages_skipped": sd.get("pages_skipped", 0),
-                             "skipped_namespaces": sd.get("skipped_namespaces", {})})
+        self.w.progress(
+            st,
+            {
+                "pages_kept": sd.get("pages_kept", 0),
+                "pages_skipped": sd.get("pages_skipped", 0),
+                "skipped_namespaces": sd.get("skipped_namespaces", {}),
+            },
+        )
         return None
 
     def estimate_xml_size(self, dump_file: Path) -> Optional[int]:
         try:
             proc = subprocess.run(
-                [self.cfg.sevenzip, "l", "-slt", str(dump_file)], stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=self.w.child_env(self.tmp),
-                cwd=str(self.dir), timeout=600, pass_fds=self.w.child_fds,
+                [self.cfg.sevenzip, "l", "-slt", str(dump_file)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=self.w.child_env(self.tmp),
+                cwd=str(self.dir),
+                timeout=600,
+                pass_fds=self.w.child_fds,
             )
         except (OSError, subprocess.TimeoutExpired) as e:
             self.log.warning(f"could not list the dump: {clean_text(e, 200)}")
@@ -2463,8 +2642,9 @@ class ImportRunner:
         """7z e -so | namespace filter | gzip -> pages.xml.gz (verified)."""
         estimate = self.estimate_xml_size(dump_file)
         if estimate:
-            deferral = self.need_disk(estimate // GZIP_RATIO_ESTIMATE + self.cfg.disk_headroom_bytes,
-                                      "namespace filter")
+            deferral = self.need_disk(
+                estimate // GZIP_RATIO_ESTIMATE + self.cfg.disk_headroom_bytes, "namespace filter"
+            )
             if deferral:
                 return deferral
         tmp_gz = self.dir / (PAGES_FILE + ".tmp")
@@ -2482,15 +2662,21 @@ class ImportRunner:
         self.log.info(f"filtering dump, keeping namespaces {sorted(keep)}")
         with open(stderr_path, "wb") as stderr_file:
             proc = subprocess.Popen(
-                [self.cfg.sevenzip, "e", "-so", "-bd", str(dump_file)], stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=stderr_file, env=self.w.child_env(self.tmp),
-                cwd=str(self.dir), pass_fds=self.w.child_fds, start_new_session=True,
+                [self.cfg.sevenzip, "e", "-so", "-bd", str(dump_file)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=stderr_file,
+                env=self.w.child_env(self.tmp),
+                cwd=str(self.dir),
+                pass_fds=self.w.child_fds,
+                start_new_session=True,
             )
         assert proc.stdout is not None
         reader = io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="surrogateescape", newline="\n")
         try:
-            with gzip.open(tmp_gz, "wt", compresslevel=GZIP_LEVEL, encoding="utf-8",
-                           errors="surrogateescape", newline="\n") as out:
+            with gzip.open(
+                tmp_gz, "wt", compresslevel=GZIP_LEVEL, encoding="utf-8", errors="surrogateescape", newline="\n"
+            ) as out:
                 stats = filter_dump_lines(reader, out.write, keep, check=check_disk)
             returncode = proc.wait()
         except LowDiskSpace:
@@ -2558,16 +2744,25 @@ class ImportRunner:
         src = self.manifest.source
         cmd = [
             self.cfg.wikiteam3,
-            "--api", src.api_url,
-            "--index", src.index_url,
-            "--index-check-threshold", "0",
+            "--api",
+            src.api_url,
+            "--index",
+            src.index_url,
+            "--index-check-threshold",
+            "0",
             "--images",
-            "--path", str(crawl),
-            "--delay", f"{self.cfg.image_delay:g}",
-            "--retries", str(self.cfg.retries),
-            "--user-agent", self.cfg.user_agent,
-            "--api_chunksize", str(WIKITEAM3_CHUNKSIZE),
-            "--image-timestamp-interval", interval,
+            "--path",
+            str(crawl),
+            "--delay",
+            f"{self.cfg.image_delay:g}",
+            "--retries",
+            str(self.cfg.retries),
+            "--user-agent",
+            self.cfg.user_agent,
+            "--api_chunksize",
+            str(WIKITEAM3_CHUNKSIZE),
+            "--image-timestamp-interval",
+            interval,
             "--force",
         ]
         if resume:
@@ -2592,8 +2787,15 @@ class ImportRunner:
                         found.append(Path(entry.path))
         return found
 
-    def run_wikiteam3(self, crawl: Path, interval: str, *, resume: bool, fetched_before: int = 0,
-                      null_names: Collection[str] = frozenset()) -> Optional[Deferral]:
+    def run_wikiteam3(
+        self,
+        crawl: Path,
+        interval: str,
+        *,
+        resume: bool,
+        fetched_before: int = 0,
+        null_names: Collection[str] = frozenset(),
+    ) -> Optional[Deferral]:
         """Run one wikiteam3 pass, reporting cumulative images_fetched while
         it runs and stopping it if free space drops below the floor."""
         st = self.st
@@ -2608,8 +2810,12 @@ class ImportRunner:
                 return "low disk space"
             return None
 
-        result = self.run_tool(self.wikiteam3_cmd(crawl, interval, resume=resume), label="wikiteam3",
-                               poll=poll, output_file=self.dir / "wikiteam3.log")
+        result = self.run_tool(
+            self.wikiteam3_cmd(crawl, interval, resume=resume),
+            label="wikiteam3",
+            poll=poll,
+            output_file=self.dir / "wikiteam3.log",
+        )
         if result.terminated:
             return self.low_disk()
         if result.returncode != 0:
@@ -2636,8 +2842,9 @@ class ImportRunner:
         if listing is None or not listing.complete:
             raise StageError("wikiteam3 did not write a complete images.txt (no --END--)")
         if listing.malformed:
-            raise StageError(f"images.txt has {len(listing.malformed)} malformed lines "
-                             f"(first at line {listing.malformed[0]})")
+            raise StageError(
+                f"images.txt has {len(listing.malformed)} malformed lines (first at line {listing.malformed[0]})"
+            )
         return listing
 
     def image_totals(self) -> tuple[dict[str, int], list[str]]:
@@ -2649,7 +2856,7 @@ class ImportRunner:
         results = [r for w in windows for r in (w.get("dirs") or {}).values()] + list(sweep.values())
         totals = {
             "images_fetched": sum(int(w.get("fetched_files", 0)) for w in windows)
-                              + sum(int(r.get("files", 0)) for r in sweep.values()),
+            + sum(int(r.get("files", 0)) for r in sweep.values()),
             "images_added": sum(int(r.get("added", 0)) for r in results),
             "images_skipped": sum(int(r.get("skipped", 0)) for r in results),
             "images_failed": sum(int(r.get("failed", 0)) for r in results),
@@ -2670,9 +2877,11 @@ class ImportRunner:
             if name not in record:
                 files = count_files(path) if path.is_dir() else 0
                 added_before = self.image_totals()[0]["images_added"]
-                record[name] = (self.import_images_dir(path, name, files, user, label=label,
-                                                       added_before=added_before)
-                                if files else {"files": 0})
+                record[name] = (
+                    self.import_images_dir(path, name, files, user, label=label, added_before=added_before)
+                    if files
+                    else {"files": 0}
+                )
                 self.w.save_state(self.st)
             if path.exists():
                 self.w.rmtree(path, self.log)
@@ -2714,8 +2923,9 @@ class ImportRunner:
         crawl = self.dir / CRAWL_DIR
         batch = crawl / BATCH_DIR
         if st["summary"].get("fandom_files") == 0:
-            st["summary"].update(images_total=0, images_bytes_total=0, batches_total=0,
-                                 batches_done=0, images_fetched=0)
+            st["summary"].update(
+                images_total=0, images_bytes_total=0, batches_total=0, batches_done=0, images_fetched=0
+            )
             self.w.save_state(st)
             self.log.event(logging.INFO, "the source wiki has no files; skipping wikiteam3")
             return None
@@ -2735,15 +2945,22 @@ class ImportRunner:
                 key = (window["start"], window["end"], window["files"], window["bytes"])
                 if key in finished:
                     windows[index] = finished[key]
-            sd.update(windows=windows, total=len(listing.entries), bytes=listing.total_bytes,
-                      null_files=sum(1 for e in listing.entries if e.timestamp is None))
-            st["summary"].update(images_total=sd["total"], images_bytes_total=sd["bytes"],
-                                 batches_total=len(windows))
+            sd.update(
+                windows=windows,
+                total=len(listing.entries),
+                bytes=listing.total_bytes,
+                null_files=sum(1 for e in listing.entries if e.timestamp is None),
+            )
+            st["summary"].update(images_total=sd["total"], images_bytes_total=sd["bytes"], batches_total=len(windows))
             self.w.save_state(st)
-            self.log.event(logging.INFO, f"{sd['total']} files ({human_bytes(sd['bytes'])}) in "
-                                         f"{len(windows)} batches, {sd['null_files']} without a timestamp")
-            self.w.progress(st, {"images_total": sd["total"], "images_bytes_total": sd["bytes"],
-                                 "batches_total": len(windows)})
+            self.log.event(
+                logging.INFO,
+                f"{sd['total']} files ({human_bytes(sd['bytes'])}) in "
+                f"{len(windows)} batches, {sd['null_files']} without a timestamp",
+            )
+            self.w.progress(
+                st, {"images_total": sd["total"], "images_bytes_total": sd["bytes"], "batches_total": len(windows)}
+            )
 
         null_names = frozenset(e.name for e in listing.entries if e.timestamp is None)
         windows = sd["windows"]
@@ -2752,17 +2969,26 @@ class ImportRunner:
                 continue
             label = f"batch {index + 1}/{len(windows)}"
             if not window.get("fetched"):
-                on_disk = (sum(p.stat().st_size for p in self.window_files(crawl, null_names))
-                           + (tree_size(batch) if batch.is_dir() else 0))
-                deferral = self.need_disk(max(0, int(window["bytes"]) - on_disk) + self.cfg.disk_headroom_bytes,
-                                          f"image {label}")
+                on_disk = sum(p.stat().st_size for p in self.window_files(crawl, null_names)) + (
+                    tree_size(batch) if batch.is_dir() else 0
+                )
+                deferral = self.need_disk(
+                    max(0, int(window["bytes"]) - on_disk) + self.cfg.disk_headroom_bytes, f"image {label}"
+                )
                 if deferral:
                     return deferral
-                self.log.event(logging.INFO, f"downloading {label}: {window['files']} files, "
-                                             f"{human_bytes(int(window['bytes']))}, {window_interval(window)}")
-                outcome = self.run_wikiteam3(crawl, window_interval(window), resume=True,
-                                             fetched_before=self.image_totals()[0]["images_fetched"],
-                                             null_names=null_names)
+                self.log.event(
+                    logging.INFO,
+                    f"downloading {label}: {window['files']} files, "
+                    f"{human_bytes(int(window['bytes']))}, {window_interval(window)}",
+                )
+                outcome = self.run_wikiteam3(
+                    crawl,
+                    window_interval(window),
+                    resume=True,
+                    fetched_before=self.image_totals()[0]["images_fetched"],
+                    null_names=null_names,
+                )
                 if outcome is not None:
                     return outcome
                 window["fetched"] = True
@@ -2775,9 +3001,11 @@ class ImportRunner:
                 window.pop("fetched", None)
                 window.pop("fetched_files", None)
                 self.w.save_state(st)
-                raise StageError(f"Fandom sent none of the {window['files']} files in {label}. Its image "
-                                 "server may be refusing this host; see wikiteam3.log and errors.log in "
-                                 "the crawl directory.")
+                raise StageError(
+                    f"Fandom sent none of the {window['files']} files in {label}. Its image "
+                    "server may be refusing this host; see wikiteam3.log and errors.log in "
+                    "the crawl directory."
+                )
             self.import_and_clear(batch, window.setdefault("dirs", {}), label)
             if batch.exists():
                 self.w.rmtree(batch, self.log)
@@ -2787,12 +3015,18 @@ class ImportRunner:
             st["summary"].update(totals, failed_files=failed_files, batches_done=done)
             self.w.save_state(st)
             self.log.event(logging.INFO, f"{label} finished: {totals}")
-            self.w.progress(st, {"batches_done": done, "batches_total": len(windows),
-                                 "images_fetched": totals["images_fetched"],
-                                 "images_added": totals["images_added"],
-                                 "images_skipped": totals["images_skipped"],
-                                 "images_failed": totals["images_failed"],
-                                 "failed_files": failed_files})
+            self.w.progress(
+                st,
+                {
+                    "batches_done": done,
+                    "batches_total": len(windows),
+                    "images_fetched": totals["images_fetched"],
+                    "images_added": totals["images_added"],
+                    "images_skipped": totals["images_skipped"],
+                    "images_failed": totals["images_failed"],
+                    "failed_files": failed_files,
+                },
+            )
         return None
 
     @staticmethod
@@ -2823,8 +3057,9 @@ class ImportRunner:
         self.log.event(logging.INFO, f"images: {totals}")
         self.w.progress(st, {**totals, "failed_files": failed_files})
 
-    def import_images_dir(self, path: Path, name: str, files: int, user: str, *,
-                          label: str = "", added_before: int = 0) -> dict[str, Any]:
+    def import_images_dir(
+        self, path: Path, name: str, files: int, user: str, *, label: str = "", added_before: int = 0
+    ) -> dict[str, Any]:
         """Run importImages on one directory and return its counts.
 
         importImages exits 1 when any file failed, or when no file had an
@@ -2843,19 +3078,32 @@ class ImportRunner:
                 self.w.progress(self.st, {"images_added": added_before + parser.done_lines})
 
         summary = self.manifest.summary
-        result = self.mw_tool("importImages", "--search-recursively", f"--user={user}",
-                              f"--summary={summary}", f"--comment={summary}", str(path.resolve()),
-                              label=f"importImages[{name}]", line_handler=parser.feed, poll=poll,
-                              output_file=self.dir / f"importImages-{name}.log")
+        result = self.mw_tool(
+            "importImages",
+            "--search-recursively",
+            f"--user={user}",
+            f"--summary={summary}",
+            f"--comment={summary}",
+            str(path.resolve()),
+            label=f"importImages[{name}]",
+            line_handler=parser.feed,
+            poll=poll,
+            output_file=self.dir / f"importImages-{name}.log",
+        )
         if result.returncode != 0 and not (result.returncode == 1 and (parser.has_summary or parser.no_files)):
-            raise StageError(f"importImages ({name}) exited with {result.returncode}"
-                             + (f": {result.last_line()}" if result.last_line() else ""))
+            raise StageError(
+                f"importImages ({name}) exited with {result.returncode}"
+                + (f": {result.last_line()}" if result.last_line() else "")
+            )
         counts = parser.result()
         counts["unsupported"] = max(0, files - counts["found"]) if counts["found"] or parser.no_files else 0
         counts["files"] = files
         where = f"{label} {name}".strip()
-        self.log.event(logging.INFO, f"importImages {where}: {files} files, added {counts['added']}, "
-                                     f"skipped {counts['skipped']}, failed {counts['failed']}")
+        self.log.event(
+            logging.INFO,
+            f"importImages {where}: {files} files, added {counts['added']}, "
+            f"skipped {counts['skipped']}, failed {counts['failed']}",
+        )
         for failed in counts["failed_files"]:
             self.log.warning(f"importImages {where}: failed: {failed}")
         return counts

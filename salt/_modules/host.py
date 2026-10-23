@@ -50,24 +50,18 @@ def _parse_duration(duration):
     try:
         return int(s)
     except ValueError:
-        raise CommandExecutionError(
-            "Invalid duration {!r} — use seconds or a suffix: s/m/h/d".format(duration)
-        )
+        raise CommandExecutionError("Invalid duration {!r} — use seconds or a suffix: s/m/h/d".format(duration))
 
 
 def _api_cfg():
     mon = __pillar__.get("monitoring", {})
     host = mon.get("icinga_api_host")
     if not host:
-        raise CommandExecutionError(
-            "monitoring:icinga_api_host is not set in pillar"
-        )
+        raise CommandExecutionError("monitoring:icinga_api_host is not set in pillar")
     user = mon.get("icinga_api_user", "root")
     password = mon.get("icinga_api_password")
     if not password:
-        raise CommandExecutionError(
-            "monitoring:icinga_api_password is not set in pillar"
-        )
+        raise CommandExecutionError("monitoring:icinga_api_password is not set in pillar")
     port = int(mon.get("icinga_api_port", 5665))
     return host, port, user, password
 
@@ -96,11 +90,7 @@ def _api_post(path, payload):
     )
 
     if resp.get("status") not in (200, "200"):
-        raise CommandExecutionError(
-            "Icinga2 API returned HTTP {}: {}".format(
-                resp.get("status"), resp.get("body", "")
-            )
-        )
+        raise CommandExecutionError("Icinga2 API returned HTTP {}: {}".format(resp.get("status"), resp.get("body", "")))
 
     return resp.get("dict", {})
 
@@ -147,20 +137,12 @@ def downtime(hostname, duration, reason):
 
     results = result.get("results", [])
     if not results:
-        raise CommandExecutionError(
-            "Icinga2 returned an empty response — host '{}' may not exist".format(
-                hostname
-            )
-        )
+        raise CommandExecutionError("Icinga2 returned an empty response — host '{}' may not exist".format(hostname))
 
     codes = {r.get("code") for r in results}
     if codes - {200}:
         errors = [r.get("status", "") for r in results if r.get("code") != 200]
-        raise CommandExecutionError(
-            "Icinga2 downtime failed: {}".format("; ".join(errors))
-        )
+        raise CommandExecutionError("Icinga2 downtime failed: {}".format("; ".join(errors)))
 
     n = len(results)
-    return "Downtime scheduled for '{}' + {} service(s) — {} for '{}'".format(
-        hostname, n - 1, duration, reason
-    )
+    return "Downtime scheduled for '{}' + {} service(s) — {} for '{}'".format(hostname, n - 1, duration, reason)

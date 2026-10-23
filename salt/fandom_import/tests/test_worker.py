@@ -16,7 +16,6 @@ import gzip
 import importlib.util
 import io
 import json
-import os
 import sys
 import tempfile
 import textwrap
@@ -48,8 +47,13 @@ def good_manifest(**overrides):
         "id": 42,
         "central_wiki": "metawiki",
         "target_wiki": "muppetwiki",
-        "source": {"key": "muppet", "subdomain": "muppet", "lang": None,
-                   "base_url": "https://muppet.fandom.com", "api_url": "https://muppet.fandom.com/api.php"},
+        "source": {
+            "key": "muppet",
+            "subdomain": "muppet",
+            "lang": None,
+            "base_url": "https://muppet.fandom.com",
+            "api_url": "https://muppet.fandom.com/api.php",
+        },
         "username_prefix": "wikia",
         "upload_user": "Fandom import",
         "summary": "Imported from https://muppet.fandom.com",
@@ -62,9 +66,13 @@ def good_manifest(**overrides):
 
 
 def lang_source(**overrides):
-    source = {"key": "harrypotter/de", "subdomain": "harrypotter", "lang": "de",
-              "base_url": "https://harrypotter.fandom.com/de",
-              "api_url": "https://harrypotter.fandom.com/de/api.php"}
+    source = {
+        "key": "harrypotter/de",
+        "subdomain": "harrypotter",
+        "lang": "de",
+        "base_url": "https://harrypotter.fandom.com/de",
+        "api_url": "https://harrypotter.fandom.com/de/api.php",
+    }
     source.update(overrides)
     return source
 
@@ -90,9 +98,13 @@ class ManifestValidationTest(unittest.TestCase):
 
     def test_bad_subdomain(self):
         for subdomain in ("muppet.evil.com", "-muppet", "Muppet", "", "a" * 64, "muppet/x"):
-            source = {"key": subdomain, "subdomain": subdomain, "lang": None,
-                      "base_url": f"https://{subdomain}.fandom.com",
-                      "api_url": f"https://{subdomain}.fandom.com/api.php"}
+            source = {
+                "key": subdomain,
+                "subdomain": subdomain,
+                "lang": None,
+                "base_url": f"https://{subdomain}.fandom.com",
+                "api_url": f"https://{subdomain}.fandom.com/api.php",
+            }
             with self.subTest(subdomain=subdomain):
                 with self.assertRaises(W.ManifestError) as ctx:
                     self.validate(good_manifest(source=source))
@@ -110,17 +122,23 @@ class ManifestValidationTest(unittest.TestCase):
 
     def test_bad_lang(self):
         for lang in ("DE", "d", "deutsch", "de/../x", "de-", "de_at", "de\n"):
-            source = lang_source(lang=lang, key=f"harrypotter/{lang}",
-                                 base_url=f"https://harrypotter.fandom.com/{lang}",
-                                 api_url=f"https://harrypotter.fandom.com/{lang}/api.php")
+            source = lang_source(
+                lang=lang,
+                key=f"harrypotter/{lang}",
+                base_url=f"https://harrypotter.fandom.com/{lang}",
+                api_url=f"https://harrypotter.fandom.com/{lang}/api.php",
+            )
             with self.subTest(lang=lang):
                 with self.assertRaises(W.ManifestError):
                     self.validate(good_manifest(source=source))
 
     def test_lang_with_region_is_fine(self):
-        source = lang_source(lang="pt-br", key="harrypotter/pt-br",
-                             base_url="https://harrypotter.fandom.com/pt-br",
-                             api_url="https://harrypotter.fandom.com/pt-br/api.php")
+        source = lang_source(
+            lang="pt-br",
+            key="harrypotter/pt-br",
+            base_url="https://harrypotter.fandom.com/pt-br",
+            api_url="https://harrypotter.fandom.com/pt-br/api.php",
+        )
         self.assertEqual(self.validate(good_manifest(source=source)).source.lang, "pt-br")
 
     def test_key_must_match(self):
@@ -136,17 +154,29 @@ class ManifestValidationTest(unittest.TestCase):
             self.validate(good_manifest(target_wiki="metawiki"))
 
     def test_types_are_strict(self):
-        for overrides in ({"version": "1"}, {"version": True}, {"id": True}, {"id": "42"},
-                          {"prefer_full_history": "yes"}, {"attempt": 0}):
+        for overrides in (
+            {"version": "1"},
+            {"version": True},
+            {"id": True},
+            {"id": "42"},
+            {"prefer_full_history": "yes"},
+            {"attempt": 0},
+        ):
             with self.subTest(overrides=overrides):
                 with self.assertRaises(W.ManifestError):
                     self.validate(good_manifest(**overrides), expected_id=None)
 
     def test_upload_user_and_summary(self):
-        for overrides in ({"upload_user": "Fandom/import"}, {"upload_user": "a" * 86},
-                          {"upload_user": ""}, {"upload_user": "x\ty"},
-                          {"summary": "line\nbreak"}, {"summary": "x" * 501},
-                          {"username_prefix": "Wikia"}, {"username_prefix": "a" * 17}):
+        for overrides in (
+            {"upload_user": "Fandom/import"},
+            {"upload_user": "a" * 86},
+            {"upload_user": ""},
+            {"upload_user": "x\ty"},
+            {"summary": "line\nbreak"},
+            {"summary": "x" * 501},
+            {"username_prefix": "Wikia"},
+            {"username_prefix": "a" * 17},
+        ):
             with self.subTest(overrides=overrides):
                 with self.assertRaises(W.ManifestError):
                     self.validate(good_manifest(**overrides))
@@ -226,8 +256,9 @@ class FilterTest(unittest.TestCase):
 
     def test_drops_unwanted_namespaces_and_keeps_the_rest(self):
         output, stats = self.run_filter(SAMPLE_DUMP, {0, 2})
-        expected = (SAMPLE_DUMP.replace(page_block(SAMPLE_DUMP, "Message Wall:Kermit"), "")
-                    .replace(page_block(SAMPLE_DUMP, "Board Thread:Fozzie"), ""))
+        expected = SAMPLE_DUMP.replace(page_block(SAMPLE_DUMP, "Message Wall:Kermit"), "").replace(
+            page_block(SAMPLE_DUMP, "Board Thread:Fozzie"), ""
+        )
         self.assertEqual(output, expected)
         self.assertEqual(stats.pages_kept, 2)
         self.assertEqual(stats.pages_skipped, 2)
@@ -254,7 +285,7 @@ class FilterTest(unittest.TestCase):
         self.assertEqual(stats.pages_kept, 1)
 
     def test_truncated_dump_is_an_error(self):
-        truncated = SAMPLE_DUMP[:SAMPLE_DUMP.index("<id>20</id>")]
+        truncated = SAMPLE_DUMP[: SAMPLE_DUMP.index("<id>20</id>")]
         with self.assertRaises(W.DumpFormatError):
             self.run_filter(truncated, {0})
 
@@ -264,8 +295,9 @@ class FilterTest(unittest.TestCase):
 
     def test_check_is_called(self):
         calls = []
-        W.filter_dump_lines(io.StringIO(SAMPLE_DUMP), lambda _l: None, {0},
-                            check=lambda: calls.append(1), check_every=5)
+        W.filter_dump_lines(
+            io.StringIO(SAMPLE_DUMP), lambda _l: None, {0}, check=lambda: calls.append(1), check_every=5
+        )
         self.assertGreater(len(calls), 3)
 
     def test_bytes_round_trip_through_gzip(self):
@@ -274,8 +306,7 @@ class FilterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             gz = Path(tmp) / "pages.xml.gz"
             reader = io.TextIOWrapper(io.BytesIO(raw), encoding="utf-8", errors="surrogateescape", newline="\n")
-            with gzip.open(gz, "wt", compresslevel=6, encoding="utf-8",
-                           errors="surrogateescape", newline="\n") as out:
+            with gzip.open(gz, "wt", compresslevel=6, encoding="utf-8", errors="surrogateescape", newline="\n") as out:
                 W.filter_dump_lines(reader, out.write, {0, 2, 1200, 1201})
             self.assertEqual(gzip.decompress(gz.read_bytes()), raw)
             W.verify_gzip_xml(gz)
@@ -283,19 +314,26 @@ class FilterTest(unittest.TestCase):
 
 class DumpUrlTest(unittest.TestCase):
     def test_full_first(self):
-        self.assertEqual(W.dump_candidates("muppet", True), [
-            ("full", "https://s3.amazonaws.com/wikia_xml_dumps/m/mu/muppet_pages_full.xml.7z"),
-            ("current", "https://s3.amazonaws.com/wikia_xml_dumps/m/mu/muppet_pages_current.xml.7z"),
-        ])
+        self.assertEqual(
+            W.dump_candidates("muppet", True),
+            [
+                ("full", "https://s3.amazonaws.com/wikia_xml_dumps/m/mu/muppet_pages_full.xml.7z"),
+                ("current", "https://s3.amazonaws.com/wikia_xml_dumps/m/mu/muppet_pages_current.xml.7z"),
+            ],
+        )
 
     def test_current_first(self):
         self.assertEqual([v for v, _ in W.dump_candidates("deharrypotter", False)], ["current", "full"])
-        self.assertTrue(W.dump_candidates("deharrypotter", False)[0][1].startswith(
-            "https://s3.amazonaws.com/wikia_xml_dumps/d/de/deharrypotter_pages_current"))
+        self.assertTrue(
+            W.dump_candidates("deharrypotter", False)[0][1].startswith(
+                "https://s3.amazonaws.com/wikia_xml_dumps/d/de/deharrypotter_pages_current"
+            )
+        )
 
     def test_one_letter_id(self):
-        self.assertEqual(W.dump_candidates("a", True)[0][1],
-                         "https://s3.amazonaws.com/wikia_xml_dumps/a/a/a_pages_full.xml.7z")
+        self.assertEqual(
+            W.dump_candidates("a", True)[0][1], "https://s3.amazonaws.com/wikia_xml_dumps/a/a/a_pages_full.xml.7z"
+        )
 
     def test_invalid_id(self):
         for wikiid in ("../x", "Muppet", "", "a b"):
@@ -397,15 +435,18 @@ class ImagesTxtTest(unittest.TestCase):
         return "\t".join(fields) + "\n"
 
     def test_complete_list_with_nulls(self):
-        text = (self.row("Kermit.png", "https://x/a", "Uploader", "1234", "abc", "2020-01-02T03:04:05Z")
-                + self.row("Ghost.png", "https://x/b", "null", "null", "null", "null")
-                + "--END--\n")
+        text = (
+            self.row("Kermit.png", "https://x/a", "Uploader", "1234", "abc", "2020-01-02T03:04:05Z")
+            + self.row("Ghost.png", "https://x/b", "null", "null", "null", "null")
+            + "--END--\n"
+        )
         listing = self.parse(text)
         self.assertTrue(listing.complete)
         self.assertTrue(listing.usable)
         self.assertEqual(listing.malformed, [])
-        self.assertEqual(listing.entries, [entry("Kermit.png", 1234, "2020-01-02T03:04:05Z"),
-                                           entry("Ghost.png", 0, None)])
+        self.assertEqual(
+            listing.entries, [entry("Kermit.png", 1234, "2020-01-02T03:04:05Z"), entry("Ghost.png", 0, None)]
+        )
         self.assertEqual(listing.total_bytes, 1234)
 
     def test_missing_end_marker(self):
@@ -425,13 +466,15 @@ class ImagesTxtTest(unittest.TestCase):
         self.assertFalse(listing.complete)
 
     def test_malformed_lines_are_reported_and_left_out(self):
-        text = (self.row("Good.png", "u", "x", "10", "s", "2020-01-02T03:04:05Z")
-                + self.row("Short.png", "u", "x", "10", "s")
-                + self.row("BadSize.png", "u", "x", "ten", "s", "2020-01-02T03:04:05Z")
-                + self.row("BadTime.png", "u", "x", "10", "s", "2020-01-02 03:04:05")
-                + "no tabs at all\n"
-                + self.row("", "u", "x", "10", "s", "null")
-                + "--END--\n")
+        text = (
+            self.row("Good.png", "u", "x", "10", "s", "2020-01-02T03:04:05Z")
+            + self.row("Short.png", "u", "x", "10", "s")
+            + self.row("BadSize.png", "u", "x", "ten", "s", "2020-01-02T03:04:05Z")
+            + self.row("BadTime.png", "u", "x", "10", "s", "2020-01-02 03:04:05")
+            + "no tabs at all\n"
+            + self.row("", "u", "x", "10", "s", "null")
+            + "--END--\n"
+        )
         listing = self.parse(text)
         self.assertTrue(listing.complete)
         self.assertEqual(listing.malformed, [2, 3, 4, 5, 6])
@@ -456,34 +499,45 @@ class WindowPlanTest(unittest.TestCase):
         self.assertEqual([w["files"] for w in windows], [3, 3, 1])
 
     def test_open_first_and_last_bounds_and_inner_bounds(self):
-        entries = [entry("a", 600, "2020-01-01T00:00:00Z"), entry("b", 600, "2021-01-01T00:00:00Z"),
-                   entry("c", 300, "2022-01-01T00:00:00Z"), entry("d", 300, "2023-01-01T00:00:00Z")]
+        entries = [
+            entry("a", 600, "2020-01-01T00:00:00Z"),
+            entry("b", 600, "2021-01-01T00:00:00Z"),
+            entry("c", 300, "2022-01-01T00:00:00Z"),
+            entry("d", 300, "2023-01-01T00:00:00Z"),
+        ]
         windows = self.plan(entries)
-        self.assertEqual([(w["start"], w["end"]) for w in windows], [
-            ("1970-01-01T00:00:00Z", "2020-01-01T00:00:00Z"),
-            ("2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"),
-            ("2023-01-01T00:00:00Z", "9999-12-31T23:59:59Z"),
-        ])
+        self.assertEqual(
+            [(w["start"], w["end"]) for w in windows],
+            [
+                ("1970-01-01T00:00:00Z", "2020-01-01T00:00:00Z"),
+                ("2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"),
+                ("2023-01-01T00:00:00Z", "9999-12-31T23:59:59Z"),
+            ],
+        )
         self.assertEqual(W.window_interval(windows[0]), "1970-01-01T00:00:00Z/2020-01-01T00:00:00Z")
 
     def test_single_window_covers_everything(self):
         windows = self.plan([entry("a", 1, "2020-01-01T00:00:00Z"), entry("b", 1, "2020-06-01T00:00:00Z")])
-        self.assertEqual([(w["start"], w["end"]) for w in windows],
-                         [("1970-01-01T00:00:00Z", "9999-12-31T23:59:59Z")])
+        self.assertEqual([(w["start"], w["end"]) for w in windows], [("1970-01-01T00:00:00Z", "9999-12-31T23:59:59Z")])
 
     def test_same_second_group_is_never_split(self):
         same = "2020-01-01T00:00:05Z"
-        entries = ([entry("a", 100, "2020-01-01T00:00:01Z")]
-                   + [entry(f"s{i}", 100, same) for i in range(5)]
-                   + [entry("z", 100, "2020-01-01T00:00:09Z")])
+        entries = (
+            [entry("a", 100, "2020-01-01T00:00:01Z")]
+            + [entry(f"s{i}", 100, same) for i in range(5)]
+            + [entry("z", 100, "2020-01-01T00:00:09Z")]
+        )
         windows = self.plan(entries, max_bytes=250, max_files=3)
         self.assertEqual([w["files"] for w in windows], [1, 5, 1])
         self.assertEqual((windows[1]["start"], windows[1]["end"]), (same, same))
         self.assertEqual(windows[1]["bytes"], 500)
 
     def test_unsorted_input_and_null_timestamps(self):
-        entries = [entry("late", 10, "2024-01-01T00:00:00Z"), entry("ghost", 99999, None),
-                   entry("early", 10, "2019-01-01T00:00:00Z")]
+        entries = [
+            entry("late", 10, "2024-01-01T00:00:00Z"),
+            entry("ghost", 99999, None),
+            entry("early", 10, "2019-01-01T00:00:00Z"),
+        ]
         windows = self.plan(entries, max_bytes=10)
         self.assertEqual([w["files"] for w in windows], [1, 1])
         self.assertEqual(windows[0]["end"], "2019-01-01T00:00:00Z")
@@ -497,16 +551,26 @@ class WindowPlanTest(unittest.TestCase):
 
 class PrepareOutputTest(unittest.TestCase):
     def test_valid(self):
-        line = json.dumps({"namespaces": [0, 2, 1, 0], "upload_user": "Maintenance script",
-                           "enabled_extensions": ["Cite"], "created_namespaces": [{"id": 112, "name": "Transcript"}],
-                           "warnings": ["x"]})
+        line = json.dumps(
+            {
+                "namespaces": [0, 2, 1, 0],
+                "upload_user": "Maintenance script",
+                "enabled_extensions": ["Cite"],
+                "created_namespaces": [{"id": 112, "name": "Transcript"}],
+                "warnings": ["x"],
+            }
+        )
         result = W.parse_prepare_output(line)
         self.assertEqual(result["namespaces"], [0, 1, 2])
         self.assertEqual(result["upload_user"], "Maintenance script")
 
     def test_invalid(self):
-        for data in ({"namespaces": [], "upload_user": "x"}, {"namespaces": [True], "upload_user": "x"},
-                     {"namespaces": [0], "upload_user": "a/b"}, [0]):
+        for data in (
+            {"namespaces": [], "upload_user": "x"},
+            {"namespaces": [True], "upload_user": "x"},
+            {"namespaces": [0], "upload_user": "a/b"},
+            [0],
+        ):
             with self.subTest(data=data):
                 with self.assertRaises(ValueError):
                     W.parse_prepare_output(json.dumps(data))
@@ -543,8 +607,13 @@ class SafeRmtreeTest(unittest.TestCase):
         self.assertEqual(W.safe_rmtree(self.work / "nope", self.roots), 0)
 
     def test_refuses_outside(self):
-        for path in (self.outside, self.outside / "precious.txt", self.base / "spool",
-                     self.work / ".." / ".." / "outside", Path("/")):
+        for path in (
+            self.outside,
+            self.outside / "precious.txt",
+            self.base / "spool",
+            self.work / ".." / ".." / "outside",
+            Path("/"),
+        ):
             with self.subTest(path=path):
                 with self.assertRaises(W.UnsafePathError):
                     W.safe_rmtree(path, self.roots)
@@ -579,22 +648,24 @@ class PickNextTest(unittest.TestCase):
         return W.iso(NOW + timedelta(minutes=minutes))
 
     def test_running_due_wins(self):
-        states = {1: self.st("running", next_try=self.at(-1)),
-                  2: self.st("waiting-dump", next_check=self.at(-60))}
+        states = {1: self.st("running", next_try=self.at(-1)), 2: self.st("waiting-dump", next_check=self.at(-60))}
         self.assertEqual(W.pick_next(states, [(5, 1.0)], NOW), ("resume", 1))
 
     def test_running_without_next_try_is_due(self):
         self.assertEqual(W.pick_next({3: self.st("running", next_try=None)}, [], NOW), ("resume", 3))
 
     def test_running_not_due_then_waiting_due(self):
-        states = {1: self.st("running", next_try=self.at(10)),
-                  2: self.st("waiting-dump", next_check=self.at(-5))}
+        states = {1: self.st("running", next_try=self.at(10)), 2: self.st("waiting-dump", next_check=self.at(-5))}
         self.assertEqual(W.pick_next(states, [(5, 1.0)], NOW), ("recheck", 2))
 
     def test_waiting_not_due_falls_through_to_queue_order(self):
-        states = {1: self.st("running", next_try=self.at(10)),
-                  2: self.st("waiting-dump", next_check=self.at(60)),
-                  3: self.st("failed"), 4: self.st("done"), 6: self.st("deleted")}
+        states = {
+            1: self.st("running", next_try=self.at(10)),
+            2: self.st("waiting-dump", next_check=self.at(60)),
+            3: self.st("failed"),
+            4: self.st("done"),
+            6: self.st("deleted"),
+        }
         queue = [(7, 200.0), (9, 100.0), (4, 100.0)]
         self.assertEqual(W.pick_next(states, queue, NOW), ("claim", 4))
 
@@ -607,7 +678,7 @@ class PickNextTest(unittest.TestCase):
         self.assertIsNone(W.pick_next(states, [], NOW))
 
 
-FAKE_MWSCRIPT = '''\
+FAKE_MWSCRIPT = """\
 import json, sys
 from pathlib import Path
 here = Path(__file__).resolve().parent
@@ -644,7 +715,7 @@ if script == "importImages":
         print("Added: " + str(added))
     if skipped:
         print("Skipped: " + str(skipped))
-'''
+"""
 
 
 class SpoolTestCase(unittest.TestCase):
@@ -659,9 +730,13 @@ class SpoolTestCase(unittest.TestCase):
         spool = base / "spool"
         spool.mkdir()
         self.now = NOW
-        self.cfg = W.Config(spool_dir=spool, central_wiki="metawiki", php=sys.executable,
-                            mwscript=str(self.fake / "mwscript.py"),
-                            user_agent="test")
+        self.cfg = W.Config(
+            spool_dir=spool,
+            central_wiki="metawiki",
+            php=sys.executable,
+            mwscript=str(self.fake / "mwscript.py"),
+            user_agent="test",
+        )
         self.worker = W.Worker(self.cfg, clock=lambda: self.now)
         self.worker.ensure_dirs()
 
@@ -720,8 +795,12 @@ class ClaimAndDiscardTest(SpoolTestCase):
     def test_retry_keeps_completed_stages(self):
         self.queue(good_manifest())
         st = self.worker.claim(42)
-        st.update(status="failed", completed=["resolve", "prepare"], attempts={"dump": 3},
-                  files_expire=W.iso(self.now + timedelta(days=3)))
+        st.update(
+            status="failed",
+            completed=["resolve", "prepare"],
+            attempts={"dump": 3},
+            files_expire=W.iso(self.now + timedelta(days=3)),
+        )
         self.worker.save_state(st)
         (self.worker.work_dir(42) / "siteinfo.json").write_text("{}")
         self.queue(good_manifest(attempt=2))
@@ -839,7 +918,7 @@ class StageMachineTest(SpoolTestCase):
             self.assertEqual(st["next_check"], W.iso(self.now + timedelta(hours=24)))
             waiting = self.calls()[-1]
             self.assertIn("--event=waiting-dump", waiting)
-            data = json.loads(next(a for a in waiting if a.startswith("--data="))[len("--data="):])
+            data = json.loads(next(a for a in waiting if a.startswith("--data="))[len("--data=") :])
             self.assertEqual([d["variant"] for d in data["dumps"]], ["full", "current"])
             self.assertEqual(data["dumps"][0]["status"], 403)
             self.assertIsNone(W.pick_next({42: st}, [], self.now + timedelta(hours=1)))
@@ -876,7 +955,7 @@ class StageMachineTest(SpoolTestCase):
         self.assertTrue((self.cfg.logs_dir / "42.log").is_file())
 
 
-FAKE_WIKITEAM3 = '''\
+FAKE_WIKITEAM3 = """\
 import json, sys
 from datetime import datetime
 from pathlib import Path
@@ -928,7 +1007,7 @@ for line in listfile.read_text().splitlines():
         (here / "crash-once").unlink()
         print("simulated crash")
         sys.exit(1)
-'''
+"""
 
 CATALOG = [
     {"name": "a.png", "size": 100, "timestamp": "2020-01-01T00:00:00Z"},
@@ -963,11 +1042,17 @@ class ImageBatchTest(SpoolTestCase):
         wt3.write_text(f"#!{sys.executable}\n" + FAKE_WIKITEAM3)
         wt3.chmod(0o755)
         (self.fake / "catalog.json").write_text(json.dumps(CATALOG))
-        self.cfg = dataclasses.replace(self.cfg, wikiteam3=str(wt3), image_batch_bytes=250,
-                                       image_batch_files=1000, disk_headroom_bytes=0, min_free_bytes=0)
+        self.cfg = dataclasses.replace(
+            self.cfg,
+            wikiteam3=str(wt3),
+            image_batch_bytes=250,
+            image_batch_files=1000,
+            disk_headroom_bytes=0,
+            min_free_bytes=0,
+        )
         self.worker.close_logs()
         self.worker = W.Worker(self.cfg, clock=lambda: self.now)
-        self.free = 10 ** 12
+        self.free = 10**12
         patcher = mock.patch.object(W.ImportRunner, "free_bytes", lambda _runner: self.free)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -992,7 +1077,7 @@ class ImageBatchTest(SpoolTestCase):
 
     def done_data(self):
         argv = [a for a in self.calls() if "--event=done" in a][-1]
-        return json.loads(next(a for a in argv if a.startswith("--data="))[len("--data="):])
+        return json.loads(next(a for a in argv if a.startswith("--data="))[len("--data=") :])
 
     def assert_finished(self):
         self.assertFalse(self.worker.work_dir(42).exists())
@@ -1007,8 +1092,9 @@ class ImageBatchTest(SpoolTestCase):
     def test_each_batch_is_downloaded_imported_and_deleted(self):
         self.assertIsNone(self.run_import())
         calls = self.wt3_calls()
-        self.assertEqual([(c["interval"], c["resume"]) for c in calls],
-                         [(LIST_INTERVAL, False)] + [(w, True) for w in WINDOWS])
+        self.assertEqual(
+            [(c["interval"], c["resume"]) for c in calls], [(LIST_INTERVAL, False)] + [(w, True) for w in WINDOWS]
+        )
         for call in calls[1:]:
             self.assertEqual(call["present"], ["n.png"], "the previous batch must be gone")
         self.assert_finished()
@@ -1018,8 +1104,7 @@ class ImageBatchTest(SpoolTestCase):
     def test_disk_check_is_per_batch(self):
         self.free = 300
         st = self.run_import()
-        self.assertEqual([w["done"] for w in st["stage_data"]["images"]["windows"]],
-                         [True, True, True, False, False])
+        self.assertEqual([w["done"] for w in st["stage_data"]["images"]["windows"]], [True, True, True, False, False])
         self.assertEqual(st["status"], "running")
         self.assertEqual(st["waiting_for"], "disk")
         self.assertEqual(st["attempts"], {})
@@ -1028,7 +1113,7 @@ class ImageBatchTest(SpoolTestCase):
         self.assertEqual(st["pending_progress"]["data"]["disk_needed_bytes"], 500)
         self.assertEqual(len(self.wt3_calls()), 4)
         self.assertEqual(st["summary"]["batches_done"], 3)
-        self.free = 10 ** 12
+        self.free = 10**12
         self.now += timedelta(minutes=61)
         self.assertEqual(W.pick_next({42: st}, [], self.now), ("resume", 42))
         self.run_import()
@@ -1085,8 +1170,10 @@ class ImageBatchTest(SpoolTestCase):
         self.now += timedelta(minutes=16)
         self.run_import()
         calls = self.wt3_calls()
-        self.assertEqual([(c["interval"], c["resume"]) for c in calls],
-                         [(LIST_INTERVAL, False), (LIST_INTERVAL, False)] + [(w, True) for w in WINDOWS])
+        self.assertEqual(
+            [(c["interval"], c["resume"]) for c in calls],
+            [(LIST_INTERVAL, False), (LIST_INTERVAL, False)] + [(w, True) for w in WINDOWS],
+        )
         self.assert_finished()
 
     def test_no_files_skips_wikiteam3(self):

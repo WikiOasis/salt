@@ -29,8 +29,14 @@ RELATIVE_RE = re.compile(r"^(\d+)\s*([mhdw])$")
 UNITS = {"m": 60, "h": 3600, "d": 86400, "w": 604800}
 MAX_BODY = 65536
 TRANSIENT_WIKI_CODES = {
-    "ratelimited", "readonly", "maxlag", "editconflict", "badtoken",
-    "assertuserfailed", "assertbotfailed", "articleexists",
+    "ratelimited",
+    "readonly",
+    "maxlag",
+    "editconflict",
+    "badtoken",
+    "assertuserfailed",
+    "assertbotfailed",
+    "articleexists",
 }
 
 SCHEMA = [
@@ -200,7 +206,7 @@ def linkify(text: str, phorge_base: str) -> str:
     parts = []
     pos = 0
     for match in REF_RE.finditer(text):
-        parts.append(nowiki(text[pos:match.start()]))
+        parts.append(nowiki(text[pos : match.start()]))
         ref = match.group(1)
         parts.append(f"[{phorge_base}/{ref} {ref}]")
         pos = match.end()
@@ -228,11 +234,11 @@ def insert_line(text: str, day: str, hhmm: str, line: str) -> str:
             last = heading.end()
             for existing in ENTRY_LINE_RE.finditer(text, heading.end(), end):
                 if existing.group(1) <= hhmm:
-                    return text[:existing.start()] + line + "\n" + text[existing.start():]
+                    return text[: existing.start()] + line + "\n" + text[existing.start() :]
                 last = existing.end()
             return text[:last] + "\n" + line + text[last:]
         if found < day:
-            return text[:heading.start()] + f"== {day} ==\n{line}\n\n" + text[heading.start():]
+            return text[: heading.start()] + f"== {day} ==\n{line}\n\n" + text[heading.start() :]
     body = text.rstrip("\n")
     separator = "\n\n" if body.strip() else ""
     return f"{body}{separator}== {day} ==\n{line}\n"
@@ -396,9 +402,7 @@ class Wiki:
 
     def _call(self, params: dict) -> dict:
         data = urllib.parse.urlencode({**params, "format": "json", "formatversion": "2"}).encode()
-        request = urllib.request.Request(
-            self.cfg.wiki_api, data=data, headers={"User-Agent": self.cfg.user_agent}
-        )
+        request = urllib.request.Request(self.cfg.wiki_api, data=data, headers={"User-Agent": self.cfg.user_agent})
         with self.opener.open(request, timeout=30) as response:
             body = json.loads(response.read().decode())
         if "error" in body:
@@ -407,9 +411,7 @@ class Wiki:
 
     def login(self):
         self.jar.clear()
-        token = self._call({"action": "query", "meta": "tokens", "type": "login"})["query"]["tokens"][
-            "logintoken"
-        ]
+        token = self._call({"action": "query", "meta": "tokens", "type": "login"})["query"]["tokens"]["logintoken"]
         result = self._call(
             {
                 "action": "login",
@@ -499,8 +501,7 @@ class Worker(threading.Thread):
 
     def pending(self, sink: str, limit: int) -> list[dict]:
         return self.db.run(
-            f"SELECT * FROM sal_entries WHERE {sink}_state = 'pending' AND {sink}_next_at <= %s "
-            f"ORDER BY id LIMIT %s",
+            f"SELECT * FROM sal_entries WHERE {sink}_state = 'pending' AND {sink}_next_at <= %s ORDER BY id LIMIT %s",
             (utcnow(), limit),
             fetch="all",
         )
@@ -514,8 +515,9 @@ class Worker(threading.Thread):
                 f"{sink}_error = %s WHERE id = %s AND {sink}_state = 'pending'",
                 (state, attempts, utcnow() + backoff(attempts), error[:2000], row["id"]),
             )
-        log.warning("%s delivery of %s %s: %s", sink, [r["id"] for r in rows],
-                    "failed" if permanent else "deferred", error)
+        log.warning(
+            "%s delivery of %s %s: %s", sink, [r["id"] for r in rows], "failed" if permanent else "deferred", error
+        )
 
     def process_wiki(self):
         rows = self.pending("wiki", 50)
@@ -598,8 +600,7 @@ class Worker(threading.Thread):
             refs = extract_refs(row["message"])
         refs = ",".join(str(r) for r in refs)[:1024]
         self.db.run(
-            "UPDATE sal_entries SET phorge_state = 'done', phorge_refs = %s, phorge_error = NULL "
-            "WHERE id = %s",
+            "UPDATE sal_entries SET phorge_state = 'done', phorge_refs = %s, phorge_error = NULL WHERE id = %s",
             (refs, row["id"]),
         )
         log.info("phorge: delivered %s (refs: %s)", row["id"], refs or "none")
@@ -645,8 +646,19 @@ class Api:
             "INSERT INTO sal_entries (created_at, user, host, minion, message, is_command, exit_code, "
             "wiki_state, wiki_next_at, phorge_state, phorge_next_at) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (now, user, short_host(minion), minion, message, int(is_command), exit_code,
-             wiki_state, now, phorge_state, now),
+            (
+                now,
+                user,
+                short_host(minion),
+                minion,
+                message,
+                int(is_command),
+                exit_code,
+                wiki_state,
+                now,
+                phorge_state,
+                now,
+            ),
         )
         self.wake.set()
         log.info("entry %s: %s@%s: %s", entry_id, user, short_host(minion), message)
@@ -697,9 +709,7 @@ class Api:
             raise ApiError(404, f"no entry #{entry_id}")
         result = serialize(row)
         if with_history:
-            history = self.db.run(
-                "SELECT * FROM sal_history WHERE entry_id = %s ORDER BY id", (entry_id,), fetch="all"
-            )
+            history = self.db.run("SELECT * FROM sal_history WHERE entry_id = %s ORDER BY id", (entry_id,), fetch="all")
             result["history"] = [
                 {
                     "at": iso(h["at"]),
@@ -870,8 +880,9 @@ def main() -> int:
         stream=sys.stdout,
     )
     cfg = Config(os.environ)
-    missing = [name for name, value in (("SAL_SECRET", cfg.secret), ("SAL_DB_PASSWORD", cfg.db["password"]))
-               if not value]
+    missing = [
+        name for name, value in (("SAL_SECRET", cfg.secret), ("SAL_DB_PASSWORD", cfg.db["password"])) if not value
+    ]
     if cfg.wiki_enabled and not (cfg.wiki_user and cfg.wiki_password):
         missing.append("SAL_WIKI_USER/SAL_WIKI_PASSWORD")
     if cfg.phorge_enabled and not cfg.phorge_token:

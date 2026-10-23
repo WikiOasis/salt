@@ -39,16 +39,12 @@ def __virtual__():
 
 
 def _socket():
-    return __pillar__.get("haproxy", {}).get(
-        "stats_socket", "/run/haproxy/admin.sock"
-    )
+    return __pillar__.get("haproxy", {}).get("stats_socket", "/run/haproxy/admin.sock")
 
 
 def _send(command):
     """Send a single command to the HAProxy runtime socket and return stdout."""
-    cmd = "printf '%s\\n' {} | socat stdio {}".format(
-        shlex.quote(command), shlex.quote(_socket())
-    )
+    cmd = "printf '%s\\n' {} | socat stdio {}".format(shlex.quote(command), shlex.quote(_socket()))
     result = __salt__["cmd.run_all"](cmd, python_shell=True)
     if result["retcode"] != 0:
         raise CommandExecutionError(result.get("stderr") or result.get("stdout", ""))
