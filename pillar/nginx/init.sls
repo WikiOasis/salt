@@ -177,12 +177,6 @@ nginx:
       location: 'py_SqqfZnDI2q2LQkLUXETagCWz_XKLJfUavp8ncbmFlNaxrJ9RCTR1nt6bBLVdh'
       return: 'py_SqqfZnDI2q2LQkLUXETagCWz_XKLJfUavp8ncbmFlNaxrJ9RCTR1nt6bBLVdh.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'solarpunkwiki'
-    songnguwiki:
-      server_name: 'meta.songngu.xyz'
-      listen: 80
-      location: '6I1P6k92xqWHnIS2VHpCUu3Yr7MwXcfD9O8R9KKs-gYDKxzdfd2Zm09koRVC1WIh'
-      return: '6I1P6k92xqWHnIS2VHpCUu3Yr7MwXcfD9O8R9KKs-gYDKxzdfd2Zm09koRVC1WIh.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
-      database_name: 'songnguwiki'
     tgdpandrcwiki:
       server_name: 'wiki.thatgamedev.qzz.io'
       listen: 80
