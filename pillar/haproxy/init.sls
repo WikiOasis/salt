@@ -54,6 +54,7 @@ haproxy:
       options:
         - forwardfor
         - http-server-close
+        - httplog
 
   # Backends with `maintenance: true` answer every request with
   # salt/haproxy/files/errors/maintenance.html (503 + Retry-After) instead of
