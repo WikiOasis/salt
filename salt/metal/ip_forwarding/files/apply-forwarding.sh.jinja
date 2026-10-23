@@ -27,26 +27,36 @@ iptables -A "$FWD_CHAIN" -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A "$FWD_CHAIN" -i "{{ salt['pillar.get']('proxmox:private_bridge', 'vmbr-vrack') }}" -j ACCEPT
 
 {%- for rule in pillar.get('ip_forwarding', []) %}
+{%- set i = loop.index %}
 {%- set proto = rule.get('proto', 'tcp') %}
+{#- allow_from: name of a list under pillar source_lists; only those sources are forwarded #}
+{%- if rule.get('allow_from') %}
+{%- set sources = salt['pillar.get']('source_lists:' ~ rule['allow_from'], []) %}
+{%- if not sources %}{{ raise('source_lists:' ~ rule['allow_from'] ~ ' is empty or missing; refusing to render') }}{%- endif %}
+{%- else %}
+{%- set sources = [none] %}
+{%- endif %}
 {%- if rule.get('vm_ip') %}
-VM_IP_{{ loop.index }}="{{ rule['vm_ip'] }}"
+VM_IP_{{ i }}="{{ rule['vm_ip'] }}"
 {%- else %}
 {%- set ns = rule.get('nameserver', '127.0.0.1') %}
-VM_IP_{{ loop.index }}=$(host -W 3 "{{ rule['vm_dns'] }}" {{ ns }} | awk '/has address/{print $NF; exit}') || true
-if [[ -z "$VM_IP_{{ loop.index }}" ]]; then
+VM_IP_{{ i }}=$(host -W 3 "{{ rule['vm_dns'] }}" {{ ns }} | awk '/has address/{print $NF; exit}') || true
+if [[ -z "$VM_IP_{{ i }}" ]]; then
   echo "Could not resolve {{ rule['vm_dns'] }}" >&2
   exit 1
 fi
 {%- endif %}
+{%- for src in sources %}
 iptables -t nat -A "$NAT_CHAIN" \
   -i "{{ salt['pillar.get']('proxmox:public_bridge', 'vmbr0') }}" \
-  -p {{ proto }} --dport {{ rule['host_port'] }} \
-  -j DNAT --to-destination "${VM_IP_{{ loop.index }}}:{{ rule['vm_port'] }}"
+  {% if src %}-s {{ src }} {% endif %}-p {{ proto }} --dport {{ rule['host_port'] }} \
+  -j DNAT --to-destination "${VM_IP_{{ i }}}:{{ rule['vm_port'] }}"
 iptables -A "$FWD_CHAIN" \
-  -p {{ proto }} -d "${VM_IP_{{ loop.index }}}" --dport {{ rule['vm_port'] }} \
+  {% if src %}-s {{ src }} {% endif %}-p {{ proto }} -d "${VM_IP_{{ i }}}" --dport {{ rule['vm_port'] }} \
   -m state --state NEW \
   -j ACCEPT
-echo "{{ proto | upper }} host:{{ rule['host_port'] }} -> {{ rule['vm_dns'] }} ($VM_IP_{{ loop.index }}):{{ rule['vm_port'] }}"
+{%- endfor %}
+echo "{{ proto | upper }} host:{{ rule['host_port'] }} -> {{ rule['vm_dns'] }} ($VM_IP_{{ i }}):{{ rule['vm_port'] }}{% if rule.get('allow_from') %} [from {{ rule['allow_from'] }}: {{ sources | length }} ranges]{% endif %}"
 {%- endfor %}
 
 netfilter-persistent save
