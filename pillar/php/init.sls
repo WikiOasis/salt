@@ -41,3 +41,6 @@ php:
     save_comments: false
     jit: tracing
     jit_buffer_size: 128M
+  session:
+    upload_progress:
+        enable: false

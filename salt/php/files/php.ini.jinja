@@ -1,6 +1,8 @@
 {%- set cfg = salt['pillar.get']('php', {}) %}
 {%- set version = cfg.get('version', '8.3') %}
 {%- set opcache = cfg.get('opcache', {}) %}
+{%- set session = cfg.get('session', {}) %}
+
 ; Managed by Salt — do not edit manually.
 ; php.ini for the php-fpm SAPI ({{ version }}), tuned for MediaWiki.
 
@@ -43,3 +45,6 @@ opcache.consistency_checks = 0
 
 opcache.jit = {{ opcache.get('jit', 'tracing') }}
 opcache.jit_buffer_size = {{ opcache.get('jit_buffer_size', '128M') }}
+
+[session]
+session.upload_progress.enabled = {{ '1' if session.upload_progress.get('enable', True) else '0' }}
