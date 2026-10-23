@@ -11,6 +11,7 @@ ip_forwarding:
     vm_ip: 10.0.2.2
     vm_port: 80
     proto: tcp
+    allow_from: cloudflare
   - host_port: 1234
     vm_dns: apps-us-east-021.ovvin.wonet
     vm_ip: 10.0.2.70
