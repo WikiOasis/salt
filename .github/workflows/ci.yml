@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .
+      - run: python -m unittest discover -s salt/sal/tests -p 'test_*.py' -v
+      - run: python -m unittest discover -s salt/fandom_import/tests -v
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git ls-files '*.sh' | xargs shellcheck -S warning
+      - run: git ls-files '*.sh' | xargs bash -n
+
+  templates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jinja2 pyyaml
+      - run: python .github/scripts/check_jinja.py
+      - run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          import yaml
+
+          files = subprocess.run(
+              ["git", "ls-files", "*.json", "*.yml", "*.yaml"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.split()
+          failed = 0
+          for path in files:
+              try:
+                  with open(path, encoding="utf-8") as handle:
+                      if path.endswith(".json"):
+                          json.load(handle)
+                      else:
+                          list(yaml.safe_load_all(handle))
+              except Exception as exc:
+                  failed += 1
+                  print(f"::error file={path}::{exc}")
+          print(f"checked {len(files)} files, {failed} failed")
+          sys.exit(1 if failed else 0)
+          PY
+
+  salt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install salt
+      - run: .github/scripts/salt_render.sh
