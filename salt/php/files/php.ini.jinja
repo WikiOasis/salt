@@ -47,4 +47,4 @@ opcache.jit = {{ opcache.get('jit', 'tracing') }}
 opcache.jit_buffer_size = {{ opcache.get('jit_buffer_size', '128M') }}
 
 [session]
-session.upload_progress.enabled = {{ '1' if session.upload_progress.get('enable', True) else '0' }}
+session.upload_progress.enabled = {{ '1' if session.get('upload_progress', {}).get('enable', True) else '0' }}
