@@ -214,7 +214,7 @@ nginx:
       return: 'uxVgOovs4JTDK6udZMvGePyWo7D-SiOc491x9zZN_RwYRNkJw3vVRyM80YaoVVK'
       database_name: 'wellbornarchiveswiki'
     wikilaxuswiki:
-      server_name: 'wikilaxus.rg'
+      server_name: 'wikilaxus.org'
       listen: 80
       location: 'IEDOeMU6Ygiwud-clGz-Pw'
       return: 'IEDOeMU6Ygiwud-clGz-Pw.qG9fjZxG01eSzr9qiXla3XyRCJN2bTBpnbqSuwD-NAs'
