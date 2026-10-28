@@ -111,6 +111,12 @@ nginx:
       location: 'EZQDzRwzkbZa7zGrPP5Buh_nm8HmS7B-FJ_THBLs2ZT6LzXWTrkuSy67zitIOn0i'
       return: 'EZQDzRwzkbZa7zGrPP5Buh_nm8HmS7B-FJ_THBLs2ZT6LzXWTrkuSy67zitIOn0i.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
       database_name: 'freshwebsiteswiki'
+    giantessdimensionwiki:
+      server_name: 'wiki.giantessdimension.net'
+      listen: 80
+      location: 'vRzP5lhOfYUyoyUGvrfr8AjKTkoJ_R40yBRgEfwhFVW78wE1CnGUMEY0IdOZkbMD'
+      return: 'vRzP5lhOfYUyoyUGvrfr8AjKTkoJ_R40yBRgEfwhFVW78wE1CnGUMEY0IdOZkbMD.r54qAqCZSs4xyyeamMffaxyR1FWYVb5OvwUh8EcrhpI'
+      database_name: 'giantessdimensionwiki'
     indyadirakwiki:
       server_name: 'wiki.indyadirak.com'
       listen: 80
