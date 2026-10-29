@@ -1,6 +1,7 @@
 {%- set haproxy = salt['pillar.get']('haproxy', {}) %}
 {%- set global_cfg = haproxy.get('global', {}) %}
 {%- set defaults_cfg = haproxy.get('defaults', {}) %}
+{%- set error_codes = haproxy.get('error_pages', {}).get('codes', [400, 403, 404, 405, 408, 410, 413, 425, 429, 500, 501, 502, 503, 504]) %}
 {%- set stats_socket = haproxy.get('stats_socket', '/run/haproxy/admin.sock') %}
 
 global
@@ -18,6 +19,9 @@ defaults
     timeout connect {{ defaults_cfg.get('timeout_connect', '5s') }}
     timeout client {{ defaults_cfg.get('timeout_client', '50s') }}
     timeout server {{ defaults_cfg.get('timeout_server', '1200s') }}
+{%- for code in error_codes %}
+    errorfile {{ code }} /etc/haproxy/errors/{{ code }}.http
+{%- endfor %}
 {% for name, frontend in haproxy.get('frontends', {}).items() %}
 frontend {{ name }}
     bind {{ frontend.bind }}

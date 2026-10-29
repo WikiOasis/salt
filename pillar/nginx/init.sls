@@ -36,7 +36,7 @@ nginx:
     - listen:
         - "80"
         - "[::]:80"
-      server_name: ".wikioasis.org .skywiki.org .betaoasis.xyz"
+      server_name: ".wikioasis.org .skywiki.org .betaoasis.xyz .has-a.wiki"
 
   custom_domains:
     25minresearchwiki:
