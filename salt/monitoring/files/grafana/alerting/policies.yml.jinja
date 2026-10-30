@@ -1,0 +1,18 @@
+{%- set n = salt['pillar.get']('notifications', {}) %}
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: wikioasis-chat
+    group_by: ['grafana_folder', 'alertname', 'slo']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+{%- if n.get('incidentio_grafana_url') %}
+      - receiver: incidentio
+        object_matchers:
+          - ['severity', '=', 'page']
+        continue: true
+{%- endif %}
+      - receiver: wikioasis-chat

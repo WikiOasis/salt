@@ -1,0 +1,37 @@
+{%- set n = salt['pillar.get']('notifications', {}) %}
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: wikioasis-chat
+    receivers:
+{%- if n.get('slack_webhook_url') %}
+      - uid: wikioasis-chat-slack
+        type: slack
+        disableResolveMessage: false
+        settings:
+          url: {{ n.slack_webhook_url | tojson }}
+          username: Grafana
+          icon_emoji: ":rotating_light:"
+{%- endif %}
+{%- if n.get('discord_webhook_url') %}
+      - uid: wikioasis-chat-discord
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: {{ n.discord_webhook_url | tojson }}
+          use_discord_username: false
+{%- endif %}
+{%- if n.get('incidentio_grafana_url') %}
+  - orgId: 1
+    name: incidentio
+    receivers:
+      - uid: incidentio-webhook
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: {{ n.incidentio_grafana_url | tojson }}
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: {{ n.get('incidentio_grafana_token', '') | tojson }}
+{%- endif %}

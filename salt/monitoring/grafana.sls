@@ -55,6 +55,21 @@ grafana_pkg:
     - watch_in:
       - service: grafana-server
 
+{%- for name in ['contactpoints', 'policies', 'slo-rules', 'jobqueue-rules'] %}
+/etc/grafana/provisioning/alerting/{{ name }}.yml:
+  file.managed:
+    - source: salt://monitoring/files/grafana/alerting/{{ name }}.yml.jinja
+    - template: jinja
+    - user: root
+    - group: grafana
+    - mode: '0640'
+    - makedirs: True
+    - require:
+      - pkg: grafana_pkg
+    - watch_in:
+      - service: grafana-server
+{%- endfor %}
+
 /etc/nginx/sites-available/grafana.conf:
   file.managed:
     - source: salt://monitoring/files/nginx/grafana.conf.jinja

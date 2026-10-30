@@ -73,12 +73,32 @@ prometheus_package:
       - file: /etc/prometheus/file_sd
 {%- endfor %}
 
+/etc/prometheus/rules:
+  file.directory:
+    - user: root
+    - group: prometheus
+    - mode: '0755'
+    - require:
+      - pkg: prometheus_package
+
+/etc/prometheus/rules/slo.yml:
+  file.managed:
+    - source: salt://monitoring/files/prometheus/rules/slo.yml.jinja
+    - template: jinja
+    - user: root
+    - group: prometheus
+    - mode: '0640'
+    - check_cmd: promtool check rules
+    - require:
+      - file: /etc/prometheus/rules
+
 prometheus:
   service.running:
     - enable: True
     - watch:
       - file: /etc/prometheus/prometheus.yml
       - file: /etc/default/prometheus
+      - file: /etc/prometheus/rules/slo.yml
 {%- for job, prefix, port in jobs %}
       - file: /etc/prometheus/file_sd/{{ job }}.json
 {%- endfor %}

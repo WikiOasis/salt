@@ -1,0 +1,23 @@
+mappings:
+  - match: '^jobrunner\.pop\.([^.]+)\.(ok|failed)\.(.+)$'
+    match_type: regex
+    name: jobrunner_jobs_total
+    labels:
+      type: "$1"
+      status: "$2"
+      host: "$3"
+  - match: '^jobrunner\.runner-status\.(.+)$'
+    match_type: regex
+    name: jobrunner_runner_status_total
+    labels:
+      status: "$1"
+  - match: '^jobrunner\.redis-error\.(.+)$'
+    match_type: regex
+    name: jobrunner_redis_errors_total
+    labels:
+      host: "$1"
+  - match: 'mediawiki.jobqueue_completion_seconds'
+    name: mediawiki_jobqueue_completion_seconds
+    observer_type: histogram
+    histogram_options:
+      buckets: [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600, 21600]

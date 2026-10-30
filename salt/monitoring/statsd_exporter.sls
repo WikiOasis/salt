@@ -31,7 +31,7 @@ statsd_exporter_binary:
 
         [Service]
         User=prometheus
-        ExecStart=/usr/local/bin/prometheus-statsd-exporter
+        ExecStart=/usr/local/bin/prometheus-statsd-exporter --statsd.mapping-config=/etc/prometheus/statsd_mapping.yml
         Restart=on-failure
 
         [Install]
@@ -40,9 +40,20 @@ statsd_exporter_binary:
     - group: root
     - mode: '0644'
 
+/etc/prometheus/statsd_mapping.yml:
+  file.managed:
+    - source: salt://monitoring/files/statsd/mapping.yml
+    - user: root
+    - group: prometheus
+    - mode: '0640'
+    - makedirs: True
+
 prometheus-statsd-exporter:
   service.running:
     - enable: True
+    - watch:
+      - file: /etc/prometheus/statsd_mapping.yml
+      - file: /etc/systemd/system/prometheus-statsd-exporter.service
     - require:
       - user: prometheus_user
       - file: /usr/local/bin/prometheus-statsd-exporter

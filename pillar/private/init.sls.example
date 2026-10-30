@@ -18,6 +18,8 @@ notifications:
   slack_webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
   incidentio_url: https://api.incident.io/v2/alert_events/http/CHANGE_ME
   incidentio_token: CHANGE_ME
+  incidentio_grafana_url: https://api.incident.io/v2/alert_events/grafana/CHANGE_ME
+  incidentio_grafana_token: CHANGE_ME
 
 mediawiki:
   webhooks:

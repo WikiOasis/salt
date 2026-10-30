@@ -41,11 +41,15 @@ haproxy:
         - hostname: test.wikioasis.org
           backend: staging
         - hostname: phorge.wikioasis.org
-          backend: apps
+          backend: phorge
         - hostname: phorge.wikioasisusercontent.net
-          backend: apps
+          backend: phorge
         - hostname: safety.wikioasis.org
-          backend: apps
+          backend: tsportal
+        - hostname: accounts.wikioasis.org
+          backend: accounts
+        - hostname: accounts.betaoasis.xyz
+          backend: accounts
         - hostname: portal.wikioasis.org
           backend: apps
         - hostname: id.wikioasis.org
@@ -174,6 +178,24 @@ haproxy:
           check: true
           weight: 1
           depooled: false
+    tsportal:
+      maintenance: false
+      balance: roundrobin
+      options:
+        - forwardfor
+      track_backend: apps
+    phorge:
+      maintenance: false
+      balance: roundrobin
+      options:
+        - forwardfor
+      track_backend: apps
+    accounts:
+      maintenance: false
+      balance: roundrobin
+      options:
+        - forwardfor
+      track_backend: mediawiki
     staging:
       maintenance: false
       balance: roundrobin

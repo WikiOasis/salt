@@ -77,6 +77,12 @@ backend {{ name }}
 {%- for check in backend.get('http_checks', []) %}
     http-check {{ check }}
 {%- endfor %}
+{%- if backend.get('track_backend') %}
+{%- for server in haproxy.get('backends', {}).get(backend.track_backend, {}).get('servers', []) %}
+    server {{ server.name }} {{ server.host }}:{{ server.port }} track {{ backend.track_backend }}/{{ server.name }}{% if server.get('weight') %} weight {{ server.weight }}{% endif %}{% if server.get('maxconn') %} maxconn {{ server.maxconn }}{% endif %}
+
+{%- endfor %}
+{%- endif %}
 {%- for server in backend.get('servers', []) %}
     server {{ server.name }} {{ server.host }}:{{ server.port }}{% if server.get('check', false) %} check{% endif %}{% if server.get('weight') %} weight {{ server.weight }}{% endif %}{% if server.get('maxconn') %} maxconn {{ server.maxconn }}{% endif %}
 

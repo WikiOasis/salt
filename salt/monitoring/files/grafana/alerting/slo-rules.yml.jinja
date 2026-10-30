@@ -1,0 +1,67 @@
+{%- set slo = salt['pillar.get']('monitoring:slo', {}) %}
+{%- set budget_window = slo.get('window', '28d') %}
+{%- set tiers = [
+    ('fast', 'page', '2m', [('1h', '5m', 14.4), ('6h', '30m', 6)]),
+    ('slow', 'ticket', '15m', [('1d', '2h', 3), ('3d', '6h', 1)]),
+] %}
+{%- macro burn(name, long, short, factor, budget, min_events) -%}
+{%- set threshold = '%g' | format(factor * budget) -%}
+(slo:sli_error:ratio_rate{{ long }}{slo="{{ name }}"} > {{ threshold }} and slo:sli_error:ratio_rate{{ short }}{slo="{{ name }}"} > {{ threshold }}
+{%- if min_events %} and slo:sli_events:rate{{ long }}{slo="{{ name }}"} * {{ {'1h': 3600, '6h': 21600, '1d': 86400, '3d': 259200}[long] }} >= {{ min_events }}{% endif %})
+{%- endmacro %}
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: slo-burn-rate
+    folder: SLOs
+    interval: 1m
+    rules:
+{%- for name, def in slo.get('objectives', {}).items() %}
+{%- set budget = 1 - def.objective / 100 %}
+{%- set title = def.get('title', name) %}
+{%- for tier, severity, pending, windows in tiers %}
+{%- set sev = severity if (severity != 'page' or def.get('page', false)) else 'ticket' %}
+{%- set parts = [] %}
+{%- for long, short, factor in windows %}
+{%- do parts.append(burn(name, long, short, factor, budget, def.get('min_events', 0))) %}
+{%- endfor %}
+      - uid: slo-{{ name }}-{{ tier }}
+        title: {{ ('SLO ' ~ tier ~ ' burn: ' ~ title) | tojson }}
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus-slo
+            model:
+              refId: A
+              expr: {{ (parts | join(' or ')) | tojson }}
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        noDataState: OK
+        execErrState: Error
+        for: {{ pending }}
+        labels:
+          slo: {{ name }}
+          severity: {{ sev }}
+          burn: {{ tier }}
+        annotations:
+          summary: {{ (title ~ ' is burning its ' ~ budget_window ~ ' error budget (' ~ tier ~ ' burn)') | tojson }}
+          description: {{ ('Objective ' ~ ('%g' | format(def.objective)) ~ '% over ' ~ budget_window ~ '. Current error ratio {{ $values.A.Value | humanizePercentage }}. Dashboard: https://grafana.wikioasis.org/d/wikioasis-slo/slos?var-slo=' ~ name) | tojson }}
+        isPaused: false
+{%- endfor %}
+{%- endfor %}

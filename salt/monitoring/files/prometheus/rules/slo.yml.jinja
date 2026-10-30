@@ -1,0 +1,57 @@
+{%- set slo = salt['pillar.get']('monitoring:slo', {}) %}
+{%- set budget_window = slo.get('window', '28d') %}
+{%- set short_windows = ['5m', '30m', '1h', '2h', '6h'] %}
+{%- set long_windows = ['1d', '3d', budget_window] %}
+{%- macro window_rules(name, def, windows) %}
+{%- for w in windows %}
+{%- if def.get('good') %}
+      - record: slo:sli_error:ratio_rate{{ w }}
+        expr: {{ ('1 - avg_over_time(slo:sli_good:ratio{slo="' ~ name ~ '"}[' ~ w ~ '])') | tojson }}
+        labels:
+          slo: {{ name }}
+{%- else %}
+{%- if def.get('haproxy_backend') %}
+{%- set errors = 'sum(rate(haproxy_backend_http_responses_total{job="haproxy",backend="' ~ def.haproxy_backend ~ '",code="5xx"}[$window])) or vector(0)' %}
+{%- set total = 'sum(rate(haproxy_backend_http_responses_total{job="haproxy",backend="' ~ def.haproxy_backend ~ '"}[$window]))' %}
+{%- else %}
+{%- set errors = def.errors %}
+{%- set total = def.total %}
+{%- endif %}
+      - record: slo:sli_events:rate{{ w }}
+        expr: {{ total.replace('$window', w) | tojson }}
+        labels:
+          slo: {{ name }}
+      - record: slo:sli_error:ratio_rate{{ w }}
+        expr: {{ ('(' ~ errors.replace('$window', w) ~ ') / ((' ~ total.replace('$window', w) ~ ') > 0)') | tojson }}
+        labels:
+          slo: {{ name }}
+{%- endif %}
+{%- endfor %}
+{%- endmacro %}
+groups:
+{%- for name, def in slo.get('objectives', {}).items() %}
+  - name: slo-{{ name }}
+    interval: 30s
+    rules:
+{%- if def.get('good') %}
+      - record: slo:sli_good:ratio
+        expr: {{ def.good | tojson }}
+        labels:
+          slo: {{ name }}
+{%- endif %}
+{{- window_rules(name, def, short_windows) }}
+  - name: slo-{{ name }}-long
+    interval: 2m
+    rules:
+{{- window_rules(name, def, long_windows) }}
+      - record: slo:objective:ratio
+        expr: vector({{ '%g' | format(def.objective / 100) }})
+        labels:
+          slo: {{ name }}
+          title: {{ def.get('title', name) | tojson }}
+          page: {{ def.get('page', false) | string | lower | tojson }}
+      - record: slo:error_budget_remaining:ratio
+        expr: {{ ('1 - slo:sli_error:ratio_rate' ~ budget_window ~ '{slo="' ~ name ~ '"} / ' ~ ('%g' | format(1 - def.objective / 100))) | tojson }}
+        labels:
+          slo: {{ name }}
+{%- endfor %}

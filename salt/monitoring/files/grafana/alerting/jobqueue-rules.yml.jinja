@@ -1,0 +1,111 @@
+{%- set jq = salt['pillar.get']('monitoring:jobqueue', {}) %}
+{%- set stall_for = jq.get('stall_for', '15m') %}
+{%- set ready = 'sum(redis_key_size{job="redis",key=~".+:jobqueue:.+:l-unclaimed"})' %}
+{%- set ready_ago = 'sum(redis_key_size{job="redis",key=~".+:jobqueue:.+:l-unclaimed"} offset ' ~ jq.get('growth_window', '15m') ~ ')' %}
+{%- set iw = jq.get('imbalance_window', '1h') %}
+{%- set inserts = 'sum(rate(mediawiki_jobqueue_events_total{event="inserts_actual"}[' ~ iw ~ ']))' %}
+{%- set acks = '(sum(rate(mediawiki_jobqueue_events_total{event="acks"}[' ~ iw ~ '])) or vector(0))' %}
+{%- set abandoned = 'sum(redis_key_size{job="redis",key=~".+:jobqueue:.+:z-abandoned"})' %}
+{%- set abandoned_1h_ago = 'sum(redis_key_size{job="redis",key=~".+:jobqueue:.+:z-abandoned"} offset 1h)' %}
+{%- set rules = [
+    {
+      'uid': 'jobqueue-stalled',
+      'title': 'Job queue stalled',
+      'severity': 'page',
+      'for': '5m',
+      'expr': '(' ~ ready ~ ' > 0) and on() ((sum(rate(jobrunner_jobs_total[' ~ stall_for ~ '])) or vector(0)) == 0)',
+      'summary': 'Jobs are waiting in the queue but none have been processed in the last ' ~ stall_for,
+      'description': '{{ $values.A.Value }} ready jobs queued with no job completions from the jobrunner. Check mediawiki-jobrunner and mediawiki-jobchron on the task hosts.',
+    },
+    {
+      'uid': 'jobqueue-backlog',
+      'title': 'Job queue backlog high',
+      'severity': 'ticket',
+      'for': jq.get('backlog_for', '30m'),
+      'expr': ready ~ ' > ' ~ jq.get('backlog_threshold', 50000),
+      'summary': 'Job queue backlog above ' ~ jq.get('backlog_threshold', 50000) ~ ' ready jobs',
+      'description': '{{ $values.A.Value }} ready jobs queued. The jobrunner is processing slower than jobs arrive.',
+    },
+    {
+      'uid': 'jobqueue-growing',
+      'title': 'Job queue growing quickly',
+      'severity': 'ticket',
+      'for': '0s',
+      'expr': '(' ~ ready ~ ' - (' ~ ready_ago ~ ' or vector(0))) > ' ~ jq.get('growth_threshold', 10000),
+      'summary': 'Job queue grew by more than ' ~ jq.get('growth_threshold', 10000) ~ ' ready jobs in ' ~ jq.get('growth_window', '15m'),
+      'description': 'The ready backlog grew by {{ $values.A.Value }} jobs in ' ~ jq.get('growth_window', '15m') ~ '. Look for a mass edit, template change or import flooding the queue.',
+    },
+    {
+      'uid': 'jobqueue-imbalance',
+      'title': 'Jobs arriving faster than processed',
+      'severity': 'ticket',
+      'for': iw,
+      'expr': '((' ~ inserts ~ ' / ' ~ acks ~ ') > ' ~ jq.get('imbalance_ratio', 1.1) ~ ') and on() (' ~ ready ~ ' > ' ~ jq.get('imbalance_min_backlog', 1000) ~ ')',
+      'summary': 'Jobs have been queued faster than they are completed for over ' ~ iw,
+      'description': 'Jobs are arriving at {{ $values.A.Value | printf "%.2f" }}x the completion rate, averaged over ' ~ iw ~ '. The backlog will keep growing until runner capacity is added or the source slows down.',
+    },
+    {
+      'uid': 'jobqueue-abandoned',
+      'title': 'Jobs being abandoned',
+      'severity': 'ticket',
+      'for': '0s',
+      'expr': '(' ~ abandoned ~ ' - (' ~ abandoned_1h_ago ~ ' or vector(0))) > ' ~ jq.get('abandoned_growth_threshold', 100),
+      'summary': 'More than ' ~ jq.get('abandoned_growth_threshold', 100) ~ ' jobs abandoned in the last hour',
+      'description': '{{ $values.A.Value }} more jobs exhausted their retry attempts in the last hour.',
+    },
+    {
+      'uid': 'jobqueue-redis-errors',
+      'title': 'Jobrunner Redis errors',
+      'severity': 'ticket',
+      'for': '0s',
+      'expr': 'sum(increase(jobrunner_redis_errors_total[15m])) > 5',
+      'summary': 'The jobrunner is hitting Redis errors',
+      'description': '{{ $values.A.Value }} Redis errors from the jobrunner in the last 15 minutes.',
+    },
+] %}
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: jobqueue
+    folder: Job queue
+    interval: 1m
+    rules:
+{%- for r in rules %}
+      - uid: {{ r.uid }}
+        title: {{ r.title | tojson }}
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus-slo
+            model:
+              refId: A
+              expr: {{ r.expr | tojson }}
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        noDataState: OK
+        execErrState: Error
+        for: {{ r['for'] }}
+        labels:
+          severity: {{ r.severity }}
+          component: jobqueue
+        annotations:
+          summary: {{ r.summary | tojson }}
+          description: {{ r.description | tojson }}
+        isPaused: false
+{%- endfor %}
