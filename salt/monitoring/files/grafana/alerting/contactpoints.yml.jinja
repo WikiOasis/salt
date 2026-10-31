@@ -39,3 +39,9 @@ contactPoints:
           authorization_scheme: Bearer
           authorization_credentials: {{ n.get('incidentio_grafana_token', '') | tojson }}
 {%- endif %}
+
+deleteContactPoints:
+  - orgId: 1
+    uid: wikioasis-chat-slack
+  - orgId: 1
+    uid: wikioasis-chat-discord

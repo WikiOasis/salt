@@ -35,6 +35,10 @@ server {
     return 302 https://{{ fallback }}/;
   }
 
+  location ~ "^/(favicon\.ico|apple-touch-icon[A-Za-z0-9_-]*\.png)$" {
+    return 301 https://{{ fallback }}$request_uri;
+  }
+
   # /<dbname>/versions/<ver>/... -> the real static asset tree ($wgResourceBasePath,
   # $wgStylePath, $wgExtensionAssetsPath). Must precede the .php routing so that
   # skin CSS and Codex SVG icons are served same-origin.
