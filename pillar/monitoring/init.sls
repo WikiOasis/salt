@@ -144,4 +144,4 @@ monitoring:
     imbalance_min_backlog: 1000
     backlog_threshold: 50000
     backlog_for: 30m
-    abandoned_growth_threshold: 100
+    abandoned_growth_threshold: 500
