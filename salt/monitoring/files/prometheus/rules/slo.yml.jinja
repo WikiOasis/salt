@@ -22,7 +22,7 @@
         labels:
           slo: {{ name }}
       - record: slo:sli_error:ratio_rate{{ w }}
-        expr: {{ ('(' ~ errors.replace('$window', w) ~ ') / ((' ~ total.replace('$window', w) ~ ') > 0)') | tojson }}
+        expr: {{ ('((' ~ errors.replace('$window', w) ~ ') / ((' ~ total.replace('$window', w) ~ ') > 0)) or ((' ~ total.replace('$window', w) ~ ') * 0)') | tojson }}
         labels:
           slo: {{ name }}
 {%- endif %}

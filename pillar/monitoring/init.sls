@@ -106,8 +106,8 @@ monitoring:
         objective: 99.5
         page: true
         good: >-
-          (min(elasticsearch_cluster_health_up{job="opensearch"})
-          * (1 - max(elasticsearch_cluster_health_status{job="opensearch",color="red"})))
+          (min(up{job="opensearch"})
+          * (max(elasticsearch_cluster_health_status{job="opensearch",color=~"green|yellow"}) or vector(0)))
           or vector(0)
       databases:
         title: MariaDB availability
@@ -144,10 +144,10 @@ monitoring:
         page: true
         min_events: 50
         errors: >-
-          (sum(rate(mediawiki_jobqueue_completion_seconds_count[$window])) or vector(0))
+          (sum(rate(mediawiki_jobqueue_completion_seconds_bucket{le="+Inf"}[$window])) or vector(0))
           - (sum(rate(mediawiki_jobqueue_completion_seconds_bucket{le="600"}[$window])) or vector(0))
         total: >-
-          sum(rate(mediawiki_jobqueue_completion_seconds_count[$window]))
+          sum(rate(mediawiki_jobqueue_completion_seconds_bucket{le="+Inf"}[$window]))
 
   jobqueue:
     stall_for: 15m
