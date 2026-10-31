@@ -14,8 +14,8 @@
       'severity': 'page',
       'for': '5m',
       'expr': '(' ~ ready ~ ' > 0) and on() ((sum(rate(jobrunner_jobs_total[' ~ stall_for ~ '])) or vector(0)) == 0)',
-      'summary': 'Jobs are waiting in the queue but none have been processed in the last ' ~ stall_for,
-      'description': '{{ $values.A.Value }} ready jobs queued with no job completions from the jobrunner. Check mediawiki-jobrunner and mediawiki-jobchron on the task hosts.',
+      'summary': '{{ humanize $values.A.Value }} jobs waiting, none completed in the last ' ~ stall_for,
+      'description': 'Check mediawiki-jobrunner and mediawiki-jobchron on the task hosts.',
     },
     {
       'uid': 'jobqueue-backlog',
@@ -23,8 +23,8 @@
       'severity': 'ticket',
       'for': jq.get('backlog_for', '30m'),
       'expr': ready ~ ' > ' ~ jq.get('backlog_threshold', 50000),
-      'summary': 'Job queue backlog above ' ~ jq.get('backlog_threshold', 50000) ~ ' ready jobs',
-      'description': '{{ $values.A.Value }} ready jobs queued. The jobrunner is processing slower than jobs arrive.',
+      'summary': '{{ humanize $values.A.Value }} jobs waiting, above the ' ~ '{:,}'.format(jq.get('backlog_threshold', 50000)) ~ ' threshold',
+      'description': 'The backlog has stayed high for ' ~ jq.get('backlog_for', '30m') ~ '. The jobrunner is not keeping up with incoming jobs.',
     },
     {
       'uid': 'jobqueue-growing',
@@ -32,8 +32,8 @@
       'severity': 'ticket',
       'for': '0s',
       'expr': '(' ~ ready ~ ' - (' ~ ready_ago ~ ' or vector(0))) > ' ~ jq.get('growth_threshold', 10000),
-      'summary': 'Job queue grew by more than ' ~ jq.get('growth_threshold', 10000) ~ ' ready jobs in ' ~ jq.get('growth_window', '15m'),
-      'description': 'The ready backlog grew by {{ $values.A.Value }} jobs in ' ~ jq.get('growth_window', '15m') ~ '. Look for a mass edit, template change or import flooding the queue.',
+      'summary': 'Backlog grew by {{ humanize $values.A.Value }} jobs in ' ~ jq.get('growth_window', '15m'),
+      'description': 'Look for a mass edit, template change or import flooding the queue.',
     },
     {
       'uid': 'jobqueue-imbalance',
@@ -41,8 +41,8 @@
       'severity': 'ticket',
       'for': iw,
       'expr': '((' ~ inserts ~ ' / ' ~ acks ~ ') > ' ~ jq.get('imbalance_ratio', 1.1) ~ ') and on() (' ~ ready ~ ' > ' ~ jq.get('imbalance_min_backlog', 1000) ~ ')',
-      'summary': 'Jobs have been queued faster than they are completed for over ' ~ iw,
-      'description': 'Jobs are arriving at {{ $values.A.Value | printf "%.2f" }}x the completion rate, averaged over ' ~ iw ~ '. The backlog will keep growing until runner capacity is added or the source slows down.',
+      'summary': 'Jobs arriving at {{ printf "%.2f" $values.A.Value }}x the rate they complete',
+      'description': 'Sustained for over ' ~ iw ~ '. The backlog will keep growing until runner capacity is added or the source slows down.',
     },
     {
       'uid': 'jobqueue-abandoned',
@@ -50,8 +50,8 @@
       'severity': 'ticket',
       'for': '0s',
       'expr': '(' ~ abandoned ~ ' - (' ~ abandoned_1h_ago ~ ' or vector(0))) > ' ~ jq.get('abandoned_growth_threshold', 100),
-      'summary': 'More than ' ~ jq.get('abandoned_growth_threshold', 100) ~ ' jobs abandoned in the last hour',
-      'description': '{{ $values.A.Value }} more jobs exhausted their retry attempts in the last hour.',
+      'summary': '{{ humanize $values.A.Value }} jobs abandoned in the last hour',
+      'description': 'These jobs failed every retry attempt and will not run again.',
     },
     {
       'uid': 'jobqueue-redis-errors',
@@ -59,8 +59,8 @@
       'severity': 'ticket',
       'for': '0s',
       'expr': 'sum(increase(jobrunner_redis_errors_total[15m])) > 5',
-      'summary': 'The jobrunner is hitting Redis errors',
-      'description': '{{ $values.A.Value }} Redis errors from the jobrunner in the last 15 minutes.',
+      'summary': '{{ humanize $values.A.Value }} Redis errors from the jobrunner in the last 15m',
+      'description': 'The jobrunner is having trouble reaching the job queue in Redis.',
     },
 ] %}
 apiVersion: 1
@@ -107,5 +107,6 @@ groups:
         annotations:
           summary: {{ r.summary | tojson }}
           description: {{ r.description | tojson }}
+          dashboard_url: "https://grafana.wikioasis.org/d/wikioasis-slo/slos?var-slo=jobrunner&var-slo=job_latency"
         isPaused: false
 {%- endfor %}
