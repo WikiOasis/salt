@@ -70,6 +70,18 @@ grafana_pkg:
       - service: grafana-server
 {%- endfor %}
 
+/etc/grafana/provisioning/alerting/templates.yml:
+  file.managed:
+    - source: salt://monitoring/files/grafana/alerting/templates.yml
+    - user: root
+    - group: grafana
+    - mode: '0640'
+    - makedirs: True
+    - require:
+      - pkg: grafana_pkg
+    - watch_in:
+      - service: grafana-server
+
 /etc/nginx/sites-available/grafana.conf:
   file.managed:
     - source: salt://monitoring/files/nginx/grafana.conf.jinja

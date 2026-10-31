@@ -4,6 +4,10 @@
     ('fast', 'page', '2m', [('1h', '5m', 14.4), ('6h', '30m', 6)]),
     ('slow', 'ticket', '15m', [('1d', '2h', 3), ('3d', '6h', 1)]),
 ] %}
+{%- set descriptions = {
+    'fast': 'Burning budget at 14.4x the sustainable rate over 1h, or 6x over 6h.',
+    'slow': 'Burning budget at 3x the sustainable rate over 1d, or 1x over 3d.',
+} %}
 {%- macro burn(name, long, short, factor, budget, min_events) -%}
 {%- set threshold = '%g' | format(factor * budget) -%}
 (slo:sli_error:ratio_rate{{ long }}{slo="{{ name }}"} > {{ threshold }} and slo:sli_error:ratio_rate{{ short }}{slo="{{ name }}"} > {{ threshold }}
@@ -60,8 +64,9 @@ groups:
           severity: {{ sev }}
           burn: {{ tier }}
         annotations:
-          summary: {{ (title ~ ' is burning its ' ~ budget_window ~ ' error budget (' ~ tier ~ ' burn)') | tojson }}
-          description: {{ ('Objective ' ~ ('%g' | format(def.objective)) ~ '% over ' ~ budget_window ~ '. Current error ratio {{ $values.A.Value | humanizePercentage }}. Dashboard: https://grafana.wikioasis.org/d/wikioasis-slo/slos?var-slo=' ~ name) | tojson }}
+          summary: {{ ('Error ratio {{ $values.A.Value | humanizePercentage }} against a ' ~ ('%g' | format(def.objective)) ~ '% objective') | tojson }}
+          description: {{ (descriptions[tier] ~ ' The ' ~ budget_window ~ ' error budget is being used up too fast.') | tojson }}
+          dashboard_url: {{ ('https://grafana.wikioasis.org/d/wikioasis-slo/slos?var-slo=' ~ name) | tojson }}
         isPaused: false
 {%- endfor %}
 {%- endfor %}

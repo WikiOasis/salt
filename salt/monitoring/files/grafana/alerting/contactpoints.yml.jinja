@@ -6,21 +6,25 @@ contactPoints:
     name: wikioasis-chat
     receivers:
 {%- if n.get('slack_webhook_url') %}
-      - uid: wikioasis-chat-slack
-        type: slack
+      - uid: wikioasis-chat-slack-v2
+        type: webhook
         disableResolveMessage: false
         settings:
           url: {{ n.slack_webhook_url | tojson }}
-          username: Grafana
-          icon_emoji: ":rotating_light:"
+          httpMethod: POST
+          payload:
+            template: {% raw %}'{{ template "wikioasis.slack.payload" . }}'{% endraw %}
 {%- endif %}
 {%- if n.get('discord_webhook_url') %}
-      - uid: wikioasis-chat-discord
-        type: discord
+{%- set discord_url = n.discord_webhook_url ~ ('&' if '?' in n.discord_webhook_url else '?') ~ 'with_components=true' %}
+      - uid: wikioasis-chat-discord-v2
+        type: webhook
         disableResolveMessage: false
         settings:
-          url: {{ n.discord_webhook_url | tojson }}
-          use_discord_username: false
+          url: {{ discord_url | tojson }}
+          httpMethod: POST
+          payload:
+            template: {% raw %}'{{ template "wikioasis.discord.payload" . }}'{% endraw %}
 {%- endif %}
 {%- if n.get('incidentio_grafana_url') %}
   - orgId: 1

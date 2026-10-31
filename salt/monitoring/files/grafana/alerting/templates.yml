@@ -1,0 +1,74 @@
+apiVersion: 1
+
+templates:
+  - orgId: 1
+    name: wikioasis
+    template: |
+      {{ define "wikioasis.icon" -}}
+      {{ if eq .Status "resolved" }}✅{{ else if eq (index .Labels "severity") "page" }}🔴{{ else }}🟠{{ end }}
+      {{- end }}
+
+      {{ define "wikioasis.slack.payload" -}}
+      {{- $attachments := coll.Slice -}}
+      {{- range $i, $a := .Alerts -}}
+      {{- if lt $i 5 -}}
+      {{- $sev := index $a.Labels "severity" -}}
+      {{- $color := "#30A46C" -}}
+      {{- $meta := printf "Resolved <!date^%d^{date_short_pretty} at {time}|%s>" $a.EndsAt.Unix ($a.EndsAt.UTC.Format "2006-01-02 15:04 UTC") -}}
+      {{- if eq $a.Status "firing" -}}
+      {{- $meta = printf "%s · since <!date^%d^{date_short_pretty} at {time}|%s>" $sev $a.StartsAt.Unix ($a.StartsAt.UTC.Format "2006-01-02 15:04 UTC") -}}
+      {{- if eq $sev "page" }}{{ $color = "#E5484D" }}{{ else }}{{ $color = "#F5A524" }}{{ end -}}
+      {{- end -}}
+      {{- $text := printf "*%s %s*" (tmpl.Exec "wikioasis.icon" $a) (index $a.Labels "alertname") -}}
+      {{- with $a.Annotations.summary }}{{ $text = printf "%s\n%s" $text . }}{{ end -}}
+      {{- $context := coll.Slice -}}
+      {{- with $a.Annotations.description }}{{ $context = coll.Append (coll.Dict "type" "mrkdwn" "text" .) $context }}{{ end -}}
+      {{- $context = coll.Append (coll.Dict "type" "mrkdwn" "text" $meta) $context -}}
+      {{- $blocks := coll.Slice (coll.Dict "type" "section" "text" (coll.Dict "type" "mrkdwn" "text" $text)) (coll.Dict "type" "context" "elements" $context) -}}
+      {{- $buttons := coll.Slice -}}
+      {{- with $a.Annotations.dashboard_url }}{{ $buttons = coll.Append (coll.Dict "type" "button" "action_id" "dashboard" "text" (coll.Dict "type" "plain_text" "text" "Dashboard") "url" .) $buttons }}{{ end -}}
+      {{- if and (eq $a.Status "firing") $a.SilenceURL }}{{ $buttons = coll.Append (coll.Dict "type" "button" "action_id" "silence" "text" (coll.Dict "type" "plain_text" "text" "Silence") "url" $a.SilenceURL) $buttons }}{{ end -}}
+      {{- with $a.GeneratorURL }}{{ $buttons = coll.Append (coll.Dict "type" "button" "action_id" "rule" "text" (coll.Dict "type" "plain_text" "text" "Rule") "url" .) $buttons }}{{ end -}}
+      {{- if $buttons }}{{ $blocks = coll.Append (coll.Dict "type" "actions" "elements" $buttons) $blocks }}{{ end -}}
+      {{- $attachments = coll.Append (coll.Dict "color" $color "blocks" $blocks) $attachments -}}
+      {{- end -}}
+      {{- end -}}
+      {{- if gt (len .Alerts) 5 -}}
+      {{- $attachments = coll.Append (coll.Dict "blocks" (coll.Slice (coll.Dict "type" "context" "elements" (coll.Slice (coll.Dict "type" "mrkdwn" "text" "More alerts in this group are not shown, open Grafana to see them all."))))) $attachments -}}
+      {{- end -}}
+      {{- $fallback := printf "%s %s" (tmpl.Exec "wikioasis.icon" (index .Alerts 0)) .GroupLabels.alertname -}}
+      {{ data.ToJSON (coll.Dict "text" $fallback "username" "Grafana" "icon_emoji" ":rotating_light:" "attachments" $attachments) }}
+      {{- end }}
+
+      {{ define "wikioasis.discord.payload" -}}
+      {{- $containers := coll.Slice -}}
+      {{- range $i, $a := .Alerts -}}
+      {{- if lt $i 5 -}}
+      {{- $sev := index $a.Labels "severity" -}}
+      {{- $color := 3187820 -}}
+      {{- $meta := printf "Resolved <t:%d:R>" $a.EndsAt.Unix -}}
+      {{- if eq $a.Status "firing" -}}
+      {{- $meta = printf "%s · since <t:%d:R>" $sev $a.StartsAt.Unix -}}
+      {{- if eq $sev "page" }}{{ $color = 15026253 }}{{ else }}{{ $color = 16098596 }}{{ end -}}
+      {{- end -}}
+      {{- $text := printf "### %s %s" (tmpl.Exec "wikioasis.icon" $a) (index $a.Labels "alertname") -}}
+      {{- with $a.Annotations.summary }}{{ $text = printf "%s\n%s" $text . }}{{ end -}}
+      {{- with $a.Annotations.description }}{{ $text = printf "%s\n-# %s" $text . }}{{ end -}}
+      {{- $text = printf "%s\n-# %s" $text $meta -}}
+      {{- $parts := coll.Slice (coll.Dict "type" 10 "content" $text) -}}
+      {{- $buttons := coll.Slice -}}
+      {{- with $a.Annotations.dashboard_url }}{{ $buttons = coll.Append (coll.Dict "type" 2 "style" 5 "label" "Dashboard" "url" .) $buttons }}{{ end -}}
+      {{- if and (eq $a.Status "firing") $a.SilenceURL }}{{ $buttons = coll.Append (coll.Dict "type" 2 "style" 5 "label" "Silence" "url" $a.SilenceURL) $buttons }}{{ end -}}
+      {{- with $a.GeneratorURL }}{{ $buttons = coll.Append (coll.Dict "type" 2 "style" 5 "label" "Rule" "url" .) $buttons }}{{ end -}}
+      {{- if $buttons -}}
+      {{- $parts = coll.Append (coll.Dict "type" 14 "divider" true "spacing" 1) $parts -}}
+      {{- $parts = coll.Append (coll.Dict "type" 1 "components" $buttons) $parts -}}
+      {{- end -}}
+      {{- $containers = coll.Append (coll.Dict "type" 17 "accent_color" $color "components" $parts) $containers -}}
+      {{- end -}}
+      {{- end -}}
+      {{- if gt (len .Alerts) 5 -}}
+      {{- $containers = coll.Append (coll.Dict "type" 10 "content" "-# More alerts in this group are not shown, open Grafana to see them all.") $containers -}}
+      {{- end -}}
+      {{ data.ToJSON (coll.Dict "flags" 32768 "username" "Grafana" "components" $containers) }}
+      {{- end }}
