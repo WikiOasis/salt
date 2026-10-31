@@ -12,28 +12,14 @@ monitoring:
   prometheus:
     retention: 30d
 
-  # Which alerts are paged out to incident.io. Discord and Slack still get
-  # notified for every monitored service regardless of what is listed here —
-  # this list only controls what wakes someone up.
-  #
-  # Names must match the Icinga service object names in
-  # salt/monitoring/files/icinga2/salt-hosts.conf.jinja. A name that no host
-  # runs is silently ignored, so it is safe to list a service before it exists.
   incidentio:
-    # Send a page whenever any host goes down (hostalive check).
     host_alerts: true
     services:
       - opensearch
-      # The readiness check from monitoring.nrpe_authentik, not authentik_unit:
-      # the two fire together on a real outage and the unit check is the
-      # diagnostic half, so paging on both just doubles the noise.
-      - authentik
       - nginx_errors
-      - nginx_4xx_errors
       - mediawiki
       - haproxy_backends
       - ssh
-      - salt_minion
       - salt_master
       - disk_root
       - redis
@@ -62,7 +48,7 @@ monitoring:
         min_events: 30
       edits:
         title: Edit attempts
-        objective: 99.0
+        objective: 99.5
         page: true
         min_events: 20
         errors: >-
@@ -73,25 +59,25 @@ monitoring:
           + (sum(rate(mediawiki_edit_failure_total{cause!="conflict"}[$window])) or vector(0))
       grafana:
         title: Grafana requests
-        objective: 99.0
+        objective: 99.5
         page: true
         haproxy_backend: grafana
         min_events: 30
       authentik:
         title: Authentik requests (id.wikioasis.org)
-        objective: 99.5
+        objective: 99.9
         page: true
         haproxy_backend: authentik
         min_events: 30
       tsportal:
         title: TSPortal requests (safety.wikioasis.org)
-        objective: 99.0
+        objective: 99.9
         page: true
         haproxy_backend: tsportal
         min_events: 30
       phorge:
         title: Phorge requests
-        objective: 99.0
+        objective: 99.5
         page: true
         haproxy_backend: phorge
         min_events: 30
@@ -103,7 +89,7 @@ monitoring:
         min_events: 30
       opensearch:
         title: OpenSearch cluster availability
-        objective: 99.5
+        objective: 99.99
         page: true
         good: >-
           (min(up{job="opensearch"})
@@ -111,7 +97,7 @@ monitoring:
           or vector(0)
       databases:
         title: MariaDB availability
-        objective: 99.9
+        objective: 99.99
         page: true
         good: >-
           avg(
@@ -120,7 +106,7 @@ monitoring:
           ) or vector(0)
       redis:
         title: Redis availability
-        objective: 99.9
+        objective: 99.99
         page: true
         good: >-
           avg(
@@ -140,7 +126,7 @@ monitoring:
           + (sum(rate(jobrunner_runner_status_total{status=~"error|kill|none"}[$window])) or vector(0))
       job_latency:
         title: Jobs completed within 10m
-        objective: 99.0
+        objective: 99.5
         page: true
         min_events: 50
         errors: >-
