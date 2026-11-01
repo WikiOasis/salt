@@ -18,7 +18,7 @@ apiVersion: 1
 groups:
   - orgId: 1
     name: slo-burn-rate
-    folder: SLOs
+    folder: "03 • Alerting"
     interval: 1m
     rules:
 {%- for name, def in slo.get('objectives', {}).items() %}

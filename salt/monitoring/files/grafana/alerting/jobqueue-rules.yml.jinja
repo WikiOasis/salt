@@ -5,8 +5,7 @@
 {%- set iw = jq.get('imbalance_window', '1h') %}
 {%- set inserts = 'sum(rate(mediawiki_jobqueue_events_total{event="inserts_actual"}[' ~ iw ~ ']))' %}
 {%- set acks = '(sum(rate(mediawiki_jobqueue_events_total{event="acks"}[' ~ iw ~ '])) or vector(0))' %}
-{%- set abandoned = 'sum(redis_key_size{job="redis",key=~".+:jobqueue:.+:z-abandoned"})' %}
-{%- set abandoned_1h_ago = 'sum(redis_key_size{job="redis",key=~".+:jobqueue:.+:z-abandoned"} offset 1h)' %}
+{%- set abandoned_increase = 'sum(increase(redis_key_size{job="redis",key=~".+:jobqueue:.+:z-abandoned"}[1h]))' %}
 {%- set rules = [
     {
       'uid': 'jobqueue-stalled',
@@ -49,7 +48,7 @@
       'title': 'Jobs being abandoned',
       'severity': 'ticket',
       'for': '0s',
-      'expr': '(' ~ abandoned ~ ' - (' ~ abandoned_1h_ago ~ ' or vector(0))) > ' ~ jq.get('abandoned_growth_threshold', 100),
+      'expr': abandoned_increase ~ ' > ' ~ jq.get('abandoned_growth_threshold', 100),
       'summary': '{{ humanize $values.A.Value }} jobs abandoned in the last hour',
       'description': 'These jobs failed every retry attempt and will not run again.',
     },
@@ -68,7 +67,7 @@ apiVersion: 1
 groups:
   - orgId: 1
     name: jobqueue
-    folder: Job queue
+    folder: "03 • Alerting"
     interval: 1m
     rules:
 {%- for r in rules %}
