@@ -20,6 +20,11 @@ server {
   add_header Content-Security-Policy "{{ csp }}" always;
 {%- endif %}
 
+  location = /robots.txt {
+    default_type text/plain;
+    return 200 "User-agent: *\nDisallow: /source/\n";
+  }
+
   location / {
     index index.php;
     rewrite ^/(.*)$ /index.php?__path__=/$1 last;
