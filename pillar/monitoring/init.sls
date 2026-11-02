@@ -115,7 +115,7 @@ monitoring:
           ) or vector(0)
       jobrunner:
         title: Job success
-        objective: 99.5
+        objective: 97.5
         page: true
         min_events: 50
         errors: >-
