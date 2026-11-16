@@ -31,6 +31,12 @@ users:
           - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMQPuGdtuEkafBFAztzF8XMk06bmYVfe6ZDM14cvqUXU ed25519-key-20260803
         uid: 3004
         gid: 3004
+    suzuneu:
+        fullname: Waki285
+        ssh-keys:
+          - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIsjZHdG3E0aLjTt25V7nA86PtW8bVeA4hHR5CjlDfh2 suzuneu@termius
+        uid: 3005
+        gid: 3005
 groups:
     ops:
         gid: 7000
@@ -40,7 +46,7 @@ groups:
     mediawiki-admins:
         gid: 7001
         description: elevated permissions on webservers
-        members: []
+        members: [suzuneu]
         privileges: ['ALL = (www-data) NOPASSWD: ALL',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service nginx *',
                 'ALL = (ALL) NOPASSWD: /usr/sbin/service php8.4-fpm *',
