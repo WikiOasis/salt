@@ -15,6 +15,7 @@ base:
   'apps*':
     - php
     - nginx
+    - sentry_relay
     - tsportal
     - wikioasis_support
     - slop.user

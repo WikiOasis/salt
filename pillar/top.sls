@@ -8,6 +8,7 @@ base:
       - php
       - php.apps
       - mediawiki
+      - apps
       - tsportal
       - wikioasis_support
       - private
