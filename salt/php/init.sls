@@ -21,6 +21,25 @@ install_php:
       - {{ pkg }}
 {% endfor %}
 
+{%- if version != '8.5' %}
+php_remove_8_5:
+  cmd.run:
+    - name: apt-get purge -y 'php8.5*' && apt-get autoremove -y
+    - onlyif: dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'php8.5*' 2>/dev/null | grep -q '^.i '
+    - require:
+      - pkg: install_php
+{%- endif %}
+
+php_cli_alternative:
+  alternatives.set:
+    - name: php
+    - path: /usr/bin/php{{ version }}
+    - require:
+      - pkg: install_php
+{%- if version != '8.5' %}
+      - cmd: php_remove_8_5
+{%- endif %}
+
 /etc/php/{{ version }}/fpm/pool.d/{{ pool }}.conf:
   file.managed:
     - source: salt://php/files/www.conf.jinja

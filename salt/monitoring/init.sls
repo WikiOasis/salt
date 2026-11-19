@@ -64,6 +64,7 @@ monitoring_packages:
       - php{{ php_version }}-gd
       - php{{ php_version }}-mbstring
       - php{{ php_version }}-xml
+      - php{{ php_version }}-redis
       - nagios-nrpe-plugin
       - jq
       - curl
