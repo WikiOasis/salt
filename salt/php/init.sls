@@ -18,7 +18,7 @@ install_php:
       - php{{ version }}-{{ ext }}
 {% endfor %}
 {% for pkg in extra_packages %}
-      - {{ ('php' ~ version ~ '-' ~ pkg[4:]) if pkg.startswith('php-') else pkg }}
+      - {{ pkg }}
 {% endfor %}
 
 /etc/php/{{ version }}/fpm/pool.d/{{ pool }}.conf:

@@ -13,7 +13,7 @@ php:
     - igbinary
     - redis
   extra_packages:
-    - php-excimer
+    - php8.4-excimer
     - php-luasandbox
   fpm:
     pool: www
