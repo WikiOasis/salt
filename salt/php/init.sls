@@ -1,19 +1,24 @@
 {%- set cfg = salt['pillar.get']('php', {}) %}
-{%- set version = cfg.get('version', '8.3') %}
+{%- set version = cfg.get('version', '8.4') %}
 {%- set extensions = cfg.get('extensions', ['fpm', 'mysql', 'xml', 'mbstring', 'intl', 'curl', 'gd', 'zip', 'apcu', 'igbinary']) %}
 {%- set extra_packages = cfg.get('extra_packages', ['php-excimer']) %}
 {%- set fpm = cfg.get('fpm', {}) %}
 {%- set pool = fpm.get('pool', 'www') %}
 
+include:
+  - php.repo
+
 install_php:
-  pkg.installed:
+  pkg.latest:
+    - require:
+      - cmd: php_sury_apt_update
     - pkgs:
       - php{{ version }}
 {% for ext in extensions %}
       - php{{ version }}-{{ ext }}
 {% endfor %}
 {% for pkg in extra_packages %}
-      - {{ pkg }}
+      - {{ ('php' ~ version ~ '-' ~ pkg[4:]) if pkg.startswith('php-') else pkg }}
 {% endfor %}
 
 /etc/php/{{ version }}/fpm/pool.d/{{ pool }}.conf:

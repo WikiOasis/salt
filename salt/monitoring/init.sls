@@ -8,6 +8,11 @@
 {%- set dir_user    = salt['pillar.get']('monitoring:director_db_user', 'icinga_director') %}
 {%- set dir_pass    = salt['pillar.get']('monitoring:director_db_password') %}
 
+include:
+  - php.repo
+
+{%- set php_version = '8.4' %}
+
 # ── Icinga apt repository ──────────────────────────────────────────────────────
 
 icinga_apt_key:
@@ -52,18 +57,19 @@ monitoring_packages:
       - mariadb-server
       - mariadb-client
       - nginx
-      - php-fpm
-      - php-mysql
-      - php-intl
-      - php-curl
-      - php-gd
-      - php-mbstring
-      - php-xml
+      - php{{ php_version }}-fpm
+      - php{{ php_version }}-mysql
+      - php{{ php_version }}-intl
+      - php{{ php_version }}-curl
+      - php{{ php_version }}-gd
+      - php{{ php_version }}-mbstring
+      - php{{ php_version }}-xml
       - nagios-nrpe-plugin
       - jq
       - curl
     - require:
       - cmd: monitoring_apt_fix_broken
+      - cmd: php_sury_apt_update
 
 # ── Local MariaDB databases ────────────────────────────────────────────────────
 
@@ -314,8 +320,7 @@ nginx:
     - require:
       - pkg: monitoring_packages
 
-{%- set _php_svc_file = salt['cmd.run']('find /lib/systemd/system -maxdepth 1 -name "php*-fpm.service"').split('\n')[0] %}
-{%- set php_fpm_svc = _php_svc_file.split('/')[-1].replace('.service', '') if _php_svc_file else 'php-fpm' %}
+{%- set php_fpm_svc = 'php' ~ php_version ~ '-fpm' %}
 
 php_fpm:
   service.running:
