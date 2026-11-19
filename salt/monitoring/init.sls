@@ -57,6 +57,7 @@ monitoring_packages:
       - mariadb-server
       - mariadb-client
       - nginx
+      - php{{ php_version }}-cli
       - php{{ php_version }}-fpm
       - php{{ php_version }}-mysql
       - php{{ php_version }}-intl
@@ -71,6 +72,20 @@ monitoring_packages:
     - require:
       - cmd: monitoring_apt_fix_broken
       - cmd: php_sury_apt_update
+
+monitoring_remove_php_8_5:
+  cmd.run:
+    - name: apt-get purge -y 'php8.5*'
+    - onlyif: dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'php8.5*' 2>/dev/null | grep -q '^.i '
+    - require:
+      - pkg: monitoring_packages
+
+monitoring_php_cli_alternative:
+  cmd.run:
+    - name: update-alternatives --set php /usr/bin/php{{ php_version }}
+    - unless: test "$(readlink -f /usr/bin/php)" = /usr/bin/php{{ php_version }}
+    - require:
+      - cmd: monitoring_remove_php_8_5
 
 # ── Local MariaDB databases ────────────────────────────────────────────────────
 

@@ -24,16 +24,16 @@ install_php:
 {%- if version != '8.5' %}
 php_remove_8_5:
   cmd.run:
-    - name: apt-get purge -y 'php8.5*' && apt-get autoremove -y
+    - name: apt-get purge -y 'php8.5*'
     - onlyif: dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'php8.5*' 2>/dev/null | grep -q '^.i '
     - require:
       - pkg: install_php
 {%- endif %}
 
 php_cli_alternative:
-  alternatives.set:
-    - name: php
-    - path: /usr/bin/php{{ version }}
+  cmd.run:
+    - name: update-alternatives --set php /usr/bin/php{{ version }}
+    - unless: test "$(readlink -f /usr/bin/php)" = /usr/bin/php{{ version }}
     - require:
       - pkg: install_php
 {%- if version != '8.5' %}
