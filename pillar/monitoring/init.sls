@@ -59,7 +59,7 @@ monitoring:
           + (sum(rate(mediawiki_edit_failure_total{cause!="conflict"}[$window])) or vector(0))
       grafana:
         title: Grafana requests
-        objective: 99.5
+        objective: 99.0
         page: true
         haproxy_backend: grafana
         min_events: 30
