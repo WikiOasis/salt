@@ -1,3 +1,4 @@
+{%- set bind = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] %}
 {%- set cfg = salt['pillar.get']('php', {}) %}
 {%- set version = cfg.get('version', '8.3') %}
 {%- set socket = '/run/php/php' ~ version ~ '-fpm.sock' %}
@@ -37,7 +38,7 @@ phpopcache_exporter_binary:
         [Service]
         User=www-data
         ExecStart=/usr/local/bin/prometheus-phpopcache-exporter \
-          --web.listen-address ":9254" \
+          --web.listen-address "{{ bind }}:9254" \
           --phpfpm.socket-paths "{{ socket }}" \
           --phpfpm.script-collector-paths "/opt/phpopcache_exporter/opcache_status.php"
         Restart=on-failure

@@ -1,3 +1,4 @@
+{%- set bind = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] %}
 {%- set password = salt['pillar.get']('monitoring:mysqld_exporter_password') %}
 
 mysqld_exporter_pkg:
@@ -29,7 +30,7 @@ mysqld_exporter_pkg:
 /etc/default/prometheus-mysqld-exporter:
   file.managed:
     - contents: |
-        ARGS="--config.my-cnf=/etc/prometheus/mysqld.my.cnf"
+        ARGS="--config.my-cnf=/etc/prometheus/mysqld.my.cnf --web.listen-address={{ bind }}:9104"
     - user: root
     - group: root
     - mode: '0644'

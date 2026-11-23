@@ -1,3 +1,4 @@
+{%- set bind = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] %}
 prometheus_user:
   user.present:
     - name: prometheus
@@ -31,7 +32,7 @@ statsd_exporter_binary:
 
         [Service]
         User=prometheus
-        ExecStart=/usr/local/bin/prometheus-statsd-exporter --statsd.mapping-config=/etc/prometheus/statsd_mapping.yml
+        ExecStart=/usr/local/bin/prometheus-statsd-exporter --web.listen-address={{ bind }}:9102 --statsd.mapping-config=/etc/prometheus/statsd_mapping.yml
         Restart=on-failure
 
         [Install]

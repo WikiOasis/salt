@@ -1,3 +1,4 @@
+{%- set bind = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] %}
 {%- set token = salt['pillar.get']('monitoring:cloudflare_exporter_token') %}
 
 # No Debian package or release binary exists for this exporter (only a Docker
@@ -59,7 +60,7 @@ cloudflare_exporter_install:
         [Service]
         User=prometheus
         EnvironmentFile=/etc/prometheus/cloudflare_exporter.env
-        ExecStart=/opt/cloudflare_exporter/bin/run-app --token ${CF_API_TOKEN} --host 0.0.0.0 --port 9199
+        ExecStart=/opt/cloudflare_exporter/bin/run-app --token ${CF_API_TOKEN} --host {{ bind }} --port 9199
         Restart=on-failure
 
         [Install]

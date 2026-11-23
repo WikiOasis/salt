@@ -27,7 +27,7 @@ prometheus_package:
 /etc/default/prometheus:
   file.managed:
     - contents: |
-        ARGS="--storage.tsdb.retention.time={{ retention }} --web.enable-lifecycle"
+        ARGS="--storage.tsdb.retention.time={{ retention }} --web.enable-lifecycle --web.listen-address=127.0.0.1:9090"
     - user: root
     - group: root
     - mode: '0644'

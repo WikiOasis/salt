@@ -1,3 +1,4 @@
+{%- set bind = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] %}
 {%- set cfg = salt['pillar.get']('php', {}) %}
 {%- set version = cfg.get('version', '8.3') %}
 {%- set socket = '/run/php/php' ~ version ~ '-fpm.sock' %}
@@ -27,6 +28,7 @@ phpfpm_exporter_binary:
         [Service]
         User=www-data
         ExecStart=/usr/local/bin/prometheus-phpfpm-exporter server \
+          --web.listen-address "{{ bind }}:9253" \
           --phpfpm.fix-process-count \
           --phpfpm.scrape-uri "unix://{{ socket }};/status"
         Restart=on-failure

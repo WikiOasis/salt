@@ -1,5 +1,7 @@
+{%- set bind = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] %}
 {%- set exporter = salt['pillar.get']('redis:exporter', {}) %}
 {%- set args = [] %}
+{%- do args.append('--web.listen-address=' ~ bind ~ ':9121') %}
 {%- if exporter.get('check_keys') %}
 {%- do args.append('--check-keys=' ~ exporter.check_keys | join(',')) %}
 {%- endif %}

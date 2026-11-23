@@ -1,5 +1,4 @@
 redis:
-  bind: 0.0.0.0
   port: 6379
   timeout: 0
   tcp_keepalive: 5000

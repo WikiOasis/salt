@@ -32,6 +32,7 @@
   {%- do server_users.extend(group_members) %}
 {%- endfor %}
 {%- set server_users = server_users|unique %}
+{%- set ops_members = pillar.get('groups', {}).get('ops', {}).get('members', []) %}
 
 {%- for user, args in pillar.get('users', {}).items() if user in server_users %}
 {{ user }}:
@@ -72,6 +73,12 @@
     {%- endif %}
 
 {%- if args['ssh-keys'] %}
+{#- Only `ops` (full root via sudo anyway) gets a key in root's authorized_keys.
+    Members of narrower groups such as mediawiki-admins must not be able to
+    SSH in as root, or their restricted sudoers entries mean nothing. Keys of
+    everyone else are actively removed so a previously granted root key goes
+    away on the next run. #}
+{%- if user in ops_members %}
 {{ user }}_root_key:
   ssh_auth.present:
     - user: root
@@ -79,6 +86,15 @@
       {%- for key in args['ssh-keys'] %}
       - {{ key }}
       {%- endfor %}
+{%- else %}
+{{ user }}_root_key:
+  ssh_auth.absent:
+    - user: root
+    - names:
+      {%- for key in args['ssh-keys'] %}
+      - {{ key }}
+      {%- endfor %}
+{%- endif %}
 
 {{ user }}_key:
   ssh_auth.present:
