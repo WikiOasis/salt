@@ -9,7 +9,7 @@ include:
   - php.repo
 
 install_php:
-  pkg.latest:
+  pkg.installed:
     - require:
       - cmd: php_sury_apt_update
     - pkgs:
