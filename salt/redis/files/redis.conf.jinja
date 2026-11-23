@@ -2,7 +2,12 @@
 {%- set saves = cfg.get('save', ['900 1', '300 10', '60 10000']) %}
 # Managed by Salt — do not edit manually.
 
-bind {{ cfg.get('bind', '127.0.0.1') }}
+{#- Bound to loopback plus this VM's vRack (10.0.0.0/8) address only. Redis takes
+    interface addresses, not CIDRs, so the address is looked up the same way
+    authentik does. `redis:bind` in pillar still overrides this if set. #}
+{%- set private_ip = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or [None])[0] %}
+{%- set default_bind = '127.0.0.1' ~ (' ' ~ private_ip if private_ip else '') %}
+bind {{ cfg.get('bind') or default_bind }}
 port {{ cfg.get('port', 6379) }}
 protected-mode {{ cfg.get('protected_mode', 'yes') }}
 

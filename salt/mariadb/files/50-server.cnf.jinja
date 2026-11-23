@@ -26,7 +26,12 @@ tmpdir                  = /tmp
 
 # Instead of skip-networking the default is now to listen only on
 # localhost which is more compatible and is not less secure.
-bind-address            = {{ cfg.get('bind_address', '0.0.0.0') }}
+{#- MariaDB accepts a single bind address, so this is this VM's vRack (10.0.0.0/8)
+    address rather than 0.0.0.0. Local clients must use the unix socket, not
+    127.0.0.1:3306. Falls back to loopback (fail closed) if no 10.x address is
+    found. `mariadb:bind_address` in pillar overrides. #}
+{%- set private_ip = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] %}
+bind-address            = {{ cfg.get('bind_address') or private_ip }}
 
 #
 # * Fine Tuning

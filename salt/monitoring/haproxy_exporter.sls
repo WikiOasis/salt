@@ -1,3 +1,4 @@
+{%- set bind = (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] %}
 haproxy_exporter_pkg:
   pkg.installed:
     - name: prometheus-haproxy-exporter
@@ -16,7 +17,7 @@ prometheus_in_haproxy_group:
 /etc/default/prometheus-haproxy-exporter:
   file.managed:
     - contents: |
-        ARGS="--haproxy.scrape-uri=unix:/run/haproxy/admin.sock"
+        ARGS="--haproxy.scrape-uri=unix:/run/haproxy/admin.sock --web.listen-address={{ bind }}:9101"
     - user: root
     - group: root
     - mode: '0644'

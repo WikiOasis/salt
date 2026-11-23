@@ -1,6 +1,6 @@
 relay:
   upstream: "https://sentry.io/"
-  host: "{{ salt['pillar.get']('apps:sentry_relay_host', '0.0.0.0') }}"
+  host: "{{ salt['pillar.get']('apps:sentry_relay_host') or (salt['network.ip_addrs'](cidr='10.0.0.0/8') or ['127.0.0.1'])[0] }}"
   port: 3030
   mode: proxy
 
