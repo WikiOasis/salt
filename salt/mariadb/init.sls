@@ -20,6 +20,20 @@ install_mariadb:
     - require:
       - pkg: install_mariadb
 
+# bind-address is the vRack IP, which must exist before mariadbd starts.
+/etc/systemd/system/mariadb.service.d/network-online.conf:
+  file.managed:
+    - makedirs: True
+    - user: root
+    - group: root
+    - mode: '0644'
+    - contents: |
+        [Unit]
+        Wants=network-online.target
+        After=network-online.target
+    - require:
+      - pkg: install_mariadb
+
 mariadb:
   service.running:
     - enable: True
@@ -27,3 +41,4 @@ mariadb:
       - file: /var/log/mysql
     - watch:
       - file: /etc/mysql/mariadb.conf.d/50-server.cnf
+      - file: /etc/systemd/system/mariadb.service.d/network-online.conf

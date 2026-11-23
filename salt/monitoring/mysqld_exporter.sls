@@ -18,8 +18,7 @@ mysqld_exporter_pkg:
         [client]
         user     = prom_exporter
         password = {{ password }}
-        host     = 127.0.0.1
-        port     = 3306
+        socket   = /run/mysqld/mysqld.sock
     - user: root
     - group: prometheus
     - mode: '0640'
